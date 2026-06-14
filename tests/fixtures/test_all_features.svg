@@ -1,0 +1,444 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="-10 -10 840 1400" width="840" height="1400">
+
+  <!-- ═══════════════════════════════════════════════════════
+       DEFS  (gradients · markers · reusable shapes)
+  ════════════════════════════════════════════════════════ -->
+  <defs>
+
+    <!-- Linear gradient: left → right -->
+    <linearGradient id="grad-lr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#ff6b6b"/>
+      <stop offset="100%" stop-color="#4ecdc4"/>
+    </linearGradient>
+
+    <!-- Linear gradient: top → bottom -->
+    <linearGradient id="grad-tb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#a8edea"/>
+      <stop offset="100%" stop-color="#fed6e3"/>
+    </linearGradient>
+
+    <!-- Radial gradient -->
+    <radialGradient id="grad-radial">
+      <stop offset="0%"   stop-color="#f7dc6f"/>
+      <stop offset="100%" stop-color="#c0392b"/>
+    </radialGradient>
+
+    <!-- Marker: triangle arrow (end) -->
+    <marker id="arrow-end" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2c3e50"/>
+    </marker>
+
+    <!-- Marker: triangle arrow (start) -->
+    <marker id="arrow-start" markerWidth="10" markerHeight="7"
+            refX="1" refY="3.5" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e74c3c"/>
+    </marker>
+
+    <!-- Marker: filled circle dot -->
+    <marker id="dot-marker" markerWidth="8" markerHeight="8"
+            refX="4" refY="4" orient="auto">
+      <circle cx="4" cy="4" r="3" fill="#9b59b6"/>
+    </marker>
+
+    <!-- Marker: diamond -->
+    <marker id="diamond-marker" markerWidth="12" markerHeight="8"
+            refX="6" refY="4" orient="auto">
+      <polygon points="6,0 12,4 6,8 0,4" fill="#27ae60"/>
+    </marker>
+
+    <!-- Reusable star (used by <use>) -->
+    <g id="star-shape">
+      <polygon points="12,1 15,9 23,9 17,14 19,22 12,17 5,22 7,14 1,9 9,9"
+               fill="#f1c40f" stroke="#e67e22" stroke-width="1.5"/>
+    </g>
+
+    <!-- Reusable rounded rect -->
+    <rect id="reusable-rect" width="44" height="28"
+          rx="6" fill="#3498db" stroke="#2980b9" stroke-width="1.5"/>
+
+    <!-- Reusable circle dot -->
+    <circle id="reusable-dot" r="13"
+            fill="#e74c3c" stroke="#c0392b" stroke-width="1.5"/>
+
+  </defs>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CSS STYLE BLOCK
+  ════════════════════════════════════════════════════════ -->
+  <style>
+    .css-stroke  { stroke: #8e44ad; stroke-width: 2.5; fill: none; }
+    .css-fill    { fill: #1abc9c; stroke: #16a085; stroke-width: 1.5; }
+    .bold-text   { font-weight: bold; font-size: 15px; fill: #2c3e50; }
+    .italic-text { font-style: italic; font-size: 12px; fill: #7f8c8d; }
+    rect.special    { fill: #e8daef; stroke: #8e44ad; stroke-width: 2; }
+    circle.special  { fill: #d5f5e3; stroke: #27ae60; stroke-width: 2; }
+  </style>
+
+  <!-- background -->
+  <rect x="-10" y="-10" width="840" height="1530" fill="#f8f9fa"/>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §1  BASIC SHAPES
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="22" font-size="13" font-weight="bold" fill="#444">1. Basic shapes</text>
+  <line x1="10" y1="28" x2="810" y2="28" stroke="#ccc" stroke-width="1"/>
+
+  <line x1="20" y1="60" x2="100" y2="105" stroke="#e74c3c" stroke-width="2.5"/>
+  <text x="22" y="120" font-size="9" fill="#888">line</text>
+
+  <circle cx="175" cy="78" r="36" fill="#3498db" stroke="#2980b9" stroke-width="2"/>
+  <text x="157" y="120" font-size="9" fill="#888">circle</text>
+
+  <ellipse cx="310" cy="78" rx="58" ry="30" fill="#2ecc71" stroke="#27ae60" stroke-width="2"/>
+  <text x="285" y="120" font-size="9" fill="#888">ellipse</text>
+
+  <rect x="400" y="48" width="80" height="58" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
+  <text x="418" y="120" font-size="9" fill="#888">rect</text>
+
+  <rect x="520" y="48" width="80" height="58" rx="16" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
+  <text x="534" y="120" font-size="9" fill="#888">rect rx</text>
+
+  <polygon points="660,48 700,53 720,95 640,95 620,53"
+           fill="#f39c12" stroke="#e67e22" stroke-width="2"/>
+  <text x="650" y="120" font-size="9" fill="#888">polygon</text>
+
+  <polyline points="745,48 765,68 755,90 785,105 808,62"
+            fill="none" stroke="#1abc9c" stroke-width="2.5"/>
+  <text x="752" y="120" font-size="9" fill="#888">polyline</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §2  CSS &lt;style&gt; + CLASS
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="148" font-size="13" font-weight="bold" fill="#444">2. CSS &lt;style&gt; + class</text>
+  <line x1="10" y1="154" x2="810" y2="154" stroke="#ccc" stroke-width="1"/>
+
+  <!-- element-type + class selector: rect.special -->
+  <rect x="20"  y="165" width="84" height="54" class="special"/>
+  <text x="24"  y="232" font-size="9" fill="#888">rect.special</text>
+
+  <!-- element-type + class selector: circle.special -->
+  <circle cx="200" cy="192" r="32" class="special"/>
+  <text x="175" y="232" font-size="9" fill="#888">circle.special</text>
+
+  <!-- plain class: .css-fill -->
+  <rect x="280" y="165" width="84" height="54" class="css-fill"/>
+  <text x="292" y="232" font-size="9" fill="#888">.css-fill</text>
+
+  <!-- plain class: .css-stroke -->
+  <ellipse cx="460" cy="192" rx="62" ry="28" class="css-stroke"/>
+  <text x="435" y="232" font-size="9" fill="#888">.css-stroke</text>
+
+  <!-- inline style="" -->
+  <rect x="565" y="165" width="84" height="54"
+        style="fill:#f8c471;stroke:#e67e22;stroke-width:2.5"/>
+  <text x="575" y="232" font-size="9" fill="#888">inline style</text>
+
+  <!-- class overridden by inline style -->
+  <rect x="690" y="165" width="84" height="54"
+        class="css-fill" style="fill:#ec407a;stroke-width:3"/>
+  <text x="700" y="232" font-size="9" fill="#888">class+inline</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §3  TEXT
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="258" font-size="13" font-weight="bold" fill="#444">3. Text</text>
+  <line x1="10" y1="264" x2="810" y2="264" stroke="#ccc" stroke-width="1"/>
+
+  <!-- text-anchor -->
+  <text x="30"  y="298" font-size="13" text-anchor="start"  fill="#2c3e50">start</text>
+  <text x="240" y="298" font-size="13" text-anchor="middle" fill="#2c3e50">middle</text>
+  <text x="450" y="298" font-size="13" text-anchor="end"    fill="#2c3e50">end</text>
+
+  <!-- bold / italic via CSS class -->
+  <text x="510" y="298" class="bold-text">Bold (CSS)</text>
+  <text x="670" y="298" class="italic-text">Italic (CSS)</text>
+
+  <!-- bold / italic inline -->
+  <text x="30"  y="325" font-size="13" font-weight="bold"  fill="#8e44ad">Bold inline</text>
+  <text x="200" y="325" font-size="13" font-style="italic" fill="#e74c3c">Italic inline</text>
+
+  <!-- font sizes -->
+  <text x="380" y="330" font-size="22" fill="#3498db">Big 22px</text>
+  <text x="590" y="320" font-size="9"  fill="#555">Tiny 9px</text>
+  <text x="680" y="325" font-size="15" fill="#e67e22">Medium</text>
+
+  <!-- tspan children -->
+  <text x="30" y="355" font-size="13" fill="#333">
+    <tspan fill="#e74c3c">Red</tspan><tspan fill="#3498db"> Blue</tspan><tspan fill="#2ecc71"> Green</tspan>
+  </text>
+
+  <!-- special characters -->
+  <text x="360" y="355" font-size="12" fill="#555">Chars: &amp; &lt; &gt; &quot;quote&quot;</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §4  GRADIENTS
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="383" font-size="13" font-weight="bold" fill="#444">4. Gradients</text>
+  <line x1="10" y1="389" x2="810" y2="389" stroke="#ccc" stroke-width="1"/>
+
+  <!-- linearGradient L→R on rect -->
+  <rect x="20"  y="400" width="155" height="72" fill="url(#grad-lr)"/>
+  <text x="50"  y="484" font-size="9" fill="#888">linear L-R</text>
+
+  <!-- linearGradient T→B on rect -->
+  <rect x="200" y="400" width="155" height="72" fill="url(#grad-tb)"/>
+  <text x="245" y="484" font-size="9" fill="#888">linear T-B</text>
+
+  <!-- radialGradient on circle -->
+  <circle cx="460" cy="436" r="46" fill="url(#grad-radial)"/>
+  <text x="432" y="494" font-size="9" fill="#888">radial</text>
+
+  <!-- linearGradient on ellipse -->
+  <ellipse cx="640" cy="436" rx="72" ry="36" fill="url(#grad-lr)" stroke="#aaa" stroke-width="1"/>
+  <text x="597" y="484" font-size="9" fill="#888">linear on ellipse</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §5  MARKERS
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="513" font-size="13" font-weight="bold" fill="#444">5. Markers</text>
+  <line x1="10" y1="519" x2="810" y2="519" stroke="#ccc" stroke-width="1"/>
+
+  <!-- marker-end on line -->
+  <line x1="20" y1="548" x2="155" y2="548"
+        stroke="#2c3e50" stroke-width="2" marker-end="url(#arrow-end)"/>
+  <text x="48" y="566" font-size="9" fill="#888">marker-end</text>
+
+  <!-- marker-start on line -->
+  <line x1="200" y1="548" x2="335" y2="548"
+        stroke="#e74c3c" stroke-width="2" marker-start="url(#arrow-start)"/>
+  <text x="236" y="566" font-size="9" fill="#888">marker-start</text>
+
+  <!-- both markers -->
+  <line x1="380" y1="548" x2="515" y2="548"
+        stroke="#8e44ad" stroke-width="2"
+        marker-start="url(#arrow-start)" marker-end="url(#arrow-end)"/>
+  <text x="416" y="566" font-size="9" fill="#888">both</text>
+
+  <!-- dot markers on polyline -->
+  <polyline points="560,532 600,562 640,537 680,562 720,537"
+            fill="none" stroke="#9b59b6" stroke-width="1.5"
+            marker-start="url(#dot-marker)" marker-end="url(#dot-marker)"/>
+  <text x="605" y="578" font-size="9" fill="#888">dot marker</text>
+
+  <!-- diamond markers on curved path -->
+  <path d="M 20 620 Q 110 580 200 620"
+        fill="none" stroke="#27ae60" stroke-width="2"
+        marker-start="url(#diamond-marker)" marker-end="url(#diamond-marker)"/>
+  <text x="72" y="645" font-size="9" fill="#888">diamond on path</text>
+
+  <!-- markers on polyline with waypoints -->
+  <polyline points="280,600 350,580 420,610 490,585 560,615"
+            fill="none" stroke="#e67e22" stroke-width="2"
+            marker-start="url(#arrow-start)" marker-end="url(#arrow-end)"/>
+  <text x="370" y="640" font-size="9" fill="#888">markers on polyline</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §6  TRANSFORMS
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="668" font-size="13" font-weight="bold" fill="#444">6. Transforms</text>
+  <line x1="10" y1="674" x2="810" y2="674" stroke="#ccc" stroke-width="1"/>
+
+  <!-- translate -->
+  <g transform="translate(20, 686)">
+    <rect x="0" y="0" width="64" height="52" fill="#3498db" stroke="#2980b9" stroke-width="1.5"/>
+    <text x="6" y="67" font-size="9" fill="#888">translate</text>
+  </g>
+
+  <!-- scale 1.5× -->
+  <g transform="translate(130, 686) scale(1.5)">
+    <rect x="0" y="0" width="42" height="34" fill="#e74c3c" stroke="#c0392b" stroke-width="1"/>
+    <text x="2" y="48" font-size="7" fill="#888">scale 1.5x</text>
+  </g>
+
+  <!-- rotate 30° around center -->
+  <g transform="translate(295, 714) rotate(30)">
+    <rect x="-30" y="-24" width="60" height="48" fill="#9b59b6" stroke="#8e44ad" stroke-width="1.5"/>
+  </g>
+  <text x="280" y="760" font-size="9" fill="#888">rotate 30</text>
+
+  <!-- skewX -->
+  <g transform="translate(400, 686) skewX(20)">
+    <rect x="0" y="0" width="62" height="52" fill="#1abc9c" stroke="#16a085" stroke-width="1.5"/>
+  </g>
+  <text x="402" y="756" font-size="9" fill="#888">skewX 20</text>
+
+  <!-- skewY -->
+  <g transform="translate(510, 686) skewY(15)">
+    <rect x="0" y="0" width="62" height="52" fill="#f39c12" stroke="#e67e22" stroke-width="1.5"/>
+  </g>
+  <text x="516" y="756" font-size="9" fill="#888">skewY 15</text>
+
+  <!-- matrix with shear + scale (non-orthogonal axes → parallelogram) -->
+  <g transform="matrix(1.1, 0.4, -0.25, 0.85, 638, 690)">
+    <rect x="0" y="0" width="58" height="46" fill="#e67e22" stroke="#d35400" stroke-width="1.5"/>
+  </g>
+  <text x="636" y="756" font-size="9" fill="#888">matrix (shear)</text>
+
+  <!-- nested groups with accumulated transforms -->
+  <g transform="translate(740, 686)">
+    <g transform="rotate(20)">
+      <g transform="scale(0.9)">
+        <rect x="0" y="0" width="58" height="46" fill="#ec407a" stroke="#c2185b" stroke-width="1.5"/>
+      </g>
+    </g>
+  </g>
+  <text x="737" y="756" font-size="9" fill="#888">nested</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §7  &lt;defs&gt; + &lt;use&gt;
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="784" font-size="13" font-weight="bold" fill="#444">7. &lt;defs&gt; + &lt;use&gt;</text>
+  <line x1="10" y1="790" x2="810" y2="790" stroke="#ccc" stroke-width="1"/>
+
+  <!-- star repeated 3× -->
+  <use href="#star-shape" x="20"  y="800"/>
+  <use href="#star-shape" x="65"  y="800"/>
+  <use href="#star-shape" x="110" y="800"/>
+  <text x="50" y="840" font-size="9" fill="#888">star x3</text>
+
+  <!-- reusable rect placed 3× -->
+  <use href="#reusable-rect" x="195" y="806"/>
+  <use href="#reusable-rect" x="248" y="806"/>
+  <use href="#reusable-rect" x="301" y="806"/>
+  <text x="235" y="845" font-size="9" fill="#888">rect x3</text>
+
+  <!-- reusable dot placed 4× -->
+  <use href="#reusable-dot" x="390" y="820"/>
+  <use href="#reusable-dot" x="428" y="820"/>
+  <use href="#reusable-dot" x="466" y="820"/>
+  <use href="#reusable-dot" x="504" y="820"/>
+  <text x="422" y="845" font-size="9" fill="#888">dot x4</text>
+
+  <!-- use with x/y offset -->
+  <use href="#star-shape" x="600" y="798"/>
+  <text x="608" y="840" font-size="9" fill="#888">use x/y</text>
+
+  <!-- use with xlink:href (SVG 1.1 compat) -->
+  <use xlink:href="#reusable-rect" x="690" y="806"/>
+  <text x="695" y="845" font-size="9" fill="#888">xlink:href</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §8  STROKE STYLES
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="873" font-size="13" font-weight="bold" fill="#444">8. Stroke styles</text>
+  <line x1="10" y1="879" x2="810" y2="879" stroke="#ccc" stroke-width="1"/>
+
+  <!-- dasharray patterns -->
+  <line x1="20"  y1="903" x2="175" y2="903" stroke="#2c3e50" stroke-width="2" stroke-dasharray="8 4"/>
+  <text x="40"   y="918" font-size="9" fill="#888">dasharray 8 4</text>
+
+  <line x1="200" y1="903" x2="370" y2="903" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4 4 1 4"/>
+  <text x="225"  y="918" font-size="9" fill="#888">dasharray 4 4 1 4</text>
+
+  <line x1="395" y1="903" x2="545" y2="903" stroke="#8e44ad" stroke-width="3" stroke-dasharray="1 6"/>
+  <text x="445"  y="918" font-size="9" fill="#888">dotted</text>
+
+  <rect x="570" y="887" width="80" height="32"
+        fill="none" stroke="#3498db" stroke-width="2" stroke-dasharray="5 3"/>
+  <text x="585"  y="930" font-size="9" fill="#888">dashed rect</text>
+
+  <ellipse cx="740" cy="903" rx="50" ry="16"
+           fill="none" stroke="#27ae60" stroke-width="2" stroke-dasharray="3 5"/>
+  <text x="706"  y="928" font-size="9" fill="#888">dashed ellipse</text>
+
+  <!-- linecap -->
+  <line x1="20"  y1="955" x2="165" y2="955" stroke="#3498db"  stroke-width="9" stroke-linecap="butt"/>
+  <text x="52"   y="973" font-size="9" fill="#888">linecap: butt</text>
+
+  <line x1="200" y1="955" x2="345" y2="955" stroke="#2ecc71"  stroke-width="9" stroke-linecap="round"/>
+  <text x="232"  y="973" font-size="9" fill="#888">linecap: round</text>
+
+  <line x1="380" y1="955" x2="525" y2="955" stroke="#e67e22"  stroke-width="9" stroke-linecap="square"/>
+  <text x="408"  y="973" font-size="9" fill="#888">linecap: square</text>
+
+  <!-- linejoin on polylines -->
+  <polyline points="570,940 610,968 650,940" fill="none" stroke="#9b59b6" stroke-width="6" stroke-linejoin="miter"/>
+  <text x="590" y="980" font-size="9" fill="#888">miter</text>
+
+  <polyline points="680,940 720,968 760,940" fill="none" stroke="#1abc9c" stroke-width="6" stroke-linejoin="round"/>
+  <text x="700" y="980" font-size="9" fill="#888">round</text>
+
+  <!-- opacity -->
+  <rect x="20"  y="992" width="85" height="46" fill="#e74c3c" opacity="1.0"/>
+  <rect x="60"  y="992" width="85" height="46" fill="#3498db" opacity="0.6"/>
+  <rect x="100" y="992" width="85" height="46" fill="#2ecc71" opacity="0.3"/>
+  <text x="80"  y="1050" font-size="9" fill="#888">opacity overlap</text>
+
+  <!-- fill-opacity vs opacity -->
+  <rect x="280" y="992" width="85" height="46" fill="#e74c3c" fill-opacity="0.4" stroke="#c0392b" stroke-width="2"/>
+  <text x="287" y="1050" font-size="9" fill="#888">fill-opacity</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §9  PATH COMMANDS
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="1075" font-size="13" font-weight="bold" fill="#444">9. Path commands</text>
+  <line x1="10" y1="1081" x2="810" y2="1081" stroke="#ccc" stroke-width="1"/>
+
+  <!-- M L H V Z (absolute) -->
+  <path d="M 20 1115 L 80 1090 H 145 V 1130 L 80 1155 Z"
+        fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+  <text x="45" y="1168" font-size="9" fill="#888">M L H V Z</text>
+
+  <!-- m l h v z (relative) -->
+  <path d="m 195 1090 l 50 0 l 0 55 l -50 0 z"
+        fill="#d6eaf8" stroke="#3498db" stroke-width="2"/>
+  <text x="200" y="1168" font-size="9" fill="#888">m l h v z</text>
+
+  <!-- C cubic Bézier (absolute + chain) -->
+  <path d="M 300 1145 C 320 1090 380 1090 400 1145 C 420 1200 480 1200 500 1145"
+        fill="none" stroke="#3498db" stroke-width="2.5"/>
+  <text x="370" y="1168" font-size="9" fill="#888">C cubic</text>
+
+  <!-- c cubic Bézier (relative) -->
+  <path d="M 520 1145 c 20 -55 80 -55 100 0"
+        fill="none" stroke="#9b59b6" stroke-width="2.5"/>
+  <text x="545" y="1168" font-size="9" fill="#888">c relative</text>
+
+  <!-- S smooth cubic (reflection) -->
+  <path d="M 640 1145 C 660 1090 700 1090 720 1145 S 800 1200 810 1145"
+        fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+  <text x="700" y="1168" font-size="9" fill="#888">S smooth</text>
+
+  <!-- Q quadratic Bézier -->
+  <path d="M 20 1225 Q 90 1180 160 1225"
+        fill="none" stroke="#e67e22" stroke-width="2.5"/>
+  <text x="60" y="1248" font-size="9" fill="#888">Q quadratic</text>
+
+  <!-- q quadratic (relative) -->
+  <path d="M 200 1225 q 60 -50 120 0"
+        fill="none" stroke="#f39c12" stroke-width="2.5"/>
+  <text x="232" y="1248" font-size="9" fill="#888">q relative</text>
+
+  <!-- T smooth quadratic chain -->
+  <path d="M 360 1225 Q 400 1180 440 1225 T 520 1225"
+        fill="none" stroke="#1abc9c" stroke-width="2.5"/>
+  <text x="400" y="1248" font-size="9" fill="#888">T smooth Q</text>
+
+  <!-- A arc — small arc -->
+  <path d="M 560 1225 A 55 30 0 0 1 670 1225"
+        fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+  <text x="585" y="1248" font-size="9" fill="#888">A arc (small)</text>
+
+  <!-- A arc — large arc (same endpoints, different flag) -->
+  <path d="M 560 1225 A 55 30 0 1 0 670 1225"
+        fill="#fde8e8" stroke="#e74c3c" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="582" y="1208" font-size="9" fill="#888">A arc (large)</text>
+
+  <!-- A arc with x-axis rotation -->
+  <path d="M 710 1200 A 55 28 40 0 1 800 1240"
+        fill="none" stroke="#8e44ad" stroke-width="2.5"/>
+  <text x="720" y="1252" font-size="9" fill="#888">A rotated</text>
+
+  <!-- complex path: rounded rectangle built from H/V/A -->
+  <path d="M 20 1280 h 120 a 12 12 0 0 1 12 12 v 36 a 12 12 0 0 1 -12 12 h -120 a 12 12 0 0 1 -12 -12 v -36 a 12 12 0 0 1 12 -12 z"
+        fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+  <text x="32" y="1354" font-size="9" fill="#888">H/V/A rounded rect</text>
+
+  <!-- closed filled path with mixed commands -->
+  <path d="M 210 1275 L 270 1280 C 310 1285 320 1310 290 1320 L 210 1330 Z"
+        fill="#e8daef" stroke="#8e44ad" stroke-width="2"/>
+  <text x="218" y="1354" font-size="9" fill="#888">mixed filled</text>
+</svg>

@@ -1,2 +1,5 @@
 *.drawio
 *.svg
+__pycache__/
+!tests/fixtures/test_all_features.svg
+!tests/fixtures/test_all_features.drawio

@@ -513,7 +513,7 @@ class Converter:
         elif tag == 'polyline':  self.emit_polyline(elem, m, closed=False)
         elif tag == 'polygon':   self.emit_polyline(elem, m, closed=True)
         elif tag == 'path':      self.emit_path(elem, m)
-        # <use>, <image>, etc. are silently skipped
+        # <use> and other unsupported elements are silently skipped
 
     def to_xml(self, title='Diagram'):
         body = '\n'.join(self.cells)
@@ -539,7 +539,7 @@ def convert_file(svg_path, out_path=None):
     root = tree.getroot()
     title = path.splitext(path.basename(svg_path))[0]
     conv = Converter()
-    # The SVG root itself may have a transform from its viewBox; skip it — use child elements directly.
+    # The SVG root itself may have a transform from its viewBox; skip it - use child elements directly.
     for child in root:
         conv.convert(child)
     xml = conv.to_xml(title)
