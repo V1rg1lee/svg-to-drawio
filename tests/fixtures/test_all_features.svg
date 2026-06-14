@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 3820" width="840" height="3820">
+     viewBox="-10 -10 840 4896" width="840" height="4896">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -49,6 +49,28 @@
       <polygon points="6,0 12,4 6,8 0,4" fill="#27ae60"/>
     </marker>
 
+    <!-- Per-color arrow variants so each element's marker matches its stroke -->
+    <marker id="arrow-start-dark" markerWidth="10" markerHeight="7"
+            refX="1" refY="3.5" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2c3e50"/>
+    </marker>
+    <marker id="arrow-end-red" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e74c3c"/>
+    </marker>
+    <marker id="dot-brown" markerWidth="8" markerHeight="8"
+            refX="4" refY="4" orient="auto">
+      <circle cx="4" cy="4" r="3" fill="#795548"/>
+    </marker>
+    <marker id="arrow-start-orange" markerWidth="10" markerHeight="7"
+            refX="1" refY="3.5" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e67e22"/>
+    </marker>
+    <marker id="arrow-end-orange" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e67e22"/>
+    </marker>
+
     <!-- Reusable star (used by <use>) -->
     <g id="star-shape">
       <polygon points="12,1 15,9 23,9 17,14 19,22 12,17 5,22 7,14 1,9 9,9"
@@ -78,7 +100,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="3820" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="4896" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -211,10 +233,10 @@
         stroke="#e74c3c" stroke-width="2" marker-start="url(#arrow-start)"/>
   <text x="236" y="566" font-size="9" fill="#888">marker-start</text>
 
-  <!-- both markers -->
+  <!-- both markers — same-color markers so SVG matches draw.io -->
   <line x1="380" y1="548" x2="515" y2="548"
-        stroke="#8e44ad" stroke-width="2"
-        marker-start="url(#arrow-start)" marker-end="url(#arrow-end)"/>
+        stroke="#2c3e50" stroke-width="2"
+        marker-start="url(#arrow-start-dark)" marker-end="url(#arrow-end)"/>
   <text x="416" y="566" font-size="9" fill="#888">both</text>
 
   <!-- dot markers on polyline -->
@@ -229,10 +251,10 @@
         marker-start="url(#diamond-marker)" marker-end="url(#diamond-marker)"/>
   <text x="72" y="645" font-size="9" fill="#888">diamond on path</text>
 
-  <!-- markers on polyline with waypoints -->
+  <!-- markers on polyline — orange markers match orange stroke -->
   <polyline points="280,600 350,580 420,610 490,585 560,615"
             fill="none" stroke="#e67e22" stroke-width="2"
-            marker-start="url(#arrow-start)" marker-end="url(#arrow-end)"/>
+            marker-start="url(#arrow-start-orange)" marker-end="url(#arrow-end-orange)"/>
   <text x="370" y="640" font-size="9" fill="#888">markers on polyline</text>
 
   <!-- ═══════════════════════════════════════════════════════
@@ -560,14 +582,14 @@
   <text x="10" y="2680" font-size="11" font-weight="bold" fill="#666">F13: marker-mid</text>
   <defs>
     <marker id="mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-      <circle cx="4" cy="4" r="3" fill="#ff5722"/>
+      <circle cx="4" cy="4" r="3" fill="#795548"/>
     </marker>
   </defs>
   <polyline points="20,2720 120,2700 220,2730 320,2700 420,2720"
             fill="none" stroke="#795548" stroke-width="2"
-            marker-start="url(#dot-marker)"
+            marker-start="url(#dot-brown)"
             marker-mid="url(#mid-dot)"
-            marker-end="url(#dot-marker)"/>
+            marker-end="url(#dot-brown)"/>
   <text x="150" y="2750" font-size="9" fill="#888">marker-mid dots at waypoints</text>
 
   <!-- ─── Feature 14: font-family ─── -->
@@ -614,11 +636,11 @@
   <text x="10" y="3170" font-size="11" font-weight="bold" fill="#666">F18: marker-mid on &lt;path&gt;</text>
   <defs>
     <marker id="path-mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-      <circle cx="4" cy="4" r="3" fill="#e91e63"/>
+      <circle cx="4" cy="4" r="3" fill="#9b59b6"/>
     </marker>
   </defs>
   <path d="M 20 3210 Q 120 3185 220 3210 Q 320 3235 420 3210"
-        fill="none" stroke="#9c27b0" stroke-width="2"
+        fill="none" stroke="#9b59b6" stroke-width="2"
         marker-start="url(#dot-marker)"
         marker-mid="url(#path-mid-dot)"
         marker-end="url(#dot-marker)"/>
@@ -668,5 +690,247 @@
     <image href="image_asset.svg" x="0" y="0" width="84" height="84"/>
   </g>
   <text x="300" y="3702" font-size="9" fill="#888">rotated local SVG image</text>
+
+  <!-- ─── Feature 23: em font-size chain ─── -->
+  <text x="10" y="3740" font-size="11" font-weight="bold" fill="#666">F23: em font-size chain</text>
+  <style>
+    .em-parent { font-size: 18px; fill: #1a237e; }
+    .em-child  { font-size: 1.5em; fill: #283593; }
+  </style>
+  <text x="20" y="3760" class="em-parent">Parent 18px
+    <tspan class="em-child" x="20" dy="22">Child 1.5em = 27px</tspan>
+  </text>
+  <text x="20" y="3808" font-size="9" fill="#888">parent 18 px; child tspan = 1.5 × 18 = 27 px</text>
+
+  <!-- ─── Feature 24: CSS custom properties (var()) ─── -->
+  <text x="10" y="3828" font-size="11" font-weight="bold" fill="#666">F24: CSS var() custom properties</text>
+  <style>
+    :root { --brand: #e65100; --border: #bf360c; --bw: 3; }
+    .var-box { fill: var(--brand); stroke: var(--border); stroke-width: var(--bw); }
+  </style>
+  <rect x="20"  y="3840" width="90" height="50" class="var-box"/>
+  <rect x="130" y="3840" width="90" height="50" style="fill:var(--brand);stroke:var(--border);stroke-width:var(--bw)"/>
+  <text x="20" y="3905" font-size="9" fill="#888">var(--brand)=#e65100  var(--border)=#bf360c  var(--bw)=3</text>
+
+  <!-- ─── Feature 25: baseline-shift super / sub ─── -->
+  <text x="10" y="3925" font-size="11" font-weight="bold" fill="#666">F25: baseline-shift super / sub</text>
+  <!-- Each tspan isolated with dx so it follows the previous word cleanly -->
+  <text x="20" y="3960" font-size="16" fill="#212121">
+    <tspan>Normal</tspan><tspan style="font-size:10px;baseline-shift:super" dx="2">super</tspan>
+  </text>
+  <text x="20" y="3995" font-size="16" fill="#212121">
+    <tspan>Normal</tspan><tspan style="font-size:10px;baseline-shift:sub" dx="2">sub</tspan>
+  </text>
+  <text x="20" y="4020" font-size="9" fill="#888">super raises text by 35% of fs; sub lowers by 35%</text>
+
+  <!-- ─── Feature 26: stroke-linecap / linejoin on closed path stencil ─── -->
+  <text x="10" y="4040" font-size="11" font-weight="bold" fill="#666">F26: stroke-linecap on stencil path</text>
+  <path d="M 20 4100 L 80 4060 L 140 4100 Z"
+        fill="#fff3e0" stroke="#e65100" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="40" y="4118" font-size="9" fill="#888">round</text>
+  <path d="M 200 4060 L 270 4060 L 310 4100 L 200 4100 Z"
+        fill="#e8f5e9" stroke="#2e7d32" stroke-width="6" stroke-linecap="square" stroke-linejoin="bevel"/>
+  <text x="210" y="4118" font-size="9" fill="#888">square / bevel</text>
+
+  <!-- ─── Feature 27: multi-class selector .a.b ─── -->
+  <text x="10" y="4138" font-size="11" font-weight="bold" fill="#666">F27: multi-class selector .a.b</text>
+  <style>
+    .mca { fill: #e3f2fd; }
+    .mcb { stroke: #1565c0; stroke-width: 3; }
+    .mca.mcb { fill: #90caf9; }
+  </style>
+  <rect x="20"  y="4150" width="80" height="45" class="mca"/>
+  <rect x="120" y="4150" width="80" height="45" class="mcb"/>
+  <rect x="220" y="4150" width="80" height="45" class="mca mcb"/>
+  <text x="22"  y="4208" font-size="9" fill="#888">.mca only</text>
+  <text x="122" y="4208" font-size="9" fill="#888">.mcb only</text>
+  <text x="222" y="4208" font-size="9" fill="#888">.mca.mcb → blue fill</text>
+
+  <!-- ─── Feature 28: child combinator A > B selector ─── -->
+  <text x="10" y="4228" font-size="11" font-weight="bold" fill="#666">F28: child combinator A &gt; B</text>
+  <style>
+    .child-wrap > rect   { fill: #f3e5f5; stroke: #6a1b9a; stroke-width: 2; }
+    .child-wrap > circle { fill: #ede7f6; stroke: #4527a0; stroke-width: 2; }
+  </style>
+  <g class="child-wrap">
+    <rect   x="20"  y="4240" width="70" height="45"/>
+    <circle cx="145" cy="4262" r="22"/>
+  </g>
+  <text x="20" y="4298" font-size="9" fill="#888">direct children styled via A &gt; B combinator</text>
+
+  <!-- ─── Feature 29: [attr=val] attribute selector ─── -->
+  <text x="10" y="4318" font-size="11" font-weight="bold" fill="#666">F29: [attr=val] attribute selector</text>
+  <style>
+    rect[data-kind="primary"]   { fill: #e8eaf6; stroke: #3949ab; stroke-width: 2; }
+    rect[data-kind="secondary"] { fill: #fce4ec; stroke: #c62828; stroke-width: 2; }
+  </style>
+  <rect x="20"  y="4330" width="90" height="45" data-kind="primary"/>
+  <rect x="130" y="4330" width="90" height="45" data-kind="secondary"/>
+  <text x="22"  y="4388" font-size="9" fill="#888">data-kind="primary"</text>
+  <text x="132" y="4388" font-size="9" fill="#888">data-kind="secondary"</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       Bonus: complex network scene
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="4410" font-size="13" font-weight="bold" fill="#444">Bonus: complex network scene</text>
+  <line x1="10" y1="4416" x2="810" y2="4416" stroke="#ccc" stroke-width="1"/>
+
+  <defs>
+    <marker id="net-arrow" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c5cbf"/>
+    </marker>
+  </defs>
+
+  <!-- Scene background -->
+  <rect x="15" y="4426" width="790" height="440" rx="10"
+        fill="#f0ecf9" stroke="#c8b8e8" stroke-width="1.5"/>
+
+  <!-- ── Network connections (drawn before devices) ── -->
+
+  <!-- Solid: Server → Client A -->
+  <line x1="363" y1="4572" x2="140" y2="4492"
+        stroke="#7c5cbf" stroke-width="2" marker-end="url(#net-arrow)"/>
+  <!-- Dashed echo: Client A → Server (bidirectional) -->
+  <line x1="138" y1="4500" x2="361" y2="4579"
+        stroke="#9b7fd4" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.5"/>
+
+  <!-- Dashed: Server → Client B -->
+  <line x1="457" y1="4572" x2="660" y2="4492"
+        stroke="#7c5cbf" stroke-width="2" stroke-dasharray="8 5"
+        marker-end="url(#net-arrow)"/>
+
+  <!-- Dashed: Server → Client C (message in transit) -->
+  <line x1="363" y1="4644" x2="152" y2="4744"
+        stroke="#7c5cbf" stroke-width="2" stroke-dasharray="8 5"
+        marker-end="url(#net-arrow)"/>
+
+  <!-- Solid: Server → Client D -->
+  <line x1="457" y1="4644" x2="660" y2="4744"
+        stroke="#7c5cbf" stroke-width="2" marker-end="url(#net-arrow)"/>
+
+  <!-- ── Envelope icon — message in transit to Client C ── -->
+  <g transform="translate(240, 4700)">
+    <rect x="-22" y="-17" width="44" height="32" rx="4"
+          fill="#f0ecf9" stroke="#7c5cbf" stroke-width="2"/>
+    <polyline points="-22,-17 0,5 22,-17"
+              fill="none" stroke="#7c5cbf" stroke-width="2"/>
+    <line x1="-22" y1="15" x2="-4"  y2="-1" stroke="#9b7fd4" stroke-width="1.2"/>
+    <line x1="22"  y1="15" x2="4"   y2="-1" stroke="#9b7fd4" stroke-width="1.2"/>
+  </g>
+
+  <!-- ── Central server tower ── translate(410, 4598) -->
+  <g transform="translate(410, 4598)">
+    <!-- ground shadow -->
+    <ellipse cx="2" cy="108" rx="58" ry="13" fill="#b8a8d8" opacity="0.45"/>
+    <!-- main body -->
+    <rect x="-48" y="-96" width="96" height="202" rx="7"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <!-- top cap strip -->
+    <rect x="-48" y="-96" width="96" height="20" rx="7"
+          fill="#b8a4d8" stroke="#5c4a7a" stroke-width="2"/>
+    <rect x="-48" y="-84" width="96" height="8" fill="#b8a4d8"/>
+    <!-- right-side panel (3D highlight) -->
+    <rect x="28" y="-76" width="14" height="166" rx="4"
+          fill="#c0b0e0" stroke="#7868a8" stroke-width="1" opacity="0.7"/>
+    <!-- Drive bay 1 -->
+    <rect x="-30" y="-62" width="56" height="24" rx="4"
+          fill="#3d2d5a" stroke="#2a1e44" stroke-width="1"/>
+    <circle cx="16" cy="-50" r="6" fill="#c87878" stroke="#a05858" stroke-width="1"/>
+    <!-- Drive bay 2 -->
+    <rect x="-30" y="-30" width="56" height="24" rx="4"
+          fill="#3d2d5a" stroke="#2a1e44" stroke-width="1"/>
+    <circle cx="16" cy="-18" r="6" fill="#c87878" stroke="#a05858" stroke-width="1"/>
+    <!-- Drive bay 3 -->
+    <rect x="-30" y="2" width="56" height="24" rx="4"
+          fill="#3d2d5a" stroke="#2a1e44" stroke-width="1"/>
+    <circle cx="16" cy="14" r="6" fill="#c87878" stroke="#a05858" stroke-width="1"/>
+    <!-- Vent grilles -->
+    <line x1="-28" y1="44" x2="26" y2="44" stroke="#6858a0" stroke-width="3"/>
+    <line x1="-28" y1="54" x2="26" y2="54" stroke="#6858a0" stroke-width="3"/>
+    <line x1="-28" y1="64" x2="26" y2="64" stroke="#6858a0" stroke-width="3"/>
+    <!-- Power button -->
+    <circle cx="0" cy="82" r="11" fill="#c880be" stroke="#906898" stroke-width="1.5"/>
+    <circle cx="0" cy="82" r="6"  fill="#e0a8d8"/>
+  </g>
+  <text x="410" y="4722" text-anchor="middle" font-size="10"
+        font-weight="bold" fill="#5c4a7a">Server</text>
+
+  <!-- ── Monitor Client A — top left ── translate(90, 4490) -->
+  <g transform="translate(90, 4490)">
+    <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
+    <!-- screen bezel -->
+    <rect x="-50" y="-44" width="100" height="80" rx="8"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <!-- screen panel -->
+    <rect x="-42" y="-36" width="84" height="63" rx="5" fill="#ddd6f0"/>
+    <!-- glare highlight -->
+    <ellipse cx="-14" cy="-18" rx="16" ry="8" fill="#ffffff" opacity="0.3"/>
+    <!-- chin bar -->
+    <rect x="-50" y="36" width="100" height="11"
+          fill="#9882b8" stroke="#5c4a7a" stroke-width="1" opacity="0.8"/>
+    <!-- neck -->
+    <rect x="-9" y="47" width="18" height="20" fill="#7868a8"/>
+    <!-- base -->
+    <rect x="-34" y="67" width="68" height="14" rx="6"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="1.5"/>
+  </g>
+  <text x="90" y="4597" text-anchor="middle" font-size="9" fill="#7060a0">Client A</text>
+
+  <!-- ── Monitor Client B — top right ── translate(710, 4490) -->
+  <g transform="translate(710, 4490)">
+    <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
+    <rect x="-50" y="-44" width="100" height="80" rx="8"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <rect x="-42" y="-36" width="84" height="63" rx="5" fill="#ddd6f0"/>
+    <ellipse cx="-14" cy="-18" rx="16" ry="8" fill="#ffffff" opacity="0.3"/>
+    <rect x="-50" y="36" width="100" height="11"
+          fill="#9882b8" stroke="#5c4a7a" stroke-width="1" opacity="0.8"/>
+    <rect x="-9" y="47" width="18" height="20" fill="#7868a8"/>
+    <rect x="-34" y="67" width="68" height="14" rx="6"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="1.5"/>
+  </g>
+  <text x="710" y="4597" text-anchor="middle" font-size="9" fill="#7060a0">Client B</text>
+
+  <!-- ── Laptop Client C — bottom left ── translate(90, 4754) -->
+  <g transform="translate(90, 4754)">
+    <ellipse cx="4" cy="70" rx="62" ry="11" fill="#b8a8d8" opacity="0.45"/>
+    <!-- screen lid -->
+    <rect x="-46" y="-48" width="92" height="68" rx="6"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <!-- screen panel -->
+    <rect x="-38" y="-40" width="76" height="52" rx="4" fill="#ddd6f0"/>
+    <!-- glare highlight -->
+    <ellipse cx="-10" cy="-22" rx="15" ry="7" fill="#ffffff" opacity="0.3"/>
+    <!-- hinge -->
+    <rect x="-46" y="20" width="92" height="7" rx="1" fill="#5c4a7a"/>
+    <!-- keyboard base (wider) -->
+    <rect x="-56" y="27" width="118" height="37"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <!-- keyboard surface -->
+    <rect x="-46" y="31" width="98" height="26" rx="3" fill="#7868a8"/>
+    <!-- key rows -->
+    <line x1="-40" y1="39" x2="46" y2="39" stroke="#9080c0" stroke-width="0.8" opacity="0.5"/>
+    <line x1="-40" y1="46" x2="46" y2="46" stroke="#9080c0" stroke-width="0.8" opacity="0.5"/>
+    <!-- touchpad -->
+    <rect x="-15" y="38" width="34" height="15" rx="3"
+          fill="#8878b8" stroke="#6858a0" stroke-width="1"/>
+  </g>
+  <text x="90" y="4840" text-anchor="middle" font-size="9" fill="#7060a0">Client C</text>
+
+  <!-- ── Monitor Client D — bottom right ── translate(710, 4750) -->
+  <g transform="translate(710, 4750)">
+    <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
+    <rect x="-50" y="-44" width="100" height="80" rx="8"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="2"/>
+    <rect x="-42" y="-36" width="84" height="63" rx="5" fill="#ddd6f0"/>
+    <ellipse cx="-14" cy="-18" rx="16" ry="8" fill="#ffffff" opacity="0.3"/>
+    <rect x="-50" y="36" width="100" height="11"
+          fill="#9882b8" stroke="#5c4a7a" stroke-width="1" opacity="0.8"/>
+    <rect x="-9" y="47" width="18" height="20" fill="#7868a8"/>
+    <rect x="-34" y="67" width="68" height="14" rx="6"
+          fill="#a892c8" stroke="#5c4a7a" stroke-width="1.5"/>
+  </g>
+  <text x="710" y="4857" text-anchor="middle" font-size="9" fill="#7060a0">Client D</text>
 
 </svg>

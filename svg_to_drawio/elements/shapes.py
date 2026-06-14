@@ -8,7 +8,7 @@ from ..path_utils import (
     make_stencil_style_from_commands,
     make_stencil_style_from_xml,
 )
-from ..utils import parse_float, parse_length, tooltip_style, link_style
+from ..utils import parse_length, tooltip_style, link_style
 
 
 def _rotation_deg(m):
@@ -60,12 +60,16 @@ def _polygon_stencil(conv, elem, corners, fill, grad, stroke, sw, op, fill_op, s
     )
 
 
-def _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash='', fill_rule='nonzero'):
+def _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op,
+                            dash='', fill_rule='nonzero', linecap='flat', linejoin='miter'):
     bbox = commands_bbox(commands)
     if not bbox:
         return
     bx, by, bw, bh = bbox
-    style = make_stencil_style_from_commands(commands, bx, by, bw, bh, fill, stroke, sw, op, fill_rule=fill_rule)
+    style = make_stencil_style_from_commands(
+        commands, bx, by, bw, bh, fill, stroke, sw, op,
+        fill_rule=fill_rule, linecap=linecap, linejoin=linejoin
+    )
     if not style:
         return
     tip = tooltip_style(elem)
@@ -80,9 +84,11 @@ def _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fil
     )
 
 
-def _emit_transformed_path_stencil(conv, elem, d, m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
+def _emit_transformed_path_stencil(conv, elem, d, m, fill, grad, stroke, sw, op, fill_op, stroke_op,
+                                    dash='', linecap='flat', linejoin='miter'):
     commands = path_commands(d, point_transform=lambda x, y: apply_pt(m, x, y))
-    _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash)
+    _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op,
+                           dash, linecap=linecap, linejoin=linejoin)
 
 
 def _ellipse_path_d(cx, cy, rx, ry):
@@ -129,10 +135,12 @@ def emit_line(conv, elem, m, css=None):
     tip = tooltip_style(elem)
     lnk = link_style(conv)
     filt = conv.defs.resolve_filter(v['filter'])
+    lc = v['linecap']
+    lc_style = f'lineCap={lc};' if lc != 'flat' else ''
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '
-        f'style="startArrow={s_arrow};endArrow={e_arrow};html=1;'
+        f'style="rounded=0;{lc_style}startArrow={s_arrow};endArrow={e_arrow};html=1;'
         f'strokeColor={sc};strokeWidth={sw:.2f};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
         f'edge="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry relative="1" as="geometry">\n'
@@ -164,6 +172,7 @@ def emit_circle(conv, elem, m, css=None):
             conv, elem,
             _ellipse_path_d(cx0, cy0, r, r),
             m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
+            linecap=v['linecap'], linejoin=v['linejoin'],
         )
         return
 
@@ -206,6 +215,7 @@ def emit_ellipse(conv, elem, m, css=None):
             conv, elem,
             _ellipse_path_d(cx0, cy0, rx0, ry0),
             m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
+            linecap=v['linecap'], linejoin=v['linejoin'],
         )
         return
 
@@ -256,6 +266,7 @@ def emit_rect(conv, elem, m, css=None):
                 conv, elem,
                 _rounded_rect_path_d(x0, y0, w0, h0, rx, ry),
                 m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
+                linecap=v['linecap'], linejoin=v['linejoin'],
             )
             return
         corners = [
@@ -272,7 +283,12 @@ def emit_rect(conv, elem, m, css=None):
     h = h0 * scale_y(m)
     angle = _rotation_deg(m)
     rot_style = f'rotation={angle:.2f};' if abs(angle) > 0.01 else ''
-    rounded = 'rounded=1;arcSize=50;' if rx > 0 or ry > 0 else 'rounded=0;'
+    if rx > 0 or ry > 0:
+        shorter = min(w0, h0) if w0 > 0 and h0 > 0 else 1.0
+        arc_pct = min(50, round(max(rx, ry) / shorter * 100))
+        rounded = f'rounded=1;arcSize={arc_pct};'
+    else:
+        rounded = 'rounded=0;'
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '

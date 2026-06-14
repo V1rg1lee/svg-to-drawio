@@ -25,7 +25,17 @@ def _emit_text_cell(conv, elem, m, v, x0, y0, content):
     est_w = max(len(content) * fs * 0.62, 20)
     est_h = fs * 1.8
     tx = x - (est_w / 2 if align == 'center' else est_w if align == 'right' else 0)
-    ty = y - fs * 0.85
+
+    bshift_raw = str(v.get('baseline_shift') or '0').strip().lower()
+    if bshift_raw == 'super':
+        bshift_px = fs * 0.35
+    elif bshift_raw == 'sub':
+        bshift_px = -fs * 0.35
+    elif bshift_raw in ('0', '', 'baseline'):
+        bshift_px = 0.0
+    else:
+        bshift_px = parse_length(bshift_raw, 0.0)
+    ty = y - fs * 0.85 - bshift_px
 
     safe = (content
             .replace('&', '&amp;')
@@ -68,16 +78,20 @@ def _has_styled_tspans(elem):
     return False
 
 
-def _tspan_visual(tspan, parent_css):
-    """Build a visual dict for a tspan, merging parent CSS with tspan's own attributes."""
-    ts_css = dict(parent_css or {})
-    ts_css.update(parse_style_attr(tspan.get('style', '')))
-    for attr in ('fill', 'font-size', 'font-weight', 'font-style',
-                 'font-family', 'text-decoration', 'text-anchor'):
-        val = tspan.get(attr)
-        if val:
-            ts_css[attr] = val
-    return get_visual(tspan, ts_css)
+def _tspan_visual(tspan, parent_css, conv=None):
+    """Compute visual properties for a tspan using the full CSS cascade when available."""
+    if conv is not None and hasattr(conv, 'css_rules'):
+        from ..css import apply_css
+        ts_computed = apply_css(tspan, conv.css_rules, 'tspan', parent_css)
+    else:
+        ts_computed = dict(parent_css or {})
+        ts_computed.update(parse_style_attr(tspan.get('style', '')))
+        for attr in ('fill', 'font-size', 'font-weight', 'font-style',
+                     'font-family', 'text-decoration', 'text-anchor'):
+            val = tspan.get(attr)
+            if val:
+                ts_computed[attr] = val
+    return get_visual(tspan, ts_computed)
 
 
 def emit_text(conv, elem, m, css=None):
@@ -111,14 +125,12 @@ def emit_text(conv, elem, m, css=None):
             raw = tspan.text or ''
             content = raw.strip()
             if not content:
-                # Still advance by whitespace width
                 cur_x += len(raw) * max(v['font_size'], 6) * 0.62
                 continue
 
-            ts_v = _tspan_visual(tspan, css)
+            ts_v = _tspan_visual(tspan, css, conv)
             fs = max(ts_v['font_size'], 6)
 
-            # Whitespace prefix advances x before rendering the word
             prefix_spaces = len(raw) - len(raw.lstrip())
             cur_x += prefix_spaces * fs * 0.62
 

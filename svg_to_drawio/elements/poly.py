@@ -24,6 +24,10 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
     tip  = tooltip_style(elem)
     lnk  = link_style(conv)
     filt = conv.defs.resolve_filter(v['filter'])
+    lc = v['linecap']
+    lj = v['linejoin']
+    lc_style = f'lineCap={lc};' if lc != 'flat' else ''
+    lj_style = f'lineJoin={lj};' if lj != 'miter' else ''
 
     if closed and fill != 'none':
         xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
@@ -51,10 +55,11 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
         src, *mid, tgt = pts
         wp = ''.join(f'        <mxPoint x="{px:.2f}" y="{py:.2f}"/>\n' for px, py in mid)
         wp_block = f'      <Array as="points">\n{wp}      </Array>\n' if mid else ''
+        rounded_style = 'rounded=1;' if lj == 'round' else 'rounded=0;'
         cid = conv.next_id()
         conv.add(
             f'    <mxCell id="{cid}" value="" '
-            f'style="startArrow={s_arrow};endArrow={e_arrow};html=1;'
+            f'style="{rounded_style}{lc_style}{lj_style}startArrow={s_arrow};endArrow={e_arrow};html=1;'
             f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
             f'edge="1" parent="{conv.parent_id}">\n'
             f'      <mxGeometry relative="1" as="geometry">\n'
@@ -65,7 +70,7 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
             f'    </mxCell>'
         )
 
-        # Feature 14: marker-mid — emit small marker dots at intermediate waypoints
+        # Feature 14: marker-mid - emit small marker dots at intermediate waypoints
         if v.get('marker_mid') and mid:
             marker_size = 8
             for px, py in mid:

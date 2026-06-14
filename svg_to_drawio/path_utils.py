@@ -535,14 +535,66 @@ def path_commands(d, point_transform=None):
     return commands
 
 
+def _bezier_extremes_t(v0, v1, v2, v3):
+    """Yield t in (0,1) where the cubic bezier derivative is zero along one axis."""
+    a = v1 - v0
+    b = v2 - v1
+    c = v3 - v2
+    qa = a - 2 * b + c
+    qb = 2 * (b - a)
+    qc = a
+    if abs(qa) < 1e-10:
+        if abs(qb) > 1e-10:
+            t = -qc / qb
+            if 0.0 < t < 1.0:
+                yield t
+    else:
+        disc = qb * qb - 4 * qa * qc
+        if disc >= 0:
+            sq = math.sqrt(disc)
+            for s in (1, -1):
+                t = (-qb + s * sq) / (2 * qa)
+                if 0.0 < t < 1.0:
+                    yield t
+
+
+def _bezier_eval(v0, v1, v2, v3, t):
+    return (1 - t) ** 3 * v0 + 3 * (1 - t) ** 2 * t * v1 + 3 * (1 - t) * t ** 2 * v2 + t ** 3 * v3
+
+
+def _bezier_tight_pts(x0, y0, x1, y1, x2, y2, x3, y3):
+    """Yield (x, y) at endpoints and at the actual visual extrema of a cubic bezier."""
+    yield x0, y0
+    yield x3, y3
+    ts = set()
+    for t in _bezier_extremes_t(x0, x1, x2, x3):
+        ts.add(t)
+    for t in _bezier_extremes_t(y0, y1, y2, y3):
+        ts.add(t)
+    for t in ts:
+        yield _bezier_eval(x0, x1, x2, x3, t), _bezier_eval(y0, y1, y2, y3, t)
+
+
 def commands_bbox(commands):
-    """Return (x, y, w, h) for a parsed path command list."""
+    """Return tight (x, y, w, h) bounding box using actual curve extents, not control points."""
     xs = []
     ys = []
-    for _, points in commands:
-        for x, y in points:
-            xs.append(x)
-            ys.append(y)
+    cur_x, cur_y = 0.0, 0.0
+    for kind, points in commands:
+        if kind == 'move':
+            cur_x, cur_y = points[0]
+            xs.append(cur_x)
+            ys.append(cur_y)
+        elif kind == 'line':
+            cur_x, cur_y = points[0]
+            xs.append(cur_x)
+            ys.append(cur_y)
+        elif kind == 'curve':
+            (x1, y1), (x2, y2), (x3, y3) = points
+            for px, py in _bezier_tight_pts(cur_x, cur_y, x1, y1, x2, y2, x3, y3):
+                xs.append(px)
+                ys.append(py)
+            cur_x, cur_y = x3, y3
     if not xs:
         return None
     bx = min(xs)
@@ -607,22 +659,27 @@ def make_stencil_style_from_xml(xml, fill, stroke, sw, op):
     )
 
 
-def make_stencil_style_from_commands(commands, ox, oy, w, h, fill, stroke, sw, op, fill_rule='nonzero'):
+def make_stencil_style_from_commands(commands, ox, oy, w, h, fill, stroke, sw, op,
+                                      fill_rule='nonzero', linecap='flat', linejoin='miter'):
     """Build a draw.io stencil style string from transformed path commands."""
     sp = commands_to_stencil_path(commands, ox, oy, w, h)
     if not sp:
         return None
-    # Path coordinates are normalized to 0..100, so the stencil view box must
-    # use the same 100x100 logical space to avoid an extra size scale in draw.io.
     if fill_rule == 'evenodd':
         path_elem = f'<path fillrule="evenodd">{sp}</path>'
     else:
         path_elem = f'<path>{sp}</path>'
-    xml = ('<shape w="100" h="100" aspect="variable" strokewidth="inherit">'
-           f'<background>{path_elem}<fillstroke/></background></shape>')
+    # Use <stroke/> for unfilled paths so open paths don't get a spurious fill
+    paint = 'stroke' if fill == 'none' else 'fillstroke'
+    xml = (f'<shape w="100" h="100" aspect="variable" strokewidth="inherit"'
+           f' strokelinecap="{linecap}" strokelinejoin="{linejoin}">'
+           f'<background>{path_elem}<{paint}/></background></shape>')
     return make_stencil_style_from_xml(xml, fill, stroke, sw, op)
 
 
-def make_stencil_style(d, ox, oy, w, h, fill, stroke, sw, op, fill_rule='nonzero'):
+def make_stencil_style(d, ox, oy, w, h, fill, stroke, sw, op,
+                       fill_rule='nonzero', linecap='flat', linejoin='miter'):
     """Build a draw.io stencil style string from an SVG path."""
-    return make_stencil_style_from_commands(path_commands(d), ox, oy, w, h, fill, stroke, sw, op, fill_rule)
+    return make_stencil_style_from_commands(
+        path_commands(d), ox, oy, w, h, fill, stroke, sw, op, fill_rule, linecap, linejoin
+    )

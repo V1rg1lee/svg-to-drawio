@@ -1,5 +1,4 @@
 import re
-import math
 
 from .utils import parse_float, parse_length
 
@@ -141,6 +140,7 @@ def get_visual(elem, computed_css=None):
         'filter':         g('filter'),
         'fill_rule':      g('fill-rule', 'nonzero'),
         'text_decoration': g('text-decoration', 'none'),
+        'baseline_shift': g('baseline-shift', '0'),
     }
 
 
@@ -148,8 +148,6 @@ def gradient_style(grad):
     """Build draw.io gradient style fragment from a gradient definition dict."""
     if not grad:
         return ''
-    if grad.get('direction') == 'radial':
-        return f'fillStyle=5;gradientColor={grad["color2"]};'
     return f'fillStyle=1;gradientColor={grad["color2"]};gradientDirection={grad["direction"]};'
 
 

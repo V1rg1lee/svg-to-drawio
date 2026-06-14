@@ -2,9 +2,18 @@ import re
 import xml.etree.ElementTree as ET
 from os import path
 
-from .utils import strip_ns, parse_float
+from .css import apply_css, collect_css
+from .defs import DefsIndex
+from .drawio_output import make_xml
+from .elements.image import emit_image
+from .elements.path import emit_path
+from .elements.poly import emit_polyline
+from .elements.shapes import emit_circle, emit_ellipse, emit_line, emit_rect
+from .elements.text import emit_text
+from .transforms import mat_mul, parse_transform, viewbox_transform
+from .utils import parse_length, strip_ns
 
-# ── Group geometry helpers ────────────────────────────────────────────────────
+# Group geometry helpers
 # In draw.io, group children use coordinates *relative* to the group's top-left.
 # These helpers extract bboxes from already-emitted cell strings and shift them.
 
@@ -36,15 +45,6 @@ def _shift_cell(xml, dx, dy):
                 f' y="{float(m.group(2)) - dy:.2f}"')
 
     return _POINT_RE.sub(adj_point, _GEOM_RE.sub(adj_geom, xml))
-from .transforms import IDENTITY, mat_mul, parse_transform, viewbox_transform
-from .css import collect_css, apply_css
-from .defs import DefsIndex
-from .drawio_output import make_xml
-from .elements.image import emit_image
-from .elements.shapes import emit_line, emit_circle, emit_ellipse, emit_rect
-from .elements.text import emit_text
-from .elements.poly import emit_polyline
-from .elements.path import emit_path
 
 _SKIP_TAGS = frozenset({
     'defs', 'title', 'desc', 'metadata', 'style', 'symbol',
@@ -67,12 +67,16 @@ _DISPATCH = {
 
 class Converter:
     def __init__(self):
+        self.reset()
+
+    def reset(self):
         self._id = 2
         self.cells = []
         self.defs = DefsIndex()
         self._parent_id = '1'
         self._link_url = ''
         self.source_dir = ''
+        self.css_rules = {}
 
     @property
     def parent_id(self):
@@ -87,12 +91,14 @@ class Converter:
         self.cells.append(xml)
 
     def convert_file(self, svg_path, out_path=None):
+        self.reset()
         tree = ET.parse(svg_path)
         root = tree.getroot()
         self.source_dir = path.dirname(path.abspath(svg_path))
 
         self.defs.index(root)
-        css_rules = collect_css(root)
+        self.css_rules = collect_css(root)
+        css_rules = self.css_rules
         root_m = viewbox_transform(root)
 
         title = path.splitext(path.basename(svg_path))[0]
@@ -143,17 +149,24 @@ class Converter:
             new_cells = list(self.cells[start:])
             del self.cells[start:]
 
-            # Compute group bbox from direct children only (parent=group_id)
+            # Compute group bbox from direct children - include both vertex geometries
+            # and edge mxPoint coordinates so edge-only groups get a valid bbox.
             parent_marker = f'parent="{group_id}"'
-            bboxes = [b for b in (
-                _cell_bbox(c) for c in new_cells if parent_marker in c
-            ) if b is not None]
-
-            if bboxes:
-                gx = min(b[0] for b in bboxes)
-                gy = min(b[1] for b in bboxes)
-                gw = max(b[0] + b[2] for b in bboxes) - gx
-                gh = max(b[1] + b[3] for b in bboxes) - gy
+            all_pts = []
+            for c in new_cells:
+                if parent_marker not in c:
+                    continue
+                b = _cell_bbox(c)
+                if b:
+                    all_pts += [(b[0], b[1]), (b[0] + b[2], b[1] + b[3])]
+                else:
+                    for mp in _POINT_RE.finditer(c):
+                        all_pts.append((float(mp.group(1)), float(mp.group(2))))
+            if all_pts:
+                gx = min(p[0] for p in all_pts)
+                gy = min(p[1] for p in all_pts)
+                gw = max(p[0] for p in all_pts) - gx or 1.0
+                gh = max(p[1] for p in all_pts) - gy or 1.0
             else:
                 gx, gy, gw, gh = 0.0, 0.0, 1.0, 1.0
 
@@ -203,15 +216,15 @@ class Converter:
         if ref_elem is None:
             return
 
-        ux = parse_float(elem.get('x', '0'))
-        uy = parse_float(elem.get('y', '0'))
+        ux = parse_length(elem.get('x', '0'))
+        uy = parse_length(elem.get('y', '0'))
         use_translate = [1, 0, 0, 1, ux, uy]
 
         ref_tag = strip_ns(ref_elem.tag)
         if ref_tag == 'symbol':
             # Feature 8: symbol rendering
-            uw = parse_float(elem.get('width', '0')) or None
-            uh = parse_float(elem.get('height', '0')) or None
+            uw = parse_length(elem.get('width', '0')) or None
+            uh = parse_length(elem.get('height', '0')) or None
             symbol_m = mat_mul(m, use_translate)
             inner_m = mat_mul(symbol_m, viewbox_transform(ref_elem, override_w=uw, override_h=uh))
             for child in ref_elem:

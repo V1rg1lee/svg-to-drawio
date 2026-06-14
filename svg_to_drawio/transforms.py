@@ -94,4 +94,25 @@ def viewbox_transform(svg_root, override_w=None, override_h=None):
         h = parse_float(re.sub(r'[a-zA-Z%]', '', h_str)) or vb_h
     sx = w / vb_w
     sy = h / vb_h
-    return [sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy]
+
+    par = (svg_root.get('preserveAspectRatio') or 'xMidYMid meet').strip().lower()
+    if 'none' in par:
+        return [sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy]
+
+    s = max(sx, sy) if 'slice' in par else min(sx, sy)
+    scaled_w = vb_w * s
+    scaled_h = vb_h * s
+
+    tx = (-vb_x * s + (w - scaled_w) / 2)  # xMid default
+    if 'xmin' in par:
+        tx = -vb_x * s
+    elif 'xmax' in par:
+        tx = -vb_x * s + (w - scaled_w)
+
+    ty = (-vb_y * s + (h - scaled_h) / 2)  # yMid default
+    if 'ymin' in par:
+        ty = -vb_y * s
+    elif 'ymax' in par:
+        ty = -vb_y * s + (h - scaled_h)
+
+    return [s, 0.0, 0.0, s, tx, ty]

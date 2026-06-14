@@ -42,17 +42,22 @@ def _emit_open_path_as_edge(conv, elem, d, m, v):
     tip = tooltip_style(elem)
     lnk = link_style(conv)
     filt = conv.defs.resolve_filter(v['filter'])
+    lc = v['linecap']
+    lj = v['linejoin']
 
     src, *mid, tgt = pts_t
     wp = ''.join(f'        <mxPoint x="{px:.2f}" y="{py:.2f}"/>\n' for px, py in mid)
     wp_block = f'      <Array as="points">\n{wp}      </Array>\n' if mid else ''
 
     curved = 'curved=1;' if (_has_curve_commands(d) and mid) else ''
+    rounded = '' if curved else ('rounded=1;' if lj == 'round' else 'rounded=0;')
+    lc_style = f'lineCap={lc};' if lc != 'flat' else ''
+    lj_style = f'lineJoin={lj};' if lj != 'miter' else ''
 
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '
-        f'style="{curved}startArrow={s_arrow};endArrow={e_arrow};html=1;'
+        f'style="{rounded}{lc_style}{lj_style}{curved}startArrow={s_arrow};endArrow={e_arrow};html=1;'
         f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
         f'edge="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry relative="1" as="geometry">\n'
@@ -86,12 +91,17 @@ def emit_path(conv, elem, m, css=None):
 
     fill, grad = conv.defs.resolve_fill(v['fill'] or 'none')
 
-    # Open + unfilled paths: stencils render as bounding-box rectangles in draw.io
-    # because stencils are designed for closed filled shapes. Use an edge instead.
-    if fill == 'none' and not _is_closed(d):
+    # Open unfilled paths WITH markers must use edges - draw.io only supports
+    # startArrow/endArrow on edges, not on stencil shapes.
+    has_markers = v['marker_start'] or v['marker_end'] or v['marker_mid']
+    if fill == 'none' and not _is_closed(d) and has_markers:
         _emit_open_path_as_edge(conv, elem, d, m, v)
         return
 
+    # All other paths use stencil: this encodes bezier curves exactly,
+    # avoiding the waypoint-approximation distortion of the edge approach.
+    # make_stencil_style_from_commands uses <stroke/> when fill='none'
+    # so open unfilled paths render correctly without a spurious fill.
     pts = list(path_points(d))
     if not pts:
         return
@@ -112,7 +122,8 @@ def emit_path(conv, elem, m, css=None):
     fill_rule = v.get('fill_rule', 'nonzero')
 
     style = make_stencil_style_from_commands(
-        commands, bx, by, bw, bh, fill, sc, v['stroke_width'], op, fill_rule=fill_rule
+        commands, bx, by, bw, bh, fill, sc, v['stroke_width'], op,
+        fill_rule=fill_rule, linecap=v['linecap'], linejoin=v['linejoin']
     )
     if not style:
         return
