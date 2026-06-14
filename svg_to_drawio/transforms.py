@@ -29,6 +29,11 @@ def scale_y(m):
     return math.sqrt(m[2]**2 + m[3]**2)
 
 
+def stroke_scale(m):
+    """Geometric mean of x and y scale factors, for scaling stroke widths."""
+    return math.sqrt(scale_x(m) * scale_y(m))
+
+
 def parse_transform(t):
     if not t:
         return IDENTITY[:]
@@ -62,8 +67,12 @@ def parse_transform(t):
     return result
 
 
-def viewbox_transform(svg_root):
-    """Return a transform matrix that maps the SVG viewBox coordinate space to pixels."""
+def viewbox_transform(svg_root, override_w=None, override_h=None):
+    """Return a transform matrix that maps the SVG viewBox coordinate space to pixels.
+
+    override_w / override_h: optional viewport dimensions (from a <use> element's
+    width/height attributes) that take precedence over the element's own width/height.
+    """
     vb = svg_root.get('viewBox')
     if not vb:
         return IDENTITY[:]
@@ -73,10 +82,16 @@ def viewbox_transform(svg_root):
     vb_x, vb_y, vb_w, vb_h = vals
     if vb_w == 0 or vb_h == 0:
         return IDENTITY[:]
-    w_str = svg_root.get('width', str(vb_w))
-    h_str = svg_root.get('height', str(vb_h))
-    w = parse_float(re.sub(r'[a-zA-Z%]', '', w_str)) or vb_w
-    h = parse_float(re.sub(r'[a-zA-Z%]', '', h_str)) or vb_h
+    if override_w is not None:
+        w = override_w
+    else:
+        w_str = svg_root.get('width', str(vb_w))
+        w = parse_float(re.sub(r'[a-zA-Z%]', '', w_str)) or vb_w
+    if override_h is not None:
+        h = override_h
+    else:
+        h_str = svg_root.get('height', str(vb_h))
+        h = parse_float(re.sub(r'[a-zA-Z%]', '', h_str)) or vb_h
     sx = w / vb_w
     sy = h / vb_h
     return [sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy]

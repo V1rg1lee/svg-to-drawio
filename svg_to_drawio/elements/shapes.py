@@ -1,6 +1,6 @@
 import math
 
-from ..transforms import apply_pt, scale_x, scale_y
+from ..transforms import apply_pt, scale_x, scale_y, stroke_scale
 from ..styles import get_visual, gradient_style, opacity_pct
 from ..path_utils import (
     path_commands,
@@ -8,7 +8,7 @@ from ..path_utils import (
     make_stencil_style_from_commands,
     make_stencil_style_from_xml,
 )
-from ..utils import parse_float
+from ..utils import parse_float, parse_length, tooltip_style, link_style
 
 
 def _rotation_deg(m):
@@ -21,7 +21,7 @@ def _has_shear(m):
     return abs(m[0] * m[2] + m[1] * m[3]) > 1e-6
 
 
-def _polygon_stencil(conv, corners, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
+def _polygon_stencil(conv, elem, corners, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
     """
     Emit a closed polygon stencil from a list of (x, y) points in draw.io space.
     Used when a shape cannot be represented as an axis-aligned rectangle.
@@ -48,37 +48,41 @@ def _polygon_stencil(conv, corners, fill, grad, stroke, sw, op, fill_op, stroke_
     style = make_stencil_style_from_xml(xml, fill, stroke, sw, op)
     if not style:
         return
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '
-        f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{gradient_style(grad)}{dash}" '
-        f'vertex="1" parent="1">\n'
+        f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{gradient_style(grad)}{dash}{tip}{lnk}" '
+        f'vertex="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry x="{bx:.2f}" y="{by:.2f}" width="{bw:.2f}" height="{bh:.2f}" as="geometry"/>\n'
         f'    </mxCell>'
     )
 
 
-def _emit_stencil_commands(conv, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
+def _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash='', fill_rule='nonzero'):
     bbox = commands_bbox(commands)
     if not bbox:
         return
     bx, by, bw, bh = bbox
-    style = make_stencil_style_from_commands(commands, bx, by, bw, bh, fill, stroke, sw, op)
+    style = make_stencil_style_from_commands(commands, bx, by, bw, bh, fill, stroke, sw, op, fill_rule=fill_rule)
     if not style:
         return
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '
-        f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{gradient_style(grad)}{dash}" '
-        f'vertex="1" parent="1">\n'
+        f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{gradient_style(grad)}{dash}{tip}{lnk}" '
+        f'vertex="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry x="{bx:.2f}" y="{by:.2f}" width="{bw:.2f}" height="{bh:.2f}" as="geometry"/>\n'
         f'    </mxCell>'
     )
 
 
-def _emit_transformed_path_stencil(conv, d, m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
+def _emit_transformed_path_stencil(conv, elem, d, m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash=''):
     commands = path_commands(d, point_transform=lambda x, y: apply_pt(m, x, y))
-    _emit_stencil_commands(conv, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash)
+    _emit_stencil_commands(conv, elem, commands, fill, grad, stroke, sw, op, fill_op, stroke_op, dash)
 
 
 def _ellipse_path_d(cx, cy, rx, ry):
@@ -113,20 +117,24 @@ def _rounded_rect_path_d(x, y, w, h, rx, ry):
 
 def emit_line(conv, elem, m, css=None):
     v = get_visual(elem, css)
-    x1, y1 = apply_pt(m, parse_float(elem.get('x1')), parse_float(elem.get('y1')))
-    x2, y2 = apply_pt(m, parse_float(elem.get('x2')), parse_float(elem.get('y2')))
+    x1, y1 = apply_pt(m, parse_length(elem.get('x1')), parse_length(elem.get('y1')))
+    x2, y2 = apply_pt(m, parse_length(elem.get('x2')), parse_length(elem.get('y2')))
     sc = v['stroke'] or '#000000'
     op = opacity_pct(v['opacity'])
     stroke_op = opacity_pct(v['stroke_opacity'])
+    sw = v['stroke_width'] * stroke_scale(m)
     s_arrow = conv.defs.resolve_marker(v['marker_start'])
     e_arrow = conv.defs.resolve_marker(v['marker_end'])
     dash = v['dash_style']
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
+    filt = conv.defs.resolve_filter(v['filter'])
     cid = conv.next_id()
     conv.add(
         f'    <mxCell id="{cid}" value="" '
         f'style="startArrow={s_arrow};endArrow={e_arrow};html=1;'
-        f'strokeColor={sc};strokeWidth={v["stroke_width"]};opacity={op};strokeOpacity={stroke_op};{dash}" '
-        f'edge="1" parent="1">\n'
+        f'strokeColor={sc};strokeWidth={sw:.2f};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
+        f'edge="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry relative="1" as="geometry">\n'
         f'        <mxPoint x="{x1:.2f}" y="{y1:.2f}" as="sourcePoint"/>\n'
         f'        <mxPoint x="{x2:.2f}" y="{y2:.2f}" as="targetPoint"/>\n'
@@ -137,30 +145,25 @@ def emit_line(conv, elem, m, css=None):
 
 def emit_circle(conv, elem, m, css=None):
     v = get_visual(elem, css)
-    cx0 = parse_float(elem.get('cx'))
-    cy0 = parse_float(elem.get('cy'))
-    r = parse_float(elem.get('r'))
+    cx0 = parse_length(elem.get('cx'))
+    cy0 = parse_length(elem.get('cy'))
+    r = parse_length(elem.get('r'))
     fill, grad = conv.defs.resolve_fill(v['fill'] or 'none')
     stroke = v['stroke'] or 'none'
     op = opacity_pct(v['opacity'])
     fill_op = opacity_pct(v['fill_opacity'])
     stroke_op = opacity_pct(v['stroke_opacity'])
-    sw = v['stroke_width']
+    sw = v['stroke_width'] * stroke_scale(m)
     dash = v['dash_style']
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
+    filt = conv.defs.resolve_filter(v['filter'])
 
     if _has_shear(m):
         _emit_transformed_path_stencil(
-            conv,
+            conv, elem,
             _ellipse_path_d(cx0, cy0, r, r),
-            m,
-            fill,
-            grad,
-            stroke,
-            sw,
-            op,
-            fill_op,
-            stroke_op,
-            dash,
+            m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
         )
         return
 
@@ -174,8 +177,8 @@ def emit_circle(conv, elem, m, css=None):
         f'    <mxCell id="{cid}" value="" '
         f'style="ellipse;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};'
         f'strokeWidth={sw};opacity={op};fillOpacity={fill_op};strokeOpacity={stroke_op};'
-        f'{gradient_style(grad)}{dash}{rot_style}" '
-        f'vertex="1" parent="1">\n'
+        f'{gradient_style(grad)}{dash}{rot_style}{tip}{lnk}{filt}" '
+        f'vertex="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry x="{cx - rx:.2f}" y="{cy - ry:.2f}" width="{rx * 2:.2f}" height="{ry * 2:.2f}" as="geometry"/>\n'
         f'    </mxCell>'
     )
@@ -183,31 +186,26 @@ def emit_circle(conv, elem, m, css=None):
 
 def emit_ellipse(conv, elem, m, css=None):
     v = get_visual(elem, css)
-    cx0 = parse_float(elem.get('cx'))
-    cy0 = parse_float(elem.get('cy'))
-    rx0 = parse_float(elem.get('rx'))
-    ry0 = parse_float(elem.get('ry'))
+    cx0 = parse_length(elem.get('cx'))
+    cy0 = parse_length(elem.get('cy'))
+    rx0 = parse_length(elem.get('rx'))
+    ry0 = parse_length(elem.get('ry'))
     fill, grad = conv.defs.resolve_fill(v['fill'] or 'none')
     stroke = v['stroke'] or 'none'
     op = opacity_pct(v['opacity'])
     fill_op = opacity_pct(v['fill_opacity'])
     stroke_op = opacity_pct(v['stroke_opacity'])
-    sw = v['stroke_width']
+    sw = v['stroke_width'] * stroke_scale(m)
     dash = v['dash_style']
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
+    filt = conv.defs.resolve_filter(v['filter'])
 
     if _has_shear(m):
         _emit_transformed_path_stencil(
-            conv,
+            conv, elem,
             _ellipse_path_d(cx0, cy0, rx0, ry0),
-            m,
-            fill,
-            grad,
-            stroke,
-            sw,
-            op,
-            fill_op,
-            stroke_op,
-            dash,
+            m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
         )
         return
 
@@ -221,8 +219,8 @@ def emit_ellipse(conv, elem, m, css=None):
         f'    <mxCell id="{cid}" value="" '
         f'style="ellipse;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};'
         f'strokeWidth={sw};opacity={op};fillOpacity={fill_op};strokeOpacity={stroke_op};'
-        f'{gradient_style(grad)}{dash}{rot_style}" '
-        f'vertex="1" parent="1">\n'
+        f'{gradient_style(grad)}{dash}{rot_style}{tip}{lnk}{filt}" '
+        f'vertex="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry x="{cx - rx:.2f}" y="{cy - ry:.2f}" width="{rx * 2:.2f}" height="{ry * 2:.2f}" as="geometry"/>\n'
         f'    </mxCell>'
     )
@@ -230,12 +228,12 @@ def emit_ellipse(conv, elem, m, css=None):
 
 def emit_rect(conv, elem, m, css=None):
     v = get_visual(elem, css)
-    x0 = parse_float(elem.get('x'))
-    y0 = parse_float(elem.get('y'))
-    w0 = parse_float(elem.get('width'))
-    h0 = parse_float(elem.get('height'))
-    rx = parse_float(elem.get('rx', '0')) or 0.0
-    ry = parse_float(elem.get('ry', '0')) or 0.0
+    x0 = parse_length(elem.get('x'))
+    y0 = parse_length(elem.get('y'))
+    w0 = parse_length(elem.get('width'))
+    h0 = parse_length(elem.get('height'))
+    rx = parse_length(elem.get('rx', '0')) or 0.0
+    ry = parse_length(elem.get('ry', '0')) or 0.0
     if rx <= 0 < ry:
         rx = ry
     if ry <= 0 < rx:
@@ -246,23 +244,18 @@ def emit_rect(conv, elem, m, css=None):
     op = opacity_pct(v['opacity'])
     fill_op = opacity_pct(v['fill_opacity'])
     stroke_op = opacity_pct(v['stroke_opacity'])
-    sw = v['stroke_width']
+    sw = v['stroke_width'] * stroke_scale(m)
     dash = v['dash_style']
+    tip = tooltip_style(elem)
+    lnk = link_style(conv)
+    filt = conv.defs.resolve_filter(v['filter'])
 
     if _has_shear(m):
         if rx > 0 or ry > 0:
             _emit_transformed_path_stencil(
-                conv,
+                conv, elem,
                 _rounded_rect_path_d(x0, y0, w0, h0, rx, ry),
-                m,
-                fill,
-                grad,
-                stroke,
-                sw,
-                op,
-                fill_op,
-                stroke_op,
-                dash,
+                m, fill, grad, stroke, sw, op, fill_op, stroke_op, dash,
             )
             return
         corners = [
@@ -271,7 +264,7 @@ def emit_rect(conv, elem, m, css=None):
             apply_pt(m, x0 + w0, y0 + h0),
             apply_pt(m, x0, y0 + h0),
         ]
-        _polygon_stencil(conv, corners, fill, grad, stroke, sw, op, fill_op, stroke_op, dash)
+        _polygon_stencil(conv, elem, corners, fill, grad, stroke, sw, op, fill_op, stroke_op, dash)
         return
 
     cx, cy = apply_pt(m, x0 + w0 / 2, y0 + h0 / 2)
@@ -285,8 +278,8 @@ def emit_rect(conv, elem, m, css=None):
         f'    <mxCell id="{cid}" value="" '
         f'style="{rounded}whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};'
         f'strokeWidth={sw};opacity={op};fillOpacity={fill_op};strokeOpacity={stroke_op};'
-        f'{gradient_style(grad)}{dash}{rot_style}" '
-        f'vertex="1" parent="1">\n'
+        f'{gradient_style(grad)}{dash}{rot_style}{tip}{lnk}{filt}" '
+        f'vertex="1" parent="{conv.parent_id}">\n'
         f'      <mxGeometry x="{cx - w / 2:.2f}" y="{cy - h / 2:.2f}" width="{w:.2f}" height="{h:.2f}" as="geometry"/>\n'
         f'    </mxCell>'
     )

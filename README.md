@@ -13,28 +13,36 @@ Standard SVG-to-draw.io converters often embed the whole file as one opaque imag
 | `<line>` | Edge (connector, no arrow by default) |
 | `<circle>` | Ellipse cell |
 | `<ellipse>` | Ellipse cell |
-| `<rect>` | Rectangle cell (rounded if `rx` or `ry` is set) |
+| `<rect>` | Rectangle cell (rounded corner radius computed from `rx`/`ry`) |
 | `<text>` / `<tspan>` | Text cell |
 | `<polyline>` | Edge with waypoints |
 | `<polygon>` | Filled stencil shape |
-| `<path>` | Custom stencil shape (all commands supported) |
+| `<path>` | Stencil (closed/filled) or curved edge (open/unfilled) |
 | `<use>` | Resolved from `<defs>`, rendered in place |
-| `<g>` | Transparent group with accumulated transforms |
+| `<symbol>` + `<use>` | Symbol viewBox applied when rendering via `<use width/height>` |
+| `<g>` | Native draw.io group cell; children selectable as a group |
+| `<a>` | Passes `link=URL` to all child cells |
 | nested `<svg>` | Handled with its own `viewBox` transform |
 
 ## Supported SVG features
 
-- CSS `<style>` blocks with element selectors, class selectors, inline `style=""`, and inheritance through `<g>` groups
+- CSS `<style>` blocks with element, class (`.cls`), ID (`#id`), descendant (`g rect`), and inline `style=""` selectors, with CSS inheritance through `<g>` groups
+- `currentColor` in `fill` / `stroke` resolves to the inherited CSS `color` property
+- `display:none` and `visibility:hidden` correctly skip elements
 - Transforms: `translate`, `scale`, `rotate`, `matrix`, `skewX`, `skewY`
 - Root and nested `viewBox` mapping
 - `<defs>` + `<use>` reuse
-- Linear and radial gradients mapped to draw.io gradients
-- `marker-start` / `marker-end` mapped to draw.io arrows
-- Opacity attributes such as `opacity`, `fill-opacity`, and `stroke-opacity`
-- Stroke styles such as `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`
-- Font styles such as `font-weight`, `font-style`, `font-size`, `text-anchor`
+- Linear and radial gradients with `gradientTransform` direction support
+- `marker-start` / `marker-end` / `marker-mid` mapped to draw.io arrows and intermediate dots
+- `opacity`, `fill-opacity`, `stroke-opacity`
+- `stroke-dasharray`, `stroke-dashoffset`, `stroke-linecap`, `stroke-linejoin`
+- `fill-rule: evenodd` propagated to stencil shapes
+- Font styles: `font-weight`, `font-style`, `font-size`, `text-anchor`, `text-decoration` (underline, line-through)
+- `<title>` child element mapped to draw.io tooltip
+- `feDropShadow` filter mapped to draw.io shadow style
 - Arc commands (`A` / `a`) converted to cubic Bezier curves
-- Common color formats including hex, `rgb()`, `rgba()`, `none`, and `transparent`
+- Quadratic and cubic Bezier edges sampled at curve points (not control points)
+- Common color formats: hex, `rgb()`, `rgba()`, `none`, `transparent`
 
 ## Requirements
 
@@ -98,13 +106,25 @@ This generates `tests/fixtures/test_all_features.drawio` next to the fixture.
 
 Open, unfilled curved paths (`fill="none"` with no closing `Z`) are rendered as draw.io curved edges rather than stencils, because stencils are better suited to closed filled shapes.
 
+## Re-exporting to SVG from draw.io
+
+By default, draw.io renders text labels as HTML and wraps them in `<foreignObject>` blocks when exporting to SVG. Many SVG viewers and tools (Canva, Inkscape, browsers in strict mode) do not support `<foreignObject>`, which causes import errors.
+
+Before exporting to SVG, convert all labels to native SVG text:
+
+1. **Edit → Select All**
+2. In the right-hand text panel, click **"Convert labels to SVG"**
+3. Then **File → Export as → SVG**
+
+See the [draw.io discussion on foreignObject compatibility](https://github.com/jgraph/drawio/discussions/5165) for more context.
+
 ## Limitations
 
 - `<image>` elements are currently ignored.
 - `<clipPath>` and `<mask>` are ignored.
 - Text width is estimated from character count, so long labels may need manual resizing.
-- `<filter>` effects such as blur or shadow are not supported.
-- Gradient approximation currently uses the two endpoint stop colors only.
+- Only `feDropShadow` is supported from `<filter>`; other filter effects (blur, compositing, etc.) are ignored.
+- Gradient approximation uses the two endpoint stop colors only; intermediate color stops are dropped.
 
 ## License
 

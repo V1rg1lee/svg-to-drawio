@@ -1,8 +1,9 @@
 import re
 
-from ..transforms import apply_pt
+from ..transforms import apply_pt, stroke_scale
 from ..styles import get_visual, opacity_pct
 from ..path_utils import make_stencil_style_from_xml
+from ..utils import tooltip_style, link_style
 
 
 def emit_polyline(conv, elem, m, closed=False, css=None):
@@ -18,8 +19,11 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
     op   = opacity_pct(v['opacity'])
     fill_op = opacity_pct(v['fill_opacity'])
     stroke_op = opacity_pct(v['stroke_opacity'])
-    sw   = v['stroke_width']
+    sw   = v['stroke_width'] * stroke_scale(m)
     dash = v['dash_style']
+    tip  = tooltip_style(elem)
+    lnk  = link_style(conv)
+    filt = conv.defs.resolve_filter(v['filter'])
 
     if closed and fill != 'none':
         xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
@@ -36,8 +40,8 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
         cid = conv.next_id()
         conv.add(
             f'    <mxCell id="{cid}" value="" '
-            f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{dash}" '
-            f'vertex="1" parent="1">\n'
+            f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
+            f'vertex="1" parent="{conv.parent_id}">\n'
             f'      <mxGeometry x="{bx:.2f}" y="{by:.2f}" width="{bw:.2f}" height="{bh:.2f}" as="geometry"/>\n'
             f'    </mxCell>'
         )
@@ -51,8 +55,8 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
         conv.add(
             f'    <mxCell id="{cid}" value="" '
             f'style="startArrow={s_arrow};endArrow={e_arrow};html=1;'
-            f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}" '
-            f'edge="1" parent="1">\n'
+            f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
+            f'edge="1" parent="{conv.parent_id}">\n'
             f'      <mxGeometry relative="1" as="geometry">\n'
             f'        <mxPoint x="{src[0]:.2f}" y="{src[1]:.2f}" as="sourcePoint"/>\n'
             f'        <mxPoint x="{tgt[0]:.2f}" y="{tgt[1]:.2f}" as="targetPoint"/>\n'
@@ -60,3 +64,17 @@ def emit_polyline(conv, elem, m, closed=False, css=None):
             f'      </mxGeometry>\n'
             f'    </mxCell>'
         )
+
+        # Feature 14: marker-mid — emit small marker dots at intermediate waypoints
+        if v.get('marker_mid') and mid:
+            marker_size = 8
+            for px, py in mid:
+                mcid = conv.next_id()
+                conv.add(
+                    f'    <mxCell id="{mcid}" value="" '
+                    f'style="ellipse;fillColor={sc};strokeColor={sc};opacity={op};" '
+                    f'vertex="1" parent="{conv.parent_id}">\n'
+                    f'      <mxGeometry x="{px - marker_size/2:.2f}" y="{py - marker_size/2:.2f}" '
+                    f'width="{marker_size}" height="{marker_size}" as="geometry"/>\n'
+                    f'    </mxCell>'
+                )

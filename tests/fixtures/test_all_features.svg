@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 1400" width="840" height="1400">
+     viewBox="-10 -10 840 3600" width="840" height="3600">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -78,7 +78,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="1530" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="3600" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -441,4 +441,219 @@
   <path d="M 210 1275 L 270 1280 C 310 1285 320 1310 290 1320 L 210 1330 Z"
         fill="#e8daef" stroke="#8e44ad" stroke-width="2"/>
   <text x="218" y="1354" font-size="9" fill="#888">mixed filled</text>
+
+  <!-- ═══════════════════════════════════════════════════════
+       §10  NEW FEATURES (features 1-14)
+  ════════════════════════════════════════════════════════ -->
+  <text x="10" y="1390" font-size="13" font-weight="bold" fill="#444">10. New Features</text>
+  <line x1="10" y1="1396" x2="810" y2="1396" stroke="#ccc" stroke-width="1"/>
+
+  <!-- ─── Feature 1: display:none / visibility:hidden ─── -->
+  <text x="10" y="1420" font-size="11" font-weight="bold" fill="#666">F1: Hidden elements (should not appear in output)</text>
+  <!-- These two rects should NOT appear in output -->
+  <rect x="20" y="1430" width="80" height="40" fill="#ff0000" display="none"/>
+  <rect x="120" y="1430" width="80" height="40" fill="#ff0000" style="visibility:hidden"/>
+  <!-- This one should appear -->
+  <rect x="220" y="1430" width="160" height="40" fill="#4caf50" stroke="#388e3c" stroke-width="2"/>
+  <text x="240" y="1455" font-size="10" fill="#fff" text-anchor="middle">visible (hidden hidden)</text>
+
+  <!-- ─── Feature 2: currentColor ─── -->
+  <text x="10" y="1500" font-size="11" font-weight="bold" fill="#666">F2: currentColor</text>
+  <g style="color:#e91e63">
+    <circle cx="60" cy="1530" r="25" fill="currentColor"/>
+    <rect x="110" y="1510" width="60" height="40" fill="none" stroke="currentColor" stroke-width="3"/>
+    <text x="85" y="1575" font-size="9" fill="#888">currentColor (#e91e63)</text>
+  </g>
+
+  <!-- ─── Feature 3: title tooltip ─── -->
+  <text x="10" y="1610" font-size="11" font-weight="bold" fill="#666">F3: title tooltip</text>
+  <rect x="20" y="1620" width="160" height="50" fill="#9c27b0" stroke="#6a1b9a" stroke-width="2">
+    <title>This is a tooltip</title>
+  </rect>
+  <text x="40" y="1650" font-size="10" fill="#fff">hover for tooltip</text>
+
+  <!-- ─── Feature 4: CSS ID selectors ─── -->
+  <text x="10" y="1700" font-size="11" font-weight="bold" fill="#666">F4: CSS ID selector</text>
+  <style>
+    #special-rect { fill: #ff5722; stroke: #bf360c; stroke-width: 2; }
+  </style>
+  <rect id="special-rect" x="20" y="1710" width="160" height="50"/>
+  <text x="45" y="1740" font-size="9" fill="#fff">id=special-rect (CSS)</text>
+
+  <!-- ─── Feature 5: CSS descendant selectors ─── -->
+  <text x="10" y="1790" font-size="11" font-weight="bold" fill="#666">F5: CSS descendant selector</text>
+  <style>
+    g.highlight rect { fill: #ffd54f; stroke: #f57f17; stroke-width: 2; }
+  </style>
+  <g class="highlight">
+    <rect x="20" y="1800" width="160" height="50"/>
+    <text x="45" y="1830" font-size="9" fill="#555">g.highlight rect (CSS)</text>
+  </g>
+
+  <!-- ─── Feature 6: filter feDropShadow ─── -->
+  <text x="10" y="1880" font-size="11" font-weight="bold" fill="#666">F6: feDropShadow filter</text>
+  <defs>
+    <filter id="drop-shadow">
+      <feDropShadow dx="3" dy="3" stdDeviation="2" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect x="30" y="1895" width="140" height="50"
+        fill="#03a9f4" stroke="#0277bd" stroke-width="2"
+        filter="url(#drop-shadow)"/>
+  <text x="50" y="1920" font-size="9" fill="#fff">drop shadow</text>
+
+  <!-- ─── Feature 7: symbol + use ─── -->
+  <text x="10" y="1980" font-size="11" font-weight="bold" fill="#666">F7: symbol + use</text>
+  <defs>
+    <symbol id="star-icon" viewBox="0 0 20 20">
+      <polygon points="10,1 12.9,7 20,7.6 14.5,12.4 16.2,19.5 10,15.9 3.8,19.5 5.5,12.4 0,7.6 7.1,7"
+               fill="#ffeb3b" stroke="#f57f17" stroke-width="1"/>
+    </symbol>
+  </defs>
+  <use href="#star-icon" x="20" y="1990" width="40" height="40"/>
+  <use href="#star-icon" x="80" y="1990" width="40" height="40"/>
+  <use href="#star-icon" x="140" y="1990" width="40" height="40"/>
+  <text x="65" y="2045" font-size="9" fill="#888">symbol star x3</text>
+
+  <!-- ─── Feature 8: fill-rule evenodd ─── -->
+  <text x="10" y="2075" font-size="11" font-weight="bold" fill="#666">F8: fill-rule evenodd (donut)</text>
+  <!-- outer circle (CW): two half-arcs top→bottom, inner circle (CCW): opposite sweep -->
+  <path fill-rule="evenodd" fill="#3f51b5" stroke="#1a237e" stroke-width="2"
+        d="M 60 2105 A 50 50 0 1 0 60 2205 A 50 50 0 1 0 60 2105 Z
+           M 60 2135 A 20 20 0 1 1 60 2175 A 20 20 0 1 1 60 2135 Z"/>
+  <text x="30" y="2220" font-size="9" fill="#888">evenodd donut</text>
+
+  <!-- ─── Feature 9: gradientTransform ─── -->
+  <text x="10" y="2240" font-size="11" font-weight="bold" fill="#666">F9: gradientTransform rotate(90)</text>
+  <defs>
+    <linearGradient id="grad-rotated" x1="0" y1="0" x2="1" y2="0"
+                    gradientTransform="rotate(90)">
+      <stop offset="0%" stop-color="#ff9800"/>
+      <stop offset="100%" stop-color="#4caf50"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="2255" width="160" height="80" fill="url(#grad-rotated)" stroke="#555" stroke-width="1"/>
+  <text x="45" y="2350" font-size="9" fill="#888">top-to-bottom via gradientTransform</text>
+
+  <!-- ─── Feature 10: text-decoration ─── -->
+  <text x="10" y="2380" font-size="11" font-weight="bold" fill="#666">F10: text-decoration</text>
+  <text x="20" y="2410" font-size="16" fill="#2196f3" text-decoration="underline">Underlined text</text>
+  <text x="20" y="2440" font-size="16" fill="#f44336" text-decoration="line-through">Strikethrough text</text>
+
+  <!-- ─── Feature 11: <a> link ─── -->
+  <text x="10" y="2480" font-size="11" font-weight="bold" fill="#666">F11: anchor link</text>
+  <a href="https://example.com">
+    <rect x="20" y="2490" width="200" height="50" fill="#009688" stroke="#00695c" stroke-width="2"/>
+    <text x="70" y="2520" font-size="12" fill="#fff">click me (link)</text>
+  </a>
+
+  <!-- ─── Feature 12: <g> as draw.io container ─── -->
+  <text x="10" y="2570" font-size="11" font-weight="bold" fill="#666">F12: groups as draw.io containers</text>
+  <g id="group1">
+    <rect x="20" y="2580" width="80" height="50" fill="#e91e63" stroke="#880e4f" stroke-width="2"/>
+    <circle cx="150" cy="2605" r="25" fill="#9c27b0" stroke="#4a148c" stroke-width="2"/>
+    <rect x="200" y="2580" width="80" height="50" fill="#3f51b5" stroke="#1a237e" stroke-width="2"/>
+    <text x="60" y="2650" font-size="9" fill="#888">group container (3 shapes)</text>
+  </g>
+
+  <!-- ─── Feature 13: marker-mid ─── -->
+  <text x="10" y="2680" font-size="11" font-weight="bold" fill="#666">F13: marker-mid</text>
+  <defs>
+    <marker id="mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+      <circle cx="4" cy="4" r="3" fill="#ff5722"/>
+    </marker>
+  </defs>
+  <polyline points="20,2720 120,2700 220,2730 320,2700 420,2720"
+            fill="none" stroke="#795548" stroke-width="2"
+            marker-start="url(#dot-marker)"
+            marker-mid="url(#mid-dot)"
+            marker-end="url(#dot-marker)"/>
+  <text x="150" y="2750" font-size="9" fill="#888">marker-mid dots at waypoints</text>
+
+  <!-- ─── Feature 14: font-family ─── -->
+  <text x="10" y="2780" font-size="11" font-weight="bold" fill="#666">F14: font-family</text>
+  <text x="20"  y="2810" font-size="15" fill="#2c3e50" font-family="Georgia, serif">Georgia serif</text>
+  <text x="220" y="2810" font-size="15" fill="#2c3e50" font-family="Courier New, monospace">Courier monospace</text>
+  <text x="480" y="2810" font-size="15" fill="#2c3e50" font-family="Arial, sans-serif">Arial sans-serif</text>
+  <text x="20"  y="2840" font-size="11" fill="#888">font-family propagated to draw.io fontFamily style</text>
+
+  <!-- ─── Feature 15: hsl() color ─── -->
+  <text x="10" y="2870" font-size="11" font-weight="bold" fill="#666">F15: hsl() color</text>
+  <!-- hsl(120, 100%, 35%) = dark green; hsl(0, 80%, 50%) = red; hsl(240, 70%, 55%) = blue -->
+  <rect x="20"  y="2882" width="80" height="45" fill="hsl(120, 100%, 35%)" stroke="hsl(120, 100%, 20%)" stroke-width="2"/>
+  <text x="30"  y="2935" font-size="9" fill="#888">hsl green</text>
+  <rect x="130" y="2882" width="80" height="45" fill="hsl(0, 80%, 50%)"    stroke="hsl(0, 80%, 30%)"    stroke-width="2"/>
+  <text x="140" y="2935" font-size="9" fill="#888">hsl red</text>
+  <rect x="240" y="2882" width="80" height="45" fill="hsl(240, 70%, 55%)"  stroke="hsl(240, 70%, 35%)"  stroke-width="2"/>
+  <text x="248" y="2935" font-size="9" fill="#888">hsl blue</text>
+  <circle cx="390" cy="2905" r="22" fill="hsla(30, 100%, 50%, 0.7)" stroke="hsl(30, 100%, 30%)" stroke-width="2"/>
+  <text x="376" y="2935" font-size="9" fill="#888">hsla orange</text>
+
+  <!-- ─── Feature 16: stop-opacity in gradients ─── -->
+  <text x="10" y="2960" font-size="11" font-weight="bold" fill="#666">F16: stop-opacity in gradient</text>
+  <defs>
+    <!-- First stop fully opaque red, second stop semi-transparent (blended to white) -->
+    <linearGradient id="grad-stop-opacity" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#e53935" stop-opacity="1.0"/>
+      <stop offset="100%" stop-color="#1565c0" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="2972" width="200" height="55" fill="url(#grad-stop-opacity)" stroke="#555" stroke-width="1"/>
+  <text x="40" y="3040" font-size="9" fill="#888">stop-opacity: 1.0 → 0.3 (blended with white)</text>
+
+  <!-- ─── Feature 17: tspan with dy (multi-line text) ─── -->
+  <text x="10" y="3060" font-size="11" font-weight="bold" fill="#666">F17: tspan dy (multi-line)</text>
+  <text x="20" y="3082" font-size="13" fill="#333">
+    <tspan dy="0"  fill="#e53935">Line 1 (red)</tspan>
+    <tspan dy="18" fill="#1565c0" x="20">Line 2 (blue)</tspan>
+    <tspan dy="18" fill="#2e7d32" x="20">Line 3 (green)</tspan>
+  </text>
+  <text x="20" y="3150" font-size="9" fill="#888">each tspan with dy emitted as separate cell</text>
+
+  <!-- ─── Feature 18: marker-mid on open path ─── -->
+  <text x="10" y="3170" font-size="11" font-weight="bold" fill="#666">F18: marker-mid on &lt;path&gt;</text>
+  <defs>
+    <marker id="path-mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+      <circle cx="4" cy="4" r="3" fill="#e91e63"/>
+    </marker>
+  </defs>
+  <path d="M 20 3210 Q 120 3185 220 3210 Q 320 3235 420 3210"
+        fill="none" stroke="#9c27b0" stroke-width="2"
+        marker-start="url(#dot-marker)"
+        marker-mid="url(#path-mid-dot)"
+        marker-end="url(#dot-marker)"/>
+  <text x="160" y="3240" font-size="9" fill="#888">marker-mid dots on curved path</text>
+
+  <!-- ─── Feature 19: stroke-width scaling with transform ─── -->
+  <text x="10" y="3260" font-size="11" font-weight="bold" fill="#666">F19: stroke-width scaled by transform</text>
+  <!-- scale(2) doubles coordinates AND stroke width -->
+  <g transform="translate(20, 3278) scale(2)">
+    <rect x="0" y="0" width="60" height="35"
+          fill="#fff9c4" stroke="#f57f17" stroke-width="1"/>
+    <text x="4" y="48" font-size="6" fill="#888">sw×2</text>
+  </g>
+  <!-- reference: same rect without scale, stroke-width="2" -->
+  <rect x="180" y="3278" width="120" height="70"
+        fill="#fff9c4" stroke="#f57f17" stroke-width="2"/>
+  <text x="186" y="3358" font-size="9" fill="#888">same visual size, no transform</text>
+
+  <!-- ─── Feature 20: CSS inherit keyword ─── -->
+  <text x="10" y="3375" font-size="11" font-weight="bold" fill="#666">F20: CSS inherit keyword</text>
+  <style>
+    .inherit-test { fill: #7b1fa2; stroke: #4a148c; stroke-width: 2; }
+  </style>
+  <!-- child uses inherit — should keep parent's fill -->
+  <g class="inherit-test">
+    <rect x="20" y="3387" width="100" height="45" style="fill:inherit"/>
+    <text x="26" y="3415" font-size="9" fill="#fff">fill:inherit</text>
+  </g>
+  <text x="20" y="3443" font-size="9" fill="#888">child fill:inherit keeps parent purple fill</text>
+
+  <!-- ─── Feature 21: SVG length units (mm, pt) ─── -->
+  <text x="10" y="3463" font-size="11" font-weight="bold" fill="#666">F21: SVG length units (mm / pt)</text>
+  <!-- 20mm ≈ 75.6px, 15mm ≈ 56.7px -->
+  <rect x="20mm" y="3478" width="20mm" height="15mm"
+        fill="#4db6ac" stroke="#00695c" stroke-width="1.5pt"/>
+  <text x="20" y="3558" font-size="9" fill="#888">x=20mm w=20mm h=15mm sw=1.5pt → pixels</text>
+
 </svg>

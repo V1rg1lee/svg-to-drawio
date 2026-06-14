@@ -217,6 +217,175 @@ def path_points(d):
                 i += 1
 
 
+def sample_open_path(d):
+    """
+    Yield on-curve (x, y) points from an open SVG path for draw.io edge waypoints.
+    Unlike path_points, this yields actual points ON the curve (midpoints for bezier
+    segments), not off-curve control points.
+    """
+    def _cubic_mid(x0, y0, x1, y1, x2, y2, x3, y3):
+        return (0.125*x0 + 0.375*x1 + 0.375*x2 + 0.125*x3,
+                0.125*y0 + 0.375*y1 + 0.375*y2 + 0.125*y3)
+
+    tokens = tokenize_path(d)
+    i, cx, cy = 0, 0.0, 0.0
+    sx, sy = 0.0, 0.0
+    lc_x, lc_y = None, None
+
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok not in 'MmLlHhVvCcSsQqTtAaZz':
+            i += 1
+            continue
+        cmd, i = tok, i + 1
+
+        if cmd in 'Zz':
+            cx, cy = sx, sy
+            continue
+
+        while i < len(tokens) and tokens[i] not in 'MmLlHhVvCcSsQqTtAaZz':
+            try:
+                if cmd == 'M':
+                    cx, cy = float(tokens[i]), float(tokens[i+1])
+                    sx, sy = cx, cy
+                    yield cx, cy
+                    cmd = 'L'
+                    lc_x = lc_y = None
+                    i += 2
+                elif cmd == 'm':
+                    cx, cy = cx + float(tokens[i]), cy + float(tokens[i+1])
+                    sx, sy = cx, cy
+                    yield cx, cy
+                    cmd = 'l'
+                    lc_x = lc_y = None
+                    i += 2
+                elif cmd == 'L':
+                    cx, cy = float(tokens[i]), float(tokens[i+1])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 2
+                elif cmd == 'l':
+                    cx += float(tokens[i])
+                    cy += float(tokens[i+1])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 2
+                elif cmd == 'H':
+                    cx = float(tokens[i])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 1
+                elif cmd == 'h':
+                    cx += float(tokens[i])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 1
+                elif cmd == 'V':
+                    cy = float(tokens[i])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 1
+                elif cmd == 'v':
+                    cy += float(tokens[i])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 1
+                elif cmd == 'C':
+                    x1, y1 = float(tokens[i]), float(tokens[i+1])
+                    x2, y2 = float(tokens[i+2]), float(tokens[i+3])
+                    nx, ny = float(tokens[i+4]), float(tokens[i+5])
+                    yield _cubic_mid(cx, cy, x1, y1, x2, y2, nx, ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = x2, y2
+                    i += 6
+                elif cmd == 'c':
+                    x1, y1 = cx + float(tokens[i]), cy + float(tokens[i+1])
+                    x2, y2 = cx + float(tokens[i+2]), cy + float(tokens[i+3])
+                    nx, ny = cx + float(tokens[i+4]), cy + float(tokens[i+5])
+                    yield _cubic_mid(cx, cy, x1, y1, x2, y2, nx, ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = x2, y2
+                    i += 6
+                elif cmd == 'S':
+                    rx1 = 2*cx - lc_x if lc_x is not None else cx
+                    ry1 = 2*cy - lc_y if lc_y is not None else cy
+                    x2, y2 = float(tokens[i]), float(tokens[i+1])
+                    nx, ny = float(tokens[i+2]), float(tokens[i+3])
+                    yield _cubic_mid(cx, cy, rx1, ry1, x2, y2, nx, ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = x2, y2
+                    i += 4
+                elif cmd == 's':
+                    rx1 = 2*cx - lc_x if lc_x is not None else cx
+                    ry1 = 2*cy - lc_y if lc_y is not None else cy
+                    x2, y2 = cx + float(tokens[i]), cy + float(tokens[i+1])
+                    nx, ny = cx + float(tokens[i+2]), cy + float(tokens[i+3])
+                    yield _cubic_mid(cx, cy, rx1, ry1, x2, y2, nx, ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = x2, y2
+                    i += 4
+                elif cmd == 'Q':
+                    qx, qy = float(tokens[i]), float(tokens[i+1])
+                    nx, ny = float(tokens[i+2]), float(tokens[i+3])
+                    yield (0.25*cx + 0.5*qx + 0.25*nx, 0.25*cy + 0.5*qy + 0.25*ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = qx, qy
+                    i += 4
+                elif cmd == 'q':
+                    qx, qy = cx + float(tokens[i]), cy + float(tokens[i+1])
+                    nx, ny = cx + float(tokens[i+2]), cy + float(tokens[i+3])
+                    yield (0.25*cx + 0.5*qx + 0.25*nx, 0.25*cy + 0.5*qy + 0.25*ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = qx, qy
+                    i += 4
+                elif cmd == 'T':
+                    qx = 2*cx - lc_x if lc_x is not None else cx
+                    qy = 2*cy - lc_y if lc_y is not None else cy
+                    nx, ny = float(tokens[i]), float(tokens[i+1])
+                    yield (0.25*cx + 0.5*qx + 0.25*nx, 0.25*cy + 0.5*qy + 0.25*ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = qx, qy
+                    i += 2
+                elif cmd == 't':
+                    qx = 2*cx - lc_x if lc_x is not None else cx
+                    qy = 2*cy - lc_y if lc_y is not None else cy
+                    nx, ny = cx + float(tokens[i]), cy + float(tokens[i+1])
+                    yield (0.25*cx + 0.5*qx + 0.25*nx, 0.25*cy + 0.5*qy + 0.25*ny)
+                    cx, cy = nx, ny
+                    yield cx, cy
+                    lc_x, lc_y = qx, qy
+                    i += 2
+                elif cmd in 'Aa' and i + 6 < len(tokens):
+                    bx, by = cx, cy
+                    rx_a, ry_a = abs(float(tokens[i])), abs(float(tokens[i+1]))
+                    phi_a = float(tokens[i+2])
+                    la, sw = int(float(tokens[i+3])), int(float(tokens[i+4]))
+                    if cmd == 'A':
+                        cx, cy = float(tokens[i+5]), float(tokens[i+6])
+                    else:
+                        cx, cy = bx + float(tokens[i+5]), by + float(tokens[i+6])
+                    bzs = _arc_to_bezier(bx, by, rx_a, ry_a, phi_a, la, sw, cx, cy)
+                    if bzs:
+                        prev = (bx, by)
+                        for bz in bzs:
+                            yield _cubic_mid(prev[0], prev[1], bz[0], bz[1], bz[2], bz[3], bz[4], bz[5])
+                            prev = (bz[4], bz[5])
+                    yield cx, cy
+                    lc_x = lc_y = None
+                    i += 7
+                else:
+                    i += 1
+            except (IndexError, ValueError):
+                i += 1
+
+
 def path_commands(d, point_transform=None):
     """
     Parse SVG path data into draw.io-style commands with absolute coordinates.
@@ -438,18 +607,22 @@ def make_stencil_style_from_xml(xml, fill, stroke, sw, op):
     )
 
 
-def make_stencil_style_from_commands(commands, ox, oy, w, h, fill, stroke, sw, op):
+def make_stencil_style_from_commands(commands, ox, oy, w, h, fill, stroke, sw, op, fill_rule='nonzero'):
     """Build a draw.io stencil style string from transformed path commands."""
     sp = commands_to_stencil_path(commands, ox, oy, w, h)
     if not sp:
         return None
     # Path coordinates are normalized to 0..100, so the stencil view box must
     # use the same 100x100 logical space to avoid an extra size scale in draw.io.
+    if fill_rule == 'evenodd':
+        path_elem = f'<path fillrule="evenodd">{sp}</path>'
+    else:
+        path_elem = f'<path>{sp}</path>'
     xml = ('<shape w="100" h="100" aspect="variable" strokewidth="inherit">'
-           f'<background><path>{sp}</path><fillstroke/></background></shape>')
+           f'<background>{path_elem}<fillstroke/></background></shape>')
     return make_stencil_style_from_xml(xml, fill, stroke, sw, op)
 
 
-def make_stencil_style(d, ox, oy, w, h, fill, stroke, sw, op):
+def make_stencil_style(d, ox, oy, w, h, fill, stroke, sw, op, fill_rule='nonzero'):
     """Build a draw.io stencil style string from an SVG path."""
-    return make_stencil_style_from_commands(path_commands(d), ox, oy, w, h, fill, stroke, sw, op)
+    return make_stencil_style_from_commands(path_commands(d), ox, oy, w, h, fill, stroke, sw, op, fill_rule)
