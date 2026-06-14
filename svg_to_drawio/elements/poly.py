@@ -1,85 +1,82 @@
+"""Emitters for SVG polylines and polygons."""
+
+from __future__ import annotations
+
 import re
+from xml.etree.ElementTree import Element
 
-from ..transforms import apply_pt, stroke_scale
-from ..styles import get_visual, opacity_pct
+from ..cell_factory import make_box_vertex, make_edge
+from ..element_geometry import bounds_from_points
+from ..emitter_context import EmitterContext
 from ..path_utils import make_stencil_style_from_xml
-from ..utils import tooltip_style, link_style
+from ..style_builder import StyleBuilder
+from ..styles import get_visual, opacity_pct
+from ..transforms import Matrix, apply_pt, stroke_scale
+from .style_support import add_filter_styles, add_metadata_styles, emit_midpoint_markers
+
+_POINT_RE = re.compile(r"[-\d.eE+]+")
 
 
-def emit_polyline(conv, elem, m, closed=False, css=None):
-    v = get_visual(elem, css)
-    coords = re.findall(r'[-\d.eE+]+', elem.get('points', ''))
-    pts = [apply_pt(m, float(coords[i]), float(coords[i+1]))
-           for i in range(0, len(coords) - 1, 2)]
-    if len(pts) < 2:
+def emit_polyline(
+    ctx: EmitterContext,
+    elem: Element,
+    matrix: Matrix,
+    closed: bool = False,
+    css: dict[str, str] | None = None,
+) -> None:
+    """Emit an SVG `<polyline>` or `<polygon>`."""
+    visual = get_visual(elem, css)
+    coords = _POINT_RE.findall(elem.get("points", ""))
+    points = [apply_pt(matrix, float(coords[i]), float(coords[i + 1])) for i in range(0, len(coords) - 1, 2)]
+    if len(points) < 2:
         return
 
-    sc   = v['stroke'] or '#000000'
-    fill = v['fill']   or 'none'
-    op   = opacity_pct(v['opacity'])
-    fill_op = opacity_pct(v['fill_opacity'])
-    stroke_op = opacity_pct(v['stroke_opacity'])
-    sw   = v['stroke_width'] * stroke_scale(m)
-    dash = v['dash_style']
-    tip  = tooltip_style(elem)
-    lnk  = link_style(conv)
-    filt = conv.defs.resolve_filter(v['filter'])
-    lc = v['linecap']
-    lj = v['linejoin']
-    lc_style = f'lineCap={lc};' if lc != 'flat' else ''
-    lj_style = f'lineJoin={lj};' if lj != 'miter' else ''
+    stroke_color = visual["stroke"] or "#000000"
+    fill = visual["fill"] or "none"
+    opacity = opacity_pct(visual["opacity"])
+    fill_opacity = opacity_pct(visual["fill_opacity"])
+    stroke_opacity = opacity_pct(visual["stroke_opacity"])
+    stroke_width = visual["stroke_width"] * stroke_scale(matrix)
 
-    if closed and fill != 'none':
-        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-        bx, by = min(xs), min(ys)
-        bw = max(xs) - bx or 1; bh = max(ys) - by or 1
-        moves = [f'<move x="{(pts[0][0]-bx)/bw*100:.2f}" y="{(pts[0][1]-by)/bh*100:.2f}"/>']
-        moves += [f'<line x="{(px-bx)/bw*100:.2f}" y="{(py-by)/bh*100:.2f}"/>' for px, py in pts[1:]]
-        moves.append('<close/>')
-        xml = ('<shape w="100" h="100" aspect="variable" strokewidth="inherit">'
-               f'<background><path>{"".join(moves)}</path><fillstroke/></background></shape>')
-        style = make_stencil_style_from_xml(xml, fill, sc, sw, op)
-        if not style:
+    if closed and fill != "none":
+        box = bounds_from_points(points)
+        first_x = (points[0][0] - box.x) / box.width * 100
+        first_y = (points[0][1] - box.y) / box.height * 100
+        path_parts = [f'<move x="{first_x:.2f}" y="{first_y:.2f}"/>']
+        path_parts.extend(
+            f'<line x="{(px - box.x) / box.width * 100:.2f}" y="{(py - box.y) / box.height * 100:.2f}"/>'
+            for px, py in points[1:]
+        )
+        path_parts.append("<close/>")
+        xml = (
+            '<shape w="100" h="100" aspect="variable" strokewidth="inherit">'
+            f"<background><path>{''.join(path_parts)}</path><fillstroke/></background></shape>"
+        )
+        stencil_style = make_stencil_style_from_xml(xml, fill, stroke_color, stroke_width, opacity)
+        if not stencil_style:
             return
-        cid = conv.next_id()
-        conv.add(
-            f'    <mxCell id="{cid}" value="" '
-            f'style="{style}fillOpacity={fill_op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
-            f'vertex="1" parent="{conv.parent_id}">\n'
-            f'      <mxGeometry x="{bx:.2f}" y="{by:.2f}" width="{bw:.2f}" height="{bh:.2f}" as="geometry"/>\n'
-            f'    </mxCell>'
-        )
-    else:
-        s_arrow = conv.defs.resolve_marker(v['marker_start'])
-        e_arrow = conv.defs.resolve_marker(v['marker_end'])
-        src, *mid, tgt = pts
-        wp = ''.join(f'        <mxPoint x="{px:.2f}" y="{py:.2f}"/>\n' for px, py in mid)
-        wp_block = f'      <Array as="points">\n{wp}      </Array>\n' if mid else ''
-        rounded_style = 'rounded=1;' if lj == 'round' else 'rounded=0;'
-        cid = conv.next_id()
-        conv.add(
-            f'    <mxCell id="{cid}" value="" '
-            f'style="{rounded_style}{lc_style}{lj_style}startArrow={s_arrow};endArrow={e_arrow};html=1;'
-            f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
-            f'edge="1" parent="{conv.parent_id}">\n'
-            f'      <mxGeometry relative="1" as="geometry">\n'
-            f'        <mxPoint x="{src[0]:.2f}" y="{src[1]:.2f}" as="sourcePoint"/>\n'
-            f'        <mxPoint x="{tgt[0]:.2f}" y="{tgt[1]:.2f}" as="targetPoint"/>\n'
-            f'{wp_block}'
-            f'      </mxGeometry>\n'
-            f'    </mxCell>'
-        )
+        style = StyleBuilder().extend_raw(stencil_style)
+        style.add("fillOpacity", fill_opacity).add("strokeOpacity", stroke_opacity)
+        style.extend_raw(visual["dash_style"])
+        add_metadata_styles(style, elem, ctx)
+        add_filter_styles(style, ctx, visual["filter"])
+        ctx.add(make_box_vertex(ctx, style.build(), box))
+        return
 
-        # Feature 14: marker-mid - emit small marker dots at intermediate waypoints
-        if v.get('marker_mid') and mid:
-            marker_size = 8
-            for px, py in mid:
-                mcid = conv.next_id()
-                conv.add(
-                    f'    <mxCell id="{mcid}" value="" '
-                    f'style="ellipse;fillColor={sc};strokeColor={sc};opacity={op};" '
-                    f'vertex="1" parent="{conv.parent_id}">\n'
-                    f'      <mxGeometry x="{px - marker_size/2:.2f}" y="{py - marker_size/2:.2f}" '
-                    f'width="{marker_size}" height="{marker_size}" as="geometry"/>\n'
-                    f'    </mxCell>'
-                )
+    start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
+    end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
+    src, *mid, tgt = points
+    style = StyleBuilder()
+    style.add("rounded", 1 if visual["linejoin"] == "round" else 0)
+    style.add("lineCap", visual["linecap"], when=visual["linecap"] != "flat")
+    style.add("lineJoin", visual["linejoin"], when=visual["linejoin"] != "miter")
+    style.add("startArrow", start_arrow).add("endArrow", end_arrow).add("html", 1)
+    style.add("strokeColor", stroke_color).add("strokeWidth", stroke_width)
+    style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
+    style.extend_raw(visual["dash_style"])
+    add_metadata_styles(style, elem, ctx)
+    add_filter_styles(style, ctx, visual["filter"])
+    ctx.add(make_edge(ctx, style.build(), src, tgt, waypoints=mid))
+
+    if visual.get("marker_mid") and mid:
+        emit_midpoint_markers(ctx, mid, stroke_color, opacity)

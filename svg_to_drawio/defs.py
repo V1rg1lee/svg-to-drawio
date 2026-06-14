@@ -1,188 +1,229 @@
-import re
+"""Definition lookup helpers for gradients, markers, filters, and reusable SVG nodes."""
+
+from __future__ import annotations
+
 import math
+import re
+from typing import TypedDict
+from xml.etree.ElementTree import Element
 
-from .utils import strip_ns, parse_float, parse_style_attr
-from .styles import normalize_color
+from .styles import GradientStyle, normalize_color
+from .utils import parse_float, parse_style_attr, strip_ns
 
-# Heuristic mapping of common marker element IDs to draw.io arrow names
-_MARKER_ID_MAP = {
-    'arrow':     'block',
-    'arrowhead': 'block',
-    'triangle':  'block',
-    'circle':    'oval',
-    'dot':       'oval',
-    'diamond':   'diamond',
-    'open':      'open',
+# Heuristic mapping of common marker identifiers to draw.io arrow names.
+_MARKER_ID_MAP: dict[str, str] = {
+    "arrow": "block",
+    "arrowhead": "block",
+    "triangle": "block",
+    "circle": "oval",
+    "dot": "oval",
+    "diamond": "diamond",
+    "open": "open",
 }
 
 
-def _stop_color(stop_elem):
-    props = parse_style_attr(stop_elem.get('style', ''))
-    raw = props.get('stop-color') or stop_elem.get('stop-color', '#000000')
-    color = normalize_color(raw) or '#000000'
-    raw_opacity = props.get('stop-opacity') or stop_elem.get('stop-opacity', '1')
+class ShadowFilter(TypedDict):
+    """Normalized drop-shadow values that can be converted into draw.io styles."""
+
+    type: str
+    dx: float
+    dy: float
+    color: str
+    opacity: int
+
+
+def _stop_color(stop_elem: Element) -> str:
+    """Resolve a gradient stop color while folding stop opacity into the output color.
+
+    draw.io gradients only accept colors, not per-stop alpha values, so partially transparent
+    stops are blended against white to produce a stable fallback.
+    """
+    props = parse_style_attr(stop_elem.get("style", ""))
+    raw = props.get("stop-color") or stop_elem.get("stop-color", "#000000")
+    color = normalize_color(raw) or "#000000"
+    raw_opacity = props.get("stop-opacity") or stop_elem.get("stop-opacity", "1")
     alpha = max(0.0, min(1.0, parse_float(raw_opacity, 1.0)))
-    if alpha < 1.0 and color.startswith('#') and len(color) == 7:
-        r = int(color[1:3], 16)
-        g = int(color[3:5], 16)
-        b = int(color[5:7], 16)
-        r = round(r * alpha + 255 * (1 - alpha))
-        g = round(g * alpha + 255 * (1 - alpha))
-        b = round(b * alpha + 255 * (1 - alpha))
-        color = f'#{r:02x}{g:02x}{b:02x}'
+    if alpha < 1.0 and color.startswith("#") and len(color) == 7:
+        red = int(color[1:3], 16)
+        green = int(color[3:5], 16)
+        blue = int(color[5:7], 16)
+        red = round(red * alpha + 255 * (1 - alpha))
+        green = round(green * alpha + 255 * (1 - alpha))
+        blue = round(blue * alpha + 255 * (1 - alpha))
+        color = f"#{red:02x}{green:02x}{blue:02x}"
     return color
 
 
-def _parse_stops(elem):
-    stops = []
+def _parse_stops(elem: Element) -> list[tuple[float, str]]:
+    """Extract and sort gradient stops from a gradient element."""
+    stops: list[tuple[float, str]] = []
     for child in elem:
-        if strip_ns(child.tag) == 'stop':
-            offset = parse_float(child.get('offset', '0'))
+        if strip_ns(child.tag) == "stop":
+            offset = parse_float(child.get("offset", "0"))
             stops.append((offset, _stop_color(child)))
-    stops.sort(key=lambda x: x[0])
+    stops.sort(key=lambda stop: stop[0])
     return stops
 
 
 class DefsIndex:
-    """Indexes all <defs> content (gradients, markers, filters, reusable elements) for later lookup."""
+    """Index all reusable `<defs>` content for quick lookup during conversion."""
 
-    def __init__(self):
-        self._elements  = {}   # id -> element
-        self._gradients = {}   # id -> gradient dict
-        self._markers   = {}   # id -> draw.io arrow name
-        self._filters   = {}   # id -> filter dict
+    def __init__(self) -> None:
+        self._elements: dict[str, Element] = {}
+        self._gradients: dict[str, GradientStyle] = {}
+        self._markers: dict[str, str] = {}
+        self._filters: dict[str, ShadowFilter] = {}
 
-    # -- Indexing -------------------------------------------------------------
-
-    def index(self, svg_root):
+    def index(self, svg_root: Element) -> None:
+        """Scan an SVG tree and cache addressable `<defs>` resources by identifier."""
         for elem in svg_root.iter():
             tag = strip_ns(elem.tag)
-            eid = elem.get('id')
-            if eid:
-                self._elements[eid] = elem
-            if tag == 'linearGradient':
-                self._index_linear(elem, eid)
-            elif tag == 'radialGradient':
-                self._index_radial(elem, eid)
-            elif tag == 'marker':
-                self._index_marker(elem, eid)
-            elif tag == 'filter':
-                self._index_filter(elem, eid)
+            element_id = elem.get("id")
+            if element_id:
+                self._elements[element_id] = elem
+            if tag == "linearGradient":
+                self._index_linear(elem, element_id)
+            elif tag == "radialGradient":
+                self._index_radial(elem, element_id)
+            elif tag == "marker":
+                self._index_marker(elem, element_id)
+            elif tag == "filter":
+                self._index_filter(elem, element_id)
 
-    def _index_linear(self, elem, eid):
+    def _index_linear(self, elem: Element, element_id: str | None) -> None:
+        """Register a linear gradient in draw.io's reduced gradient model."""
         stops = _parse_stops(elem)
-        if not stops or not eid:
+        if not stops or not element_id:
             return
-        x1 = parse_float(elem.get('x1', '0'))
-        y1 = parse_float(elem.get('y1', '0'))
-        x2 = parse_float(elem.get('x2', '1'))
-        y2 = parse_float(elem.get('y2', '0'))
+
+        x1 = parse_float(elem.get("x1", "0"))
+        y1 = parse_float(elem.get("y1", "0"))
+        x2 = parse_float(elem.get("x2", "1"))
+        y2 = parse_float(elem.get("y2", "0"))
         dx, dy = x2 - x1, y2 - y1
-        direction = ('east' if dx >= 0 else 'west') if abs(dx) >= abs(dy) else ('south' if dy >= 0 else 'north')
+        direction = ("east" if dx >= 0 else "west") if abs(dx) >= abs(dy) else ("south" if dy >= 0 else "north")
 
-        # gradientTransform overrides the direction computed from x1/y1/x2/y2
-        gt = elem.get('gradientTransform', '')
-        if gt:
+        # A gradientTransform can rotate the gradient independently from the endpoints.
+        gradient_transform = elem.get("gradientTransform", "")
+        if gradient_transform:
             from .transforms import parse_transform
-            gm = parse_transform(gt)
-            angle = math.degrees(math.atan2(gm[1], gm[0]))
+
+            matrix = parse_transform(gradient_transform)
+            angle = math.degrees(math.atan2(matrix[1], matrix[0]))
             if -45 <= angle <= 45:
-                direction = 'east'
+                direction = "east"
             elif 45 < angle <= 135:
-                direction = 'south'
+                direction = "south"
             elif angle > 135 or angle < -135:
-                direction = 'west'
+                direction = "west"
             else:
-                direction = 'north'
+                direction = "north"
 
-        self._gradients[eid] = {
-            'color':     stops[0][1],
-            'color2':    stops[-1][1],
-            'direction': direction,
+        self._gradients[element_id] = {
+            "color": stops[0][1],
+            "color2": stops[-1][1],
+            "direction": direction,
         }
 
-    def _index_radial(self, elem, eid):
+    def _index_radial(self, elem: Element, element_id: str | None) -> None:
+        """Register a radial gradient using draw.io's radial gradient direction."""
         stops = _parse_stops(elem)
-        if not stops or not eid:
+        if not stops or not element_id:
             return
-        self._gradients[eid] = {
-            'color':  stops[0][1],
-            'color2': stops[-1][1],
-            'direction': 'radial',
+        self._gradients[element_id] = {
+            "color": stops[0][1],
+            "color2": stops[-1][1],
+            "direction": "radial",
         }
 
-    def _index_marker(self, elem, eid):
-        if not eid:
+    def _index_marker(self, elem: Element, element_id: str | None) -> None:
+        """Map an SVG marker to the closest built-in draw.io arrow shape."""
+        if not element_id:
             return
-        # Check heuristic ID mapping first
+
         for key, arrow in _MARKER_ID_MAP.items():
-            if key in eid.lower():
-                self._markers[eid] = arrow
+            if key in element_id.lower():
+                self._markers[element_id] = arrow
                 return
-        # Fall back to inspecting the marker's child shapes
+
         for child in elem.iter():
             tag = strip_ns(child.tag)
-            if tag == 'circle':
-                self._markers[eid] = 'oval'; return
-            if tag in ('polygon', 'path'):
-                self._markers[eid] = 'block'; return
-        self._markers[eid] = 'open'
-
-    def _index_filter(self, elem, eid):
-        if not eid:
-            return
-        for child in elem.iter():
-            ctag = strip_ns(child.tag)
-            if ctag == 'feDropShadow':
-                dx = parse_float(child.get('dx', '2'))
-                dy = parse_float(child.get('dy', '2'))
-                color = normalize_color(child.get('flood-color', '#000000')) or '#000000'
-                opacity = int(parse_float(child.get('flood-opacity', '0.5')) * 100)
-                self._filters[eid] = {
-                    'type':    'shadow',
-                    'dx':      dx,
-                    'dy':      dy,
-                    'color':   color,
-                    'opacity': opacity,
-                }
+            if tag == "circle":
+                self._markers[element_id] = "oval"
+                return
+            if tag in ("polygon", "path"):
+                self._markers[element_id] = "block"
                 return
 
-    # -- Resolution -----------------------------------------------------------
+        self._markers[element_id] = "open"
 
-    def get_element(self, ref_id):
+    def _index_filter(self, elem: Element, element_id: str | None) -> None:
+        """Cache supported SVG filter primitives as draw.io style fragments."""
+        if not element_id:
+            return
+
+        for child in elem.iter():
+            child_tag = strip_ns(child.tag)
+            if child_tag != "feDropShadow":
+                continue
+            dx = parse_float(child.get("dx", "2"))
+            dy = parse_float(child.get("dy", "2"))
+            color = normalize_color(child.get("flood-color", "#000000")) or "#000000"
+            opacity = int(parse_float(child.get("flood-opacity", "0.5")) * 100)
+            self._filters[element_id] = {
+                "type": "shadow",
+                "dx": dx,
+                "dy": dy,
+                "color": color,
+                "opacity": opacity,
+            }
+            return
+
+    def get_element(self, ref_id: str) -> Element | None:
+        """Return an indexed element by ID for `<use>` or other internal references."""
         return self._elements.get(ref_id)
 
-    def resolve_fill(self, fill_str):
-        """
-        If fill_str is url(#id), return (first-stop-color, gradient-dict).
-        Otherwise return (fill_str, None).
-        """
+    def resolve_fill(self, fill_str: str | None) -> tuple[str | None, GradientStyle | None]:
+        """Resolve `url(#id)` paint references into a fallback color plus gradient metadata."""
         if not fill_str:
             return fill_str, None
-        m = re.match(r'url\(#([^)]+)\)', fill_str or '')
-        if m:
-            grad = self._gradients.get(m.group(1))
-            if grad:
-                return grad['color'], grad
+
+        match = re.match(r"url\(#([^)]+)\)", fill_str)
+        if match:
+            gradient = self._gradients.get(match.group(1))
+            if gradient:
+                return gradient["color"], gradient
         return fill_str, None
 
-    def resolve_marker(self, marker_str):
-        """Return a draw.io arrow name for a marker-start/end value, or 'none'."""
+    def resolve_marker(self, marker_str: str | None) -> str:
+        """Return the nearest draw.io arrow name for an SVG marker reference."""
         if not marker_str:
-            return 'none'
-        m = re.match(r'url\(#([^)]+)\)', marker_str)
-        if m:
-            return self._markers.get(m.group(1), 'open')
-        return 'none'
+            return "none"
+        match = re.match(r"url\(#([^)]+)\)", marker_str)
+        if match:
+            return self._markers.get(match.group(1), "open")
+        return "none"
 
-    def resolve_filter(self, filter_str):
-        """Return draw.io style fragments for a filter attribute value."""
+    def resolve_filter_entries(self, filter_str: str | None) -> list[tuple[str, str | int]]:
+        """Convert a supported SVG filter reference into ordered draw.io style entries."""
         if not filter_str:
-            return ''
-        m = re.match(r'url\(#([^)]+)\)', filter_str or '')
-        if m:
-            f = self._filters.get(m.group(1))
-            if f and f['type'] == 'shadow':
-                return (f'shadow=1;shadowColor={f["color"]};shadowOpacity={f["opacity"]};'
-                        f'shadowOffsetX={f["dx"]:.0f};shadowOffsetY={f["dy"]:.0f};')
-        return ''
+            return []
+
+        match = re.match(r"url\(#([^)]+)\)", filter_str)
+        if not match:
+            return []
+
+        shadow = self._filters.get(match.group(1))
+        if shadow and shadow["type"] == "shadow":
+            return [
+                ("shadow", 1),
+                ("shadowColor", shadow["color"]),
+                ("shadowOpacity", shadow["opacity"]),
+                ("shadowOffsetX", f"{shadow['dx']:.0f}"),
+                ("shadowOffsetY", f"{shadow['dy']:.0f}"),
+            ]
+        return []
+
+    def resolve_filter(self, filter_str: str | None) -> str:
+        """Convert a supported SVG filter reference into draw.io style fragments."""
+        return "".join(f"{key}={value};" for key, value in self.resolve_filter_entries(filter_str))

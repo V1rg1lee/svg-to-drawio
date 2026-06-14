@@ -1,118 +1,151 @@
-import re
+"""Affine transform helpers for SVG coordinate conversion."""
+
+from __future__ import annotations
+
 import math
+import re
+from xml.etree.ElementTree import Element
 
-from .utils import parse_float
+from .utils import parse_length
 
-IDENTITY = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+Matrix = list[float]
+Point2D = tuple[float, float]
+
+IDENTITY: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
 
 
-def mat_mul(a, b):
+def mat_mul(left: Matrix, right: Matrix) -> Matrix:
+    """Multiply two 2D affine matrices represented as SVG-style six-tuples."""
     return [
-        a[0]*b[0] + a[2]*b[1],
-        a[1]*b[0] + a[3]*b[1],
-        a[0]*b[2] + a[2]*b[3],
-        a[1]*b[2] + a[3]*b[3],
-        a[0]*b[4] + a[2]*b[5] + a[4],
-        a[1]*b[4] + a[3]*b[5] + a[5],
+        left[0] * right[0] + left[2] * right[1],
+        left[1] * right[0] + left[3] * right[1],
+        left[0] * right[2] + left[2] * right[3],
+        left[1] * right[2] + left[3] * right[3],
+        left[0] * right[4] + left[2] * right[5] + left[4],
+        left[1] * right[4] + left[3] * right[5] + left[5],
     ]
 
 
-def apply_pt(m, x, y):
-    return m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]
+def apply_pt(matrix: Matrix, x: float, y: float) -> Point2D:
+    """Apply a 2D affine matrix to a point."""
+    return matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]
 
 
-def scale_x(m):
-    return math.sqrt(m[0]**2 + m[1]**2)
+def scale_x(matrix: Matrix) -> float:
+    """Return the effective horizontal scale factor encoded by a matrix."""
+    return math.sqrt(matrix[0] ** 2 + matrix[1] ** 2)
 
 
-def scale_y(m):
-    return math.sqrt(m[2]**2 + m[3]**2)
+def scale_y(matrix: Matrix) -> float:
+    """Return the effective vertical scale factor encoded by a matrix."""
+    return math.sqrt(matrix[2] ** 2 + matrix[3] ** 2)
 
 
-def stroke_scale(m):
-    """Geometric mean of x and y scale factors, for scaling stroke widths."""
-    return math.sqrt(scale_x(m) * scale_y(m))
+def stroke_scale(matrix: Matrix) -> float:
+    """Return a stable scale factor for stroke widths under non-uniform scaling."""
+    return math.sqrt(scale_x(matrix) * scale_y(matrix))
 
 
-def parse_transform(t):
-    if not t:
+def parse_transform(transform: str | None) -> Matrix:
+    """Parse an SVG `transform` attribute into a single affine matrix."""
+    if not transform:
         return IDENTITY[:]
+
     result = IDENTITY[:]
-    for match in re.finditer(r'(\w+)\(([^)]+)\)', t):
-        fn = match.group(1)
-        ns = [float(n) for n in re.findall(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', match.group(2))]
-        if fn == 'translate':
-            tx, ty = (ns + [0.0, 0.0])[:2]
-            mat = [1, 0, 0, 1, tx, ty]
-        elif fn == 'scale':
-            sx = ns[0] if ns else 1.0
-            sy = ns[1] if len(ns) > 1 else sx
-            mat = [sx, 0, 0, sy, 0, 0]
-        elif fn == 'rotate':
-            a = math.radians(ns[0]) if ns else 0.0
-            cx_r, cy_r = (ns + [0.0, 0.0, 0.0])[1:3]
-            ca, sa = math.cos(a), math.sin(a)
-            mat = [ca, sa, -sa, ca, cx_r - cx_r*ca + cy_r*sa, cy_r - cx_r*sa - cy_r*ca]
-        elif fn == 'skewX':
-            a = math.radians(ns[0]) if ns else 0.0
-            mat = [1, 0, math.tan(a), 1, 0, 0]
-        elif fn == 'skewY':
-            a = math.radians(ns[0]) if ns else 0.0
-            mat = [1, math.tan(a), 0, 1, 0, 0]
-        elif fn == 'matrix' and len(ns) >= 6:
-            mat = ns[:6]
+    for match in re.finditer(r"(\w+)\(([^)]+)\)", transform):
+        function_name = match.group(1)
+        numbers = [float(n) for n in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", match.group(2))]
+
+        if function_name == "translate":
+            tx, ty = (numbers + [0.0, 0.0])[:2]
+            matrix = [1.0, 0.0, 0.0, 1.0, tx, ty]
+        elif function_name == "scale":
+            sx = numbers[0] if numbers else 1.0
+            sy = numbers[1] if len(numbers) > 1 else sx
+            matrix = [sx, 0.0, 0.0, sy, 0.0, 0.0]
+        elif function_name == "rotate":
+            angle = math.radians(numbers[0]) if numbers else 0.0
+            cx, cy = (numbers + [0.0, 0.0, 0.0])[1:3]
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            matrix = [
+                cos_a,
+                sin_a,
+                -sin_a,
+                cos_a,
+                cx - cx * cos_a + cy * sin_a,
+                cy - cx * sin_a - cy * cos_a,
+            ]
+        elif function_name == "skewX":
+            angle = math.radians(numbers[0]) if numbers else 0.0
+            matrix = [1.0, 0.0, math.tan(angle), 1.0, 0.0, 0.0]
+        elif function_name == "skewY":
+            angle = math.radians(numbers[0]) if numbers else 0.0
+            matrix = [1.0, math.tan(angle), 0.0, 1.0, 0.0, 0.0]
+        elif function_name == "matrix" and len(numbers) >= 6:
+            matrix = numbers[:6]
         else:
             continue
-        result = mat_mul(result, mat)
+
+        result = mat_mul(result, matrix)
     return result
 
 
-def viewbox_transform(svg_root, override_w=None, override_h=None):
-    """Return a transform matrix that maps the SVG viewBox coordinate space to pixels.
+def viewbox_transform(
+    svg_root: Element,
+    override_w: float | None = None,
+    override_h: float | None = None,
+) -> Matrix:
+    """Return the matrix that maps an SVG viewBox into viewport pixels.
 
-    override_w / override_h: optional viewport dimensions (from a <use> element's
-    width/height attributes) that take precedence over the element's own width/height.
+    The *override_w* and *override_h* parameters are used when a `<symbol>` is rendered
+    through `<use width=... height=...>`, where the referenced element's own viewport size
+    should be replaced by the dimensions from the `<use>` instance.
     """
-    vb = svg_root.get('viewBox')
-    if not vb:
+    viewbox = svg_root.get("viewBox")
+    if not viewbox:
         return IDENTITY[:]
-    vals = [float(v) for v in re.split(r'[\s,]+', vb.strip()) if v]
-    if len(vals) < 4:
+
+    values = [float(value) for value in re.split(r"[\s,]+", viewbox.strip()) if value]
+    if len(values) < 4:
         return IDENTITY[:]
-    vb_x, vb_y, vb_w, vb_h = vals
+
+    vb_x, vb_y, vb_w, vb_h = values
     if vb_w == 0 or vb_h == 0:
         return IDENTITY[:]
+
     if override_w is not None:
-        w = override_w
+        width = override_w
     else:
-        w_str = svg_root.get('width', str(vb_w))
-        w = parse_float(re.sub(r'[a-zA-Z%]', '', w_str)) or vb_w
+        width_attr = svg_root.get("width", str(vb_w))
+        width = vb_w if str(width_attr).strip().endswith("%") else (parse_length(width_attr) or vb_w)
+
     if override_h is not None:
-        h = override_h
+        height = override_h
     else:
-        h_str = svg_root.get('height', str(vb_h))
-        h = parse_float(re.sub(r'[a-zA-Z%]', '', h_str)) or vb_h
-    sx = w / vb_w
-    sy = h / vb_h
+        height_attr = svg_root.get("height", str(vb_h))
+        height = vb_h if str(height_attr).strip().endswith("%") else (parse_length(height_attr) or vb_h)
 
-    par = (svg_root.get('preserveAspectRatio') or 'xMidYMid meet').strip().lower()
-    if 'none' in par:
-        return [sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy]
+    scale_width = width / vb_w
+    scale_height = height / vb_h
 
-    s = max(sx, sy) if 'slice' in par else min(sx, sy)
-    scaled_w = vb_w * s
-    scaled_h = vb_h * s
+    preserve_aspect_ratio = (svg_root.get("preserveAspectRatio") or "xMidYMid meet").strip().lower()
+    if "none" in preserve_aspect_ratio:
+        return [scale_width, 0.0, 0.0, scale_height, -vb_x * scale_width, -vb_y * scale_height]
 
-    tx = (-vb_x * s + (w - scaled_w) / 2)  # xMid default
-    if 'xmin' in par:
-        tx = -vb_x * s
-    elif 'xmax' in par:
-        tx = -vb_x * s + (w - scaled_w)
+    scale = max(scale_width, scale_height) if "slice" in preserve_aspect_ratio else min(scale_width, scale_height)
+    scaled_w = vb_w * scale
+    scaled_h = vb_h * scale
 
-    ty = (-vb_y * s + (h - scaled_h) / 2)  # yMid default
-    if 'ymin' in par:
-        ty = -vb_y * s
-    elif 'ymax' in par:
-        ty = -vb_y * s + (h - scaled_h)
+    tx = -vb_x * scale + (width - scaled_w) / 2
+    if "xmin" in preserve_aspect_ratio:
+        tx = -vb_x * scale
+    elif "xmax" in preserve_aspect_ratio:
+        tx = -vb_x * scale + (width - scaled_w)
 
-    return [s, 0.0, 0.0, s, tx, ty]
+    ty = -vb_y * scale + (height - scaled_h) / 2
+    if "ymin" in preserve_aspect_ratio:
+        ty = -vb_y * scale
+    elif "ymax" in preserve_aspect_ratio:
+        ty = -vb_y * scale + (height - scaled_h)
+
+    return [scale, 0.0, 0.0, scale, tx, ty]

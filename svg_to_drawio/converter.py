@@ -1,234 +1,267 @@
-import re
-import xml.etree.ElementTree as ET
-from os import path
+"""Main SVG-to-draw.io conversion orchestration."""
 
-from .css import apply_css, collect_css
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from collections.abc import Callable
+from os import PathLike, fspath, path
+from xml.etree.ElementTree import Element
+
+from .cell_factory import make_bounds_vertex
+from .css import AncestorInfo, CssRule, apply_css, collect_css, extract_custom_props
 from .defs import DefsIndex
+from .drawio_model import Cell, group_bbox, shift_cells
 from .drawio_output import make_xml
 from .elements.image import emit_image
 from .elements.path import emit_path
 from .elements.poly import emit_polyline
 from .elements.shapes import emit_circle, emit_ellipse, emit_line, emit_rect
 from .elements.text import emit_text
-from .transforms import mat_mul, parse_transform, viewbox_transform
+from .emitter_context import EmitterContext
+from .transforms import Matrix, mat_mul, parse_transform, viewbox_transform
 from .utils import parse_length, strip_ns
 
-# Group geometry helpers
-# In draw.io, group children use coordinates *relative* to the group's top-left.
-# These helpers extract bboxes from already-emitted cell strings and shift them.
-
-_GEOM_RE = re.compile(
-    r'<mxGeometry x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"'
+_SKIP_TAGS: frozenset[str] = frozenset(
+    {
+        "defs",
+        "title",
+        "desc",
+        "metadata",
+        "style",
+        "symbol",
+        "clipPath",
+        "mask",
+        "linearGradient",
+        "radialGradient",
+        "marker",
+        "pattern",
+        "filter",
+        "animate",
+        "animateTransform",
+    }
 )
-_POINT_RE = re.compile(r'<mxPoint x="([-\d.]+)" y="([-\d.]+)"')
+
+ElementEmitter = Callable[[EmitterContext, Element, Matrix, dict[str, str] | None], None]
 
 
-def _cell_bbox(xml):
-    """Return (x, y, w, h) from a vertex mxCell's mxGeometry, or None for edges."""
-    m = _GEOM_RE.search(xml)
-    return (float(m.group(1)), float(m.group(2)),
-            float(m.group(3)), float(m.group(4))) if m else None
+def _emit_open_polyline(
+    ctx: EmitterContext,
+    elem: Element,
+    matrix: Matrix,
+    css: dict[str, str] | None,
+) -> None:
+    """Dispatch a `<polyline>` element."""
+    emit_polyline(ctx, elem, matrix, closed=False, css=css)
 
 
-def _shift_cell(xml, dx, dy):
-    """Subtract (dx, dy) from all geometry/point coordinates in a mxCell string."""
-    if dx == 0.0 and dy == 0.0:
-        return xml
+def _emit_closed_polygon(
+    ctx: EmitterContext,
+    elem: Element,
+    matrix: Matrix,
+    css: dict[str, str] | None,
+) -> None:
+    """Dispatch a `<polygon>` element."""
+    emit_polyline(ctx, elem, matrix, closed=True, css=css)
 
-    def adj_geom(m):
-        return (f'<mxGeometry x="{float(m.group(1)) - dx:.2f}"'
-                f' y="{float(m.group(2)) - dy:.2f}"'
-                f' width="{m.group(3)}" height="{m.group(4)}"')
 
-    def adj_point(m):
-        return (f'<mxPoint x="{float(m.group(1)) - dx:.2f}"'
-                f' y="{float(m.group(2)) - dy:.2f}"')
-
-    return _POINT_RE.sub(adj_point, _GEOM_RE.sub(adj_geom, xml))
-
-_SKIP_TAGS = frozenset({
-    'defs', 'title', 'desc', 'metadata', 'style', 'symbol',
-    'clipPath', 'mask', 'linearGradient', 'radialGradient',
-    'marker', 'pattern', 'filter', 'animate', 'animateTransform',
-})
-
-_DISPATCH = {
-    'line':     emit_line,
-    'circle':   emit_circle,
-    'ellipse':  emit_ellipse,
-    'rect':     emit_rect,
-    'text':     emit_text,
-    'polyline': lambda c, e, m, css: emit_polyline(c, e, m, closed=False, css=css),
-    'polygon':  lambda c, e, m, css: emit_polyline(c, e, m, closed=True,  css=css),
-    'path':     emit_path,
-    'image':    emit_image,
+_DISPATCH: dict[str, ElementEmitter] = {
+    "line": emit_line,
+    "circle": emit_circle,
+    "ellipse": emit_ellipse,
+    "rect": emit_rect,
+    "text": emit_text,
+    "polyline": _emit_open_polyline,
+    "polygon": _emit_closed_polygon,
+    "path": emit_path,
+    "image": emit_image,
 }
 
 
 class Converter:
-    def __init__(self):
+    """Convert SVG files into draw.io XML by walking the SVG element tree."""
+
+    def __init__(self) -> None:
         self.reset()
 
-    def reset(self):
-        self._id = 2
-        self.cells = []
+    def reset(self) -> None:
+        """Reset all per-file conversion state."""
+        self._id: int = 2
+        self.cells: list[Cell] = []
         self.defs = DefsIndex()
-        self._parent_id = '1'
-        self._link_url = ''
-        self.source_dir = ''
-        self.css_rules = {}
+        self.source_dir: str = ""
+        self.css_rules: list[CssRule] = []
+        self._custom_props: dict[str, str] = {}
 
-    @property
-    def parent_id(self):
-        return self._parent_id
-
-    def next_id(self):
-        cid = str(self._id)
+    def next_id(self) -> str:
+        """Return the next unique draw.io cell identifier."""
+        cell_id = str(self._id)
         self._id += 1
-        return cid
+        return cell_id
 
-    def add(self, xml):
-        self.cells.append(xml)
+    def _make_context(self) -> EmitterContext:
+        """Create the root emitter context for the current conversion run."""
+        return EmitterContext(
+            defs=self.defs,
+            parent_id="1",
+            link_url="",
+            source_dir=self.source_dir,
+            css_rules=self.css_rules,
+            custom_props=self._custom_props,
+            add_cell=self.cells.append,
+            next_id_callback=self.next_id,
+        )
 
-    def convert_file(self, svg_path, out_path=None):
+    def convert_file(
+        self,
+        svg_path: str | PathLike[str],
+        out_path: str | PathLike[str] | None = None,
+    ) -> str:
+        """Convert one SVG file into a `.drawio` file and return the output path."""
         self.reset()
-        tree = ET.parse(svg_path)
+
+        svg_path_str = fspath(svg_path)
+        tree = ET.parse(svg_path_str)
         root = tree.getroot()
-        self.source_dir = path.dirname(path.abspath(svg_path))
+        self.source_dir = path.dirname(path.abspath(svg_path_str))
 
         self.defs.index(root)
         self.css_rules = collect_css(root)
-        css_rules = self.css_rules
-        root_m = viewbox_transform(root)
+        self._custom_props = extract_custom_props(self.css_rules)
+        root_matrix = viewbox_transform(root)
+        context = self._make_context()
 
-        title = path.splitext(path.basename(svg_path))[0]
+        title = path.splitext(path.basename(svg_path_str))[0]
         for child in root:
-            self._convert(child, root_m, css_rules, {}, ancestors=[])
+            self._convert(child, context, root_matrix, {}, ancestors=[])
 
         xml = make_xml(self.cells, title)
-        if out_path is None:
-            out_path = path.splitext(svg_path)[0] + '.drawio'
-        with open(out_path, 'w', encoding='utf-8') as f:
-            f.write(xml)
-        return out_path
+        output_path = fspath(out_path) if out_path is not None else path.splitext(svg_path_str)[0] + ".drawio"
+        with open(output_path, "w", encoding="utf-8") as handle:
+            handle.write(xml)
+        return output_path
 
-    def _convert(self, elem, parent_m, css_rules, inherited_css, ancestors=None):
-        if ancestors is None:
-            ancestors = []
+    def _convert(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        parent_matrix: Matrix,
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo] | None = None,
+    ) -> None:
+        """Convert a single SVG element and recurse into its children when needed."""
+        ancestor_list = list(ancestors or [])
         tag = strip_ns(elem.tag)
         if tag in _SKIP_TAGS:
             return
 
-        m = mat_mul(parent_m, parse_transform(elem.get('transform')))
-        css = apply_css(elem, css_rules, tag, inherited_css, ancestors=ancestors)
+        matrix = mat_mul(parent_matrix, parse_transform(elem.get("transform")))
+        css = apply_css(elem, ctx.css_rules, tag, inherited_css, ancestors=ancestor_list, custom_props=ctx.custom_props)
 
-        # Feature 1: skip hidden elements (check both CSS and SVG presentation attributes)
-        display_val = css.get('display') or elem.get('display') or ''
-        visibility_val = css.get('visibility') or elem.get('visibility') or ''
-        if display_val == 'none' or visibility_val == 'hidden':
+        display_value = css.get("display") or elem.get("display") or ""
+        visibility_value = css.get("visibility") or elem.get("visibility") or ""
+        if display_value == "none" or visibility_value == "hidden":
             return
 
-        # ancestors is a list of (tag, classes_set) tuples for descendant selector matching
-        elem_classes = set((elem.get('class') or '').split())
-        child_ancestors = ancestors + [(tag, elem_classes)]
+        elem_classes = set((elem.get("class") or "").split())
+        child_ancestors = ancestor_list + [(tag, elem_classes)]
 
-        if tag == 'g':
-            # <g> as draw.io container group.
-            # draw.io requires: group cell has explicit canvas bbox; children use
-            # coordinates *relative* to the group's top-left corner.
-            group_id = self.next_id()
-            start = len(self.cells)
-
-            prev_parent = self._parent_id
-            self._parent_id = group_id
+        if tag == "g":
+            self._convert_group(elem, ctx, matrix, css, child_ancestors)
+        elif tag == "a":
+            self._convert_link(elem, ctx, matrix, css, child_ancestors)
+        elif tag == "use":
+            self._resolve_use(elem, ctx, matrix, css, child_ancestors)
+        elif tag == "svg":
+            inner_matrix = mat_mul(matrix, viewbox_transform(elem))
             for child in elem:
-                self._convert(child, m, css_rules, css, ancestors=child_ancestors)
-            self._parent_id = prev_parent
-
-            # Collect and remove newly added cells
-            new_cells = list(self.cells[start:])
-            del self.cells[start:]
-
-            # Compute group bbox from direct children - include both vertex geometries
-            # and edge mxPoint coordinates so edge-only groups get a valid bbox.
-            parent_marker = f'parent="{group_id}"'
-            all_pts = []
-            for c in new_cells:
-                if parent_marker not in c:
-                    continue
-                b = _cell_bbox(c)
-                if b:
-                    all_pts += [(b[0], b[1]), (b[0] + b[2], b[1] + b[3])]
-                else:
-                    for mp in _POINT_RE.finditer(c):
-                        all_pts.append((float(mp.group(1)), float(mp.group(2))))
-            if all_pts:
-                gx = min(p[0] for p in all_pts)
-                gy = min(p[1] for p in all_pts)
-                gw = max(p[0] for p in all_pts) - gx or 1.0
-                gh = max(p[1] for p in all_pts) - gy or 1.0
-            else:
-                gx, gy, gw, gh = 0.0, 0.0, 1.0, 1.0
-
-            # Emit group cell with its canvas bbox
-            self.cells.append(
-                f'    <mxCell id="{group_id}" value="" style="group;" '
-                f'vertex="1" parent="{prev_parent}">\n'
-                f'      <mxGeometry x="{gx:.2f}" y="{gy:.2f}" '
-                f'width="{gw:.2f}" height="{gh:.2f}" as="geometry"/>\n'
-                f'    </mxCell>'
-            )
-
-            # Emit children: direct children get coordinates relative to group
-            for c in new_cells:
-                if parent_marker in c:
-                    c = _shift_cell(c, gx, gy)
-                self.cells.append(c)
-
-        elif tag == 'a':
-            # Feature 12: <a> links
-            href = (elem.get('href') or
-                    elem.get('{http://www.w3.org/1999/xlink}href') or '')
-            prev_link = self._link_url
-            self._link_url = href or prev_link
-            for child in elem:
-                self._convert(child, m, css_rules, css, ancestors=child_ancestors)
-            self._link_url = prev_link
-
-        elif tag == 'use':
-            self._resolve_use(elem, m, css_rules, css, ancestors=child_ancestors)
-
-        elif tag == 'svg':
-            # Nested <svg> with its own viewBox
-            inner_m = mat_mul(m, viewbox_transform(elem))
-            for child in elem:
-                self._convert(child, inner_m, css_rules, css, ancestors=child_ancestors)
-
+                self._convert(child, ctx, inner_matrix, css, ancestors=child_ancestors)
         elif tag in _DISPATCH:
-            _DISPATCH[tag](self, elem, m, css)
+            _DISPATCH[tag](ctx, elem, matrix, css)
 
-    def _resolve_use(self, elem, m, css_rules, inherited_css, ancestors=None):
-        href = (elem.get('href') or
-                elem.get('{http://www.w3.org/1999/xlink}href') or '')
-        if not href.startswith('#'):
+    def _convert_group(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        matrix: Matrix,
+        css: dict[str, str],
+        ancestors: list[AncestorInfo],
+    ) -> None:
+        """Render an SVG group as a draw.io container with relative child coordinates."""
+        group_id = ctx.next_id()
+        start_index = len(self.cells)
+
+        group_ctx = ctx.with_parent(group_id)
+        for child in elem:
+            self._convert(child, group_ctx, matrix, css, ancestors=ancestors)
+
+        new_cells = list(self.cells[start_index:])
+        del self.cells[start_index:]
+
+        direct_children = [cell for cell in new_cells if cell.parent == group_id]
+        gx, gy, gw, gh = group_bbox(direct_children)
+
+        self.cells.append(
+            make_bounds_vertex(
+                ctx,
+                "group;",
+                gx,
+                gy,
+                gw,
+                gh,
+                cell_id=group_id,
+            )
+        )
+
+        shift_cells(direct_children, gx, gy)
+        self.cells.extend(new_cells)
+
+    def _convert_link(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        matrix: Matrix,
+        css: dict[str, str],
+        ancestors: list[AncestorInfo],
+    ) -> None:
+        """Propagate the current `<a>` link target to all nested drawable children."""
+        href = elem.get("href") or elem.get("{http://www.w3.org/1999/xlink}href") or ""
+        link_ctx = ctx.with_link(href or ctx.link_url)
+        for child in elem:
+            self._convert(child, link_ctx, matrix, css, ancestors=ancestors)
+
+    def _resolve_use(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        matrix: Matrix,
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo] | None = None,
+    ) -> None:
+        """Resolve and render the target of a `<use>` element."""
+        href = elem.get("href") or elem.get("{http://www.w3.org/1999/xlink}href") or ""
+        if not href.startswith("#"):
             return
+
         ref_elem = self.defs.get_element(href[1:])
         if ref_elem is None:
             return
 
-        ux = parse_length(elem.get('x', '0'))
-        uy = parse_length(elem.get('y', '0'))
-        use_translate = [1, 0, 0, 1, ux, uy]
+        use_x = parse_length(elem.get("x", "0"))
+        use_y = parse_length(elem.get("y", "0"))
+        use_translate: Matrix = [1.0, 0.0, 0.0, 1.0, use_x, use_y]
 
         ref_tag = strip_ns(ref_elem.tag)
-        if ref_tag == 'symbol':
-            # Feature 8: symbol rendering
-            uw = parse_length(elem.get('width', '0')) or None
-            uh = parse_length(elem.get('height', '0')) or None
-            symbol_m = mat_mul(m, use_translate)
-            inner_m = mat_mul(symbol_m, viewbox_transform(ref_elem, override_w=uw, override_h=uh))
+        if ref_tag == "symbol":
+            use_width = parse_length(elem.get("width", "0")) or None
+            use_height = parse_length(elem.get("height", "0")) or None
+            symbol_matrix = mat_mul(matrix, use_translate)
+            inner_matrix = mat_mul(
+                symbol_matrix,
+                viewbox_transform(ref_elem, override_w=use_width, override_h=use_height),
+            )
             for child in ref_elem:
-                self._convert(child, inner_m, css_rules, inherited_css, ancestors=ancestors)
-        else:
-            use_m = mat_mul(m, use_translate)
-            self._convert(ref_elem, use_m, css_rules, inherited_css, ancestors=ancestors)
+                self._convert(child, ctx, inner_matrix, inherited_css, ancestors=ancestors or [])
+            return
+
+        use_matrix = mat_mul(matrix, use_translate)
+        self._convert(ref_elem, ctx, use_matrix, inherited_css, ancestors=ancestors or [])

@@ -1,0 +1,50 @@
+default_stages:
+  - pre-commit
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args:
+          - --maxkb=2048
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix main.py svg_to_drawio tests
+        language: python
+        additional_dependencies:
+          - ruff==0.15.17
+        pass_filenames: false
+        always_run: true
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format main.py svg_to_drawio tests
+        language: python
+        additional_dependencies:
+          - ruff==0.15.17
+        pass_filenames: false
+        always_run: true
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: python
+        additional_dependencies:
+          - mypy==2.1.0
+        pass_filenames: false
+        always_run: true
+      - id: unit-tests
+        name: unit tests
+        entry: python -m unittest discover -s tests -v
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-push
+          - manual

@@ -1,249 +1,293 @@
+"""CSS parsing and cascade helpers used during SVG conversion."""
+
+from __future__ import annotations
+
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
+from xml.etree.ElementTree import Element
 
 from .utils import parse_float, parse_length, parse_style_attr, strip_ns
 
+Specificity = tuple[int, int, int]
+AncestorInfo = tuple[str, set[str]]
 
-# CSS custom properties (var())
 
-def _extract_custom_props(css_rules):
-    """Collect CSS custom properties (--name) from :root / html / * rules."""
-    custom = {}
-    for sel, props in css_rules.items():
-        if sel.strip() in (':root', 'html', '*'):
-            custom.update({k: v for k, v in props.items() if k.startswith('--')})
+@dataclass
+class CssRule:
+    """A parsed stylesheet rule with selector metadata for cascade resolution."""
+
+    selector: str
+    props: dict[str, str]
+    specificity: Specificity
+    order: int
+
+
+def extract_custom_props(css_rules: Sequence[CssRule]) -> dict[str, str]:
+    """Collect CSS custom properties declared on global selectors.
+
+    Pre-compute this once per document and pass it to every `apply_css` call
+    to avoid O(R × N) rescanning of the rule list for each element.
+    """
+    custom: dict[str, str] = {}
+    for rule in css_rules:
+        if rule.selector.strip() in (":root", "html", "*"):
+            custom.update({key: value for key, value in rule.props.items() if key.startswith("--")})
     return custom
 
 
-def _resolve_vars(value, custom_props):
-    """Replace var(--name, fallback) with resolved values from custom_props."""
-    if not custom_props or 'var(' not in str(value):
+def _resolve_vars(value: str, custom_props: dict[str, str]) -> str:
+    """Resolve `var(--name, fallback)` expressions using the collected custom properties."""
+    if not custom_props or "var(" not in value:
         return value
 
-    def _sub(match):
+    def replace_var(match: re.Match[str]) -> str:
         name = match.group(1).strip()
-        fallback = (match.group(2) or '').strip()
+        fallback = (match.group(2) or "").strip()
         return custom_props.get(name, fallback)
 
-    return re.sub(r'var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\s*\)', _sub, str(value))
+    return re.sub(r"var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\s*\)", replace_var, value)
 
 
-# Font-size em/rem/% resolution
-
-def _resolve_font_size(val, parent_px=12.0):
-    """Resolve a CSS font-size value to pixels, supporting em / rem / %."""
-    s = str(val).strip()
-    if s.endswith('rem'):
-        return parse_float(s[:-3]) * 16.0
-    if s.endswith('em'):
-        return parse_float(s[:-2]) * parent_px
-    if s.endswith('%'):
-        return parse_float(s[:-1]) / 100.0 * parent_px
-    return parse_length(s, parent_px)
+def _resolve_font_size(value: str, parent_px: float = 12.0) -> float:
+    """Resolve a CSS font size into pixels, including relative units."""
+    text = str(value).strip()
+    if text.endswith("rem"):
+        return parse_float(text[:-3]) * 16.0
+    if text.endswith("em"):
+        return parse_float(text[:-2]) * parent_px
+    if text.endswith("%"):
+        return parse_float(text[:-1]) / 100.0 * parent_px
+    return parse_length(text, parent_px)
 
 
-# Selector matching
+def _match_type_selector(selector: str, tag: str) -> tuple[bool, str]:
+    """Match the type component (tag name, universal, :root) of a simple selector.
 
-def _match_simple_sel(sel, tag, elem_id, elem_classes, elem):
+    Returns ``(matched, remaining)`` where *remaining* is the unparsed suffix.
     """
-    Match a simple CSS selector (no combinators) against an element.
-    Handles tag, .cls, #id, [attr], [attr=val] and combinations thereof.
-    """
-    s = sel.strip()
-    if not s or s == '*':
-        return True
+    remainder = selector.strip()
+    if not remainder or remainder == "*":
+        return True, ""
+    if remainder == ":root":
+        return tag == "svg", ""
+    tag_match = re.match(r"^([a-zA-Z][a-zA-Z0-9-]*)", remainder)
+    if tag_match:
+        if tag_match.group(1) != tag:
+            return False, remainder
+        remainder = remainder[tag_match.end() :]
+    return True, remainder
 
-    tm = re.match(r'^([a-zA-Z][a-zA-Z0-9-]*)', s)
-    if tm:
-        if tm.group(1) != tag:
-            return False
-        s = s[tm.end():]
 
-    while s:
-        if s[0] == '.':
-            m = re.match(r'^\.([\w-]+)', s)
-            if not m or m.group(1) not in elem_classes:
+def _match_simple_sel(
+    selector: str,
+    tag: str,
+    elem_id: str,
+    elem_classes: set[str],
+    elem: Element,
+) -> bool:
+    """Match a simple selector without combinators against an element."""
+    ok, remainder = _match_type_selector(selector, tag)
+    if not ok:
+        return False
+
+    while remainder:
+        if remainder[0] == ".":
+            match = re.match(r"^\.([\w-]+)", remainder)
+            if not match or match.group(1) not in elem_classes:
                 return False
-            s = s[m.end():]
-        elif s[0] == '#':
-            m = re.match(r'^#([\w-]+)', s)
-            if not m or m.group(1) != elem_id:
+            remainder = remainder[match.end() :]
+        elif remainder[0] == "#":
+            match = re.match(r"^#([\w-]+)", remainder)
+            if not match or match.group(1) != elem_id:
                 return False
-            s = s[m.end():]
-        elif s[0] == '[':
-            end = s.find(']')
+            remainder = remainder[match.end() :]
+        elif remainder[0] == "[":
+            end = remainder.find("]")
             if end < 0:
                 return False
-            cond = s[:end + 1]
-            m = re.match(r'^\[([^\]~|^$*=]+?)(?:([~|^$*]?=)"?([^"\]]*)"?)?\]$', cond)
-            if not m:
+            condition = remainder[: end + 1]
+            match = re.match(r'^\[([^\]~|^$*=]+?)(?:([~|^$*]?=)"?([^"\]]*)"?)?\]$', condition)
+            if not match:
                 return False
-            attr_name, op, req = m.group(1).strip(), m.group(2) or '', m.group(3) or ''
-            ev = elem.get(attr_name)
-            if ev is None:
+            attr_name, operator, required = match.group(1).strip(), match.group(2) or "", match.group(3) or ""
+            elem_value = elem.get(attr_name)
+            if elem_value is None:
                 return False
-            if op == '=' and ev != req:
+            if operator == "=" and elem_value != required:
                 return False
-            if op == '~=' and req not in ev.split():
+            if operator == "~=" and required not in elem_value.split():
                 return False
-            if op == '^=' and not ev.startswith(req):
+            if operator == "^=" and not elem_value.startswith(required):
                 return False
-            if op == '$=' and not ev.endswith(req):
+            if operator == "$=" and not elem_value.endswith(required):
                 return False
-            if op == '*=' and req not in ev:
+            if operator == "*=" and required not in elem_value:
                 return False
-            s = s[end + 1:]
+            remainder = remainder[end + 1 :]
         else:
             return False
     return True
 
 
-def _match_ancestor_sel(sel, anc_tag, anc_classes):
-    """Match a simple ancestor selector (tag and .cls qualifiers only)."""
-    s = sel.strip()
-    if not s or s == '*':
-        return True
-
-    tm = re.match(r'^([a-zA-Z][a-zA-Z0-9-]*)', s)
-    if tm:
-        if tm.group(1) != anc_tag:
+def _match_ancestor_sel(selector: str, ancestor_tag: str, ancestor_classes: set[str]) -> bool:
+    """Match a simplified ancestor selector used in descendant and child combinators."""
+    ok, remainder = _match_type_selector(selector, ancestor_tag)
+    if not ok:
+        return False
+    while remainder:
+        if remainder[0] != ".":
             return False
-        s = s[tm.end():]
-
-    while s:
-        if s[0] == '.':
-            m = re.match(r'^\.([\w-]+)', s)
-            if not m or m.group(1) not in anc_classes:
-                return False
-            s = s[m.end():]
-        else:
+        match = re.match(r"^\.([\w-]+)", remainder)
+        if not match or match.group(1) not in ancestor_classes:
             return False
+        remainder = remainder[match.end() :]
     return True
 
 
-def _is_simple_sel(sel):
-    """True if selector is a pure simple selector handled by basic apply_css steps."""
-    return bool(
-        re.match(r'^[a-zA-Z][a-zA-Z0-9-]*$', sel) or
-        re.match(r'^#[\w-]+$', sel) or
-        re.match(r'^\.[\w-]+$', sel) or
-        re.match(r'^[a-zA-Z][a-zA-Z0-9-]*\.[\w-]+$', sel)
-    )
+def _selector_matches(
+    selector: str,
+    tag: str,
+    elem_id: str,
+    elem_classes: set[str],
+    elem: Element,
+    ancestors: Sequence[AncestorInfo],
+) -> bool:
+    """Return whether a selector matches an element within its ancestor context."""
+    selector = selector.strip()
+    if not selector:
+        return False
 
+    has_child_combinator = ">" in selector
+    has_descendant_combinator = " " in selector and not has_child_combinator
 
-def _apply_complex_sel(sel, props, tag, elem_id, elem_classes, elem, anc_list, merge_fn):
-    """
-    Match complex CSS selectors and call merge_fn if matched.
-    Handles: multi-class (.a.b), attribute ([attr=val]), child (A > B),
-    descendant (A B), and combinations.
-    """
-    if _is_simple_sel(sel):
-        return
+    if not has_child_combinator and not has_descendant_combinator:
+        return _match_simple_sel(selector, tag, elem_id, elem_classes, elem)
 
-    has_child_comb = ' > ' in sel
-    has_space = ' ' in sel and not has_child_comb
-
-    # No combinator: simple selector with extra qualifiers (multi-class, attr, etc.)
-    if not has_child_comb and not has_space:
-        if _match_simple_sel(sel, tag, elem_id, elem_classes, elem):
-            merge_fn(props)
-        return
-
-    if has_child_comb:
-        parts = re.split(r'\s*>\s*', sel, maxsplit=1)
-    else:
-        parts = sel.split(None, 1)
-
+    parts = re.split(r"\s*>\s*", selector, maxsplit=1) if has_child_combinator else selector.split(None, 1)
     if len(parts) != 2:
-        return
+        return False
 
-    ancestor_part, descendant_part = parts[0].strip(), parts[1].strip()
-    if not _match_simple_sel(descendant_part, tag, elem_id, elem_classes, elem):
-        return
+    ancestor_selector, descendant_selector = parts[0].strip(), parts[1].strip()
+    if not _match_simple_sel(descendant_selector, tag, elem_id, elem_classes, elem):
+        return False
 
-    if has_child_comb:
-        if not anc_list:
-            return
-        last = anc_list[-1]
-        anc_tag, anc_classes = last if isinstance(last, tuple) else (last, set())
-        if _match_ancestor_sel(ancestor_part, anc_tag, anc_classes):
-            merge_fn(props)
-    else:
-        for entry in anc_list:
-            anc_tag, anc_classes = entry if isinstance(entry, tuple) else (entry, set())
-            if _match_ancestor_sel(ancestor_part, anc_tag, anc_classes):
-                merge_fn(props)
-                break
+    if has_child_combinator:
+        if not ancestors:
+            return False
+        ancestor_tag, ancestor_classes = ancestors[-1]
+        return _match_ancestor_sel(ancestor_selector, ancestor_tag, ancestor_classes)
+
+    for ancestor_tag, ancestor_classes in ancestors:
+        if _match_ancestor_sel(ancestor_selector, ancestor_tag, ancestor_classes):
+            return True
+    return False
 
 
-# Rule collection
+def _selector_specificity(selector: str) -> Specificity:
+    """Compute a simplified CSS specificity tuple for supported selector syntax."""
+    id_count = 0
+    class_count = 0
+    tag_count = 0
+    for part in re.split(r"\s*>\s*|\s+", selector.strip()):
+        if not part:
+            continue
+        id_count += part.count("#")
+        class_count += part.count(".")
+        class_count += part.count("[")
+        class_count += part.count(":")
+        tag_match = re.match(r"^([a-zA-Z][a-zA-Z0-9-]*)", part)
+        if tag_match and tag_match.group(1) != "*":
+            tag_count += 1
+    return id_count, class_count, tag_count
 
-def parse_css_rules(style_text):
-    """Parse a CSS text block into {selector: {prop: value}}."""
-    rules = {}
-    style_text = re.sub(r'/\*.*?\*/', '', style_text, flags=re.DOTALL)
-    for match in re.finditer(r'([^{]+)\{([^}]*)\}', style_text):
+
+def parse_css_rules(style_text: str, start_order: int = 0) -> tuple[list[CssRule], int]:
+    """Parse a stylesheet text block into ordered `CssRule` instances."""
+    rules: list[CssRule] = []
+    order = start_order
+    cleaned_text = re.sub(r"/\*.*?\*/", "", style_text, flags=re.DOTALL)
+    for match in re.finditer(r"([^{]+)\{([^}]*)\}", cleaned_text):
         props = parse_style_attr(match.group(2))
-        for sel in match.group(1).split(','):
-            sel = sel.strip()
-            if sel:
-                rules.setdefault(sel, {}).update(props)
+        for raw_selector in match.group(1).split(","):
+            selector = raw_selector.strip()
+            if not selector:
+                continue
+            rules.append(
+                CssRule(
+                    selector=selector,
+                    props=dict(props),
+                    specificity=_selector_specificity(selector),
+                    order=order,
+                )
+            )
+            order += 1
+    return rules, order
+
+
+def collect_css(svg_root: Element) -> list[CssRule]:
+    """Collect rules from every `<style>` element while preserving source order."""
+    rules: list[CssRule] = []
+    order = 0
+    for elem in svg_root.iter():
+        if strip_ns(elem.tag) != "style":
+            continue
+        text = (elem.text or "") + "".join(child.text or "" for child in elem)
+        parsed_rules, order = parse_css_rules(text, start_order=order)
+        rules.extend(parsed_rules)
     return rules
 
 
-def collect_css(svg_root):
-    """Collect and merge all CSS rules from <style> elements in the SVG."""
-    combined = {}
-    for elem in svg_root.iter():
-        if strip_ns(elem.tag) == 'style':
-            text = (elem.text or '') + ''.join(c.text or '' for c in elem)
-            combined.update(parse_css_rules(text))
-    return combined
+def apply_css(
+    elem: Element,
+    css_rules: Sequence[CssRule],
+    tag: str,
+    inherited_styles: dict[str, str] | None = None,
+    ancestors: Sequence[AncestorInfo] | None = None,
+    *,
+    custom_props: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Compute the effective style dictionary for an element.
 
+    Cascade order:
+    inherited styles -> matching stylesheet rules by specificity/source order -> inline style
 
-# Style application
-
-def apply_css(elem, css_rules, tag, inherited_styles=None, ancestors=None):
-    """
-    Compute the effective style dict for an element (low -> high priority):
-      inherited -> element-type -> complex selectors -> ID -> class -> inline style.
-
-    Also resolves:
-      - CSS var(--name) custom properties from :root
-      - font-size in em / rem / % against the inherited font-size
+    Pass *custom_props* (from `extract_custom_props`) to avoid recomputing it on every call.
     """
     inherited = inherited_styles or {}
     computed = dict(inherited)
-    custom_props = _extract_custom_props(css_rules)
+    winners: dict[str, tuple[Specificity, int]] = {}
+    if custom_props is None:
+        custom_props = extract_custom_props(css_rules)
 
-    def _merge(props):
-        for key, value in props.items():
+    elem_id = elem.get("id", "")
+    elem_classes = set((elem.get("class") or "").split())
+    ancestor_list = list(ancestors or [])
+
+    for rule in css_rules:
+        if not _selector_matches(rule.selector, tag, elem_id, elem_classes, elem, ancestor_list):
+            continue
+        for key, value in rule.props.items():
             resolved = _resolve_vars(str(value), custom_props)
-            if resolved.strip().lower() != 'inherit':
+            if resolved.strip().lower() == "inherit":
+                continue
+            current = winners.get(key, ((-1, -1, -1), -1))
+            candidate = (rule.specificity, rule.order)
+            if candidate >= current:
                 computed[key] = resolved
+                winners[key] = candidate
 
-    elem_id = elem.get('id', '')
-    elem_classes = set((elem.get('class') or '').split())
-    anc_list = ancestors or []
-
-    _merge(css_rules.get(tag, {}))
-
-    for sel, props in css_rules.items():
-        _apply_complex_sel(sel, props, tag, elem_id, elem_classes, elem, anc_list, _merge)
-
-    if elem_id:
-        _merge(css_rules.get(f'#{elem_id}', {}))
-
-    for cls in elem_classes:
-        _merge(css_rules.get(f'.{cls}', {}))
-        _merge(css_rules.get(f'{tag}.{cls}', {}))
-
-    for key, value in parse_style_attr(elem.get('style', '')).items():
+    inline_order = len(css_rules)
+    inline_specificity: Specificity = (10**6, 0, 0)
+    for key, value in parse_style_attr(elem.get("style", "")).items():
         resolved = _resolve_vars(str(value), custom_props)
-        if resolved.strip().lower() != 'inherit':
-            computed[key] = resolved
+        if resolved.strip().lower() == "inherit":
+            continue
+        computed[key] = resolved
+        winners[key] = (inline_specificity, inline_order)
 
-    if 'font-size' in computed:
-        parent_px = _resolve_font_size(inherited.get('font-size', '12'), 12.0)
-        computed['font-size'] = str(_resolve_font_size(computed['font-size'], parent_px))
+    if "font-size" in computed:
+        parent_px = _resolve_font_size(inherited.get("font-size", "12"), 12.0)
+        computed["font-size"] = str(_resolve_font_size(computed["font-size"], parent_px))
 
     return computed

@@ -1,138 +1,117 @@
-from ..transforms import apply_pt, stroke_scale
-from ..styles import get_visual, gradient_style, opacity_pct
+"""Emitters for SVG path elements."""
+
+from __future__ import annotations
+
 import re
+from xml.etree.ElementTree import Element
 
-from ..path_utils import (
-    path_points,
-    sample_open_path,
-    path_commands,
-    commands_bbox,
-    make_stencil_style_from_commands,
-)
-from ..utils import tooltip_style, link_style
-
-
-def _is_closed(d):
-    """Return True if the path data contains a Z/z close command."""
-    return bool(d) and any(c in d for c in ('Z', 'z'))
+from ..cell_factory import make_bounds_vertex, make_edge
+from ..emitter_context import EmitterContext
+from ..path_utils import commands_bbox, make_stencil_style_from_commands, path_commands, sample_open_path
+from ..style_builder import StyleBuilder
+from ..styles import VisualStyle, get_visual, opacity_pct
+from ..transforms import Matrix, apply_pt, stroke_scale
+from .style_support import add_filter_styles, add_gradient_styles, add_metadata_styles, emit_midpoint_markers
 
 
-def _has_curve_commands(d):
-    """Return True if path data contains any bezier or arc curve commands."""
-    return bool(re.search(r'[CcSsQqTtAa]', d or ''))
+def _is_closed(path_data: str | None) -> bool:
+    """Return whether the path contains a close command."""
+    path_text = path_data or ""
+    return any(char in path_text for char in ("Z", "z"))
 
 
-def _emit_open_path_as_edge(conv, elem, d, m, v):
-    """
-    Render an open, unfilled path as a draw.io edge through sampled on-curve waypoints.
-    Uses sample_open_path to get actual on-curve points instead of control points.
-    curved=1 is only applied when the path has curve commands AND intermediate waypoints.
-    """
-    pts_t = [apply_pt(m, px, py) for px, py in sample_open_path(d)]
-    if len(pts_t) < 2:
+def _has_curve_commands(path_data: str | None) -> bool:
+    """Return whether the path contains Bezier or arc commands."""
+    return bool(re.search(r"[CcSsQqTtAa]", path_data or ""))
+
+
+def _emit_open_path_as_edge(
+    ctx: EmitterContext,
+    elem: Element,
+    path_data: str,
+    matrix: Matrix,
+    visual: VisualStyle,
+) -> None:
+    """Render an open unfilled path as a draw.io edge with sampled waypoints."""
+    points_t = [apply_pt(matrix, px, py) for px, py in sample_open_path(path_data)]
+    if len(points_t) < 2:
         return
 
-    sc = v['stroke'] or '#000000'
-    op = opacity_pct(v['opacity'])
-    stroke_op = opacity_pct(v['stroke_opacity'])
-    sw = v['stroke_width'] * stroke_scale(m)
-    dash = v['dash_style']
-    s_arrow = conv.defs.resolve_marker(v['marker_start'])
-    e_arrow = conv.defs.resolve_marker(v['marker_end'])
-    tip = tooltip_style(elem)
-    lnk = link_style(conv)
-    filt = conv.defs.resolve_filter(v['filter'])
-    lc = v['linecap']
-    lj = v['linejoin']
+    stroke_color = visual["stroke"] or "#000000"
+    opacity = opacity_pct(visual["opacity"])
+    stroke_opacity = opacity_pct(visual["stroke_opacity"])
+    stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+    start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
+    end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
 
-    src, *mid, tgt = pts_t
-    wp = ''.join(f'        <mxPoint x="{px:.2f}" y="{py:.2f}"/>\n' for px, py in mid)
-    wp_block = f'      <Array as="points">\n{wp}      </Array>\n' if mid else ''
+    src, *mid, tgt = points_t
+    style = StyleBuilder()
+    style.add("rounded", 1 if visual["linejoin"] == "round" else 0, when=not (_has_curve_commands(path_data) and mid))
+    style.add("lineCap", visual["linecap"], when=visual["linecap"] != "flat")
+    style.add("lineJoin", visual["linejoin"], when=visual["linejoin"] != "miter")
+    style.add("curved", 1, when=_has_curve_commands(path_data) and bool(mid))
+    style.add("startArrow", start_arrow).add("endArrow", end_arrow).add("html", 1)
+    style.add("strokeColor", stroke_color).add("strokeWidth", stroke_width)
+    style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
+    style.extend_raw(visual["dash_style"])
+    add_metadata_styles(style, elem, ctx)
+    add_filter_styles(style, ctx, visual["filter"])
+    ctx.add(make_edge(ctx, style.build(), src, tgt, waypoints=mid))
 
-    curved = 'curved=1;' if (_has_curve_commands(d) and mid) else ''
-    rounded = '' if curved else ('rounded=1;' if lj == 'round' else 'rounded=0;')
-    lc_style = f'lineCap={lc};' if lc != 'flat' else ''
-    lj_style = f'lineJoin={lj};' if lj != 'miter' else ''
-
-    cid = conv.next_id()
-    conv.add(
-        f'    <mxCell id="{cid}" value="" '
-        f'style="{rounded}{lc_style}{lj_style}{curved}startArrow={s_arrow};endArrow={e_arrow};html=1;'
-        f'strokeColor={sc};strokeWidth={sw};opacity={op};strokeOpacity={stroke_op};{dash}{tip}{lnk}{filt}" '
-        f'edge="1" parent="{conv.parent_id}">\n'
-        f'      <mxGeometry relative="1" as="geometry">\n'
-        f'        <mxPoint x="{src[0]:.2f}" y="{src[1]:.2f}" as="sourcePoint"/>\n'
-        f'        <mxPoint x="{tgt[0]:.2f}" y="{tgt[1]:.2f}" as="targetPoint"/>\n'
-        f'{wp_block}'
-        f'      </mxGeometry>\n'
-        f'    </mxCell>'
-    )
-
-    # marker-mid: emit dots at intermediate waypoints
-    if v.get('marker_mid') and mid:
-        marker_size = 8
-        for px, py in mid:
-            mcid = conv.next_id()
-            conv.add(
-                f'    <mxCell id="{mcid}" value="" '
-                f'style="ellipse;fillColor={sc};strokeColor={sc};opacity={op};" '
-                f'vertex="1" parent="{conv.parent_id}">\n'
-                f'      <mxGeometry x="{px - marker_size/2:.2f}" y="{py - marker_size/2:.2f}" '
-                f'width="{marker_size}" height="{marker_size}" as="geometry"/>\n'
-                f'    </mxCell>'
-            )
+    if visual.get("marker_mid") and mid:
+        emit_midpoint_markers(ctx, mid, stroke_color, opacity)
 
 
-def emit_path(conv, elem, m, css=None):
-    v = get_visual(elem, css)
-    d = elem.get('d', '')
-    if not d:
+def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str, str] | None = None) -> None:
+    """Emit an SVG `<path>`."""
+    visual = get_visual(elem, css)
+    path_data = elem.get("d", "")
+    if not path_data:
         return
 
-    fill, grad = conv.defs.resolve_fill(v['fill'] or 'none')
+    fill, gradient = ctx.defs.resolve_fill(visual["fill"] or "none")
 
-    # Open unfilled paths WITH markers must use edges - draw.io only supports
-    # startArrow/endArrow on edges, not on stencil shapes.
-    has_markers = v['marker_start'] or v['marker_end'] or v['marker_mid']
-    if fill == 'none' and not _is_closed(d) and has_markers:
-        _emit_open_path_as_edge(conv, elem, d, m, v)
+    has_markers = visual["marker_start"] or visual["marker_end"] or visual["marker_mid"]
+    if fill == "none" and has_markers:
+        _emit_open_path_as_edge(ctx, elem, path_data, matrix, visual)
         return
 
-    # All other paths use stencil: this encodes bezier curves exactly,
-    # avoiding the waypoint-approximation distortion of the edge approach.
-    # make_stencil_style_from_commands uses <stroke/> when fill='none'
-    # so open unfilled paths render correctly without a spurious fill.
-    pts = list(path_points(d))
-    if not pts:
+    commands = path_commands(path_data, point_transform=lambda x, y: apply_pt(matrix, x, y))
+    if not commands:
         return
-
-    commands = path_commands(d, point_transform=lambda x, y: apply_pt(m, x, y))
     bbox = commands_bbox(commands)
     if not bbox:
         return
     bx, by, bw, bh = bbox
 
-    sc = v['stroke'] or '#000000'
-    op = opacity_pct(v['opacity'])
-    fill_op = opacity_pct(v['fill_opacity'])
-    stroke_op = opacity_pct(v['stroke_opacity'])
-    tip = tooltip_style(elem)
-    lnk = link_style(conv)
-    filt = conv.defs.resolve_filter(v['filter'])
-    fill_rule = v.get('fill_rule', 'nonzero')
+    stroke_color = visual["stroke"] or "#000000"
+    opacity = opacity_pct(visual["opacity"])
+    fill_opacity = opacity_pct(visual["fill_opacity"])
+    stroke_opacity = opacity_pct(visual["stroke_opacity"])
+    stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+    fill_rule = visual.get("fill_rule", "nonzero")
 
-    style = make_stencil_style_from_commands(
-        commands, bx, by, bw, bh, fill, sc, v['stroke_width'], op,
-        fill_rule=fill_rule, linecap=v['linecap'], linejoin=v['linejoin']
+    stencil_style = make_stencil_style_from_commands(
+        commands,
+        bx,
+        by,
+        bw,
+        bh,
+        fill,
+        stroke_color,
+        stroke_width,
+        opacity,
+        fill_rule=fill_rule,
+        linecap=visual["linecap"],
+        linejoin=visual["linejoin"],
     )
-    if not style:
+    if not stencil_style:
         return
 
-    extra = (f'fillOpacity={fill_op};strokeOpacity={stroke_op};'
-             + gradient_style(grad) + v['dash_style'] + tip + lnk + filt)
-    cid = conv.next_id()
-    conv.add(
-        f'    <mxCell id="{cid}" value="" style="{style}{extra}" vertex="1" parent="{conv.parent_id}">\n'
-        f'      <mxGeometry x="{bx:.2f}" y="{by:.2f}" width="{bw:.2f}" height="{bh:.2f}" as="geometry"/>\n'
-        f'    </mxCell>'
-    )
+    style = StyleBuilder().extend_raw(stencil_style)
+    style.add("fillOpacity", fill_opacity).add("strokeOpacity", stroke_opacity)
+    add_gradient_styles(style, gradient)
+    style.extend_raw(visual["dash_style"])
+    add_metadata_styles(style, elem, ctx)
+    add_filter_styles(style, ctx, visual["filter"])
+    ctx.add(make_bounds_vertex(ctx, style.build(), bx, by, bw, bh))
