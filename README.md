@@ -18,6 +18,7 @@ Standard SVG-to-draw.io converters often embed the whole file as one opaque imag
 | `<polyline>` | Edge with waypoints |
 | `<polygon>` | Filled stencil shape |
 | `<path>` | Stencil (closed/filled) or curved edge (open/unfilled) |
+| `<image>` | draw.io image cell with embedded asset data |
 | `<use>` | Resolved from `<defs>`, rendered in place |
 | `<symbol>` + `<use>` | Symbol viewBox applied when rendering via `<use width/height>` |
 | `<g>` | Native draw.io group cell; children selectable as a group |
@@ -43,6 +44,7 @@ Standard SVG-to-draw.io converters often embed the whole file as one opaque imag
 - Arc commands (`A` / `a`) converted to cubic Bezier curves
 - Quadratic and cubic Bezier edges sampled at curve points (not control points)
 - Common color formats: hex, `rgb()`, `rgba()`, `none`, `transparent`
+- `<image>` with local file paths or `data:` URIs for SVG / PNG / other common image formats
 
 ## Requirements
 
@@ -81,12 +83,13 @@ svg_to_drawio/
     |-- shapes.py            # line, circle, ellipse, rect
     |-- text.py              # text / tspan
     |-- poly.py              # polyline, polygon
-    `-- path.py              # path
+    |-- path.py              # path
+    `-- image.py             # image
 ```
 
 ## Test fixture
 
-The repository includes `tests/fixtures/test_all_features.svg`, a compact fixture that exercises the main supported SVG features in one file.
+The repository includes `tests/fixtures/test_all_features.svg`, a compact fixture that exercises the main supported SVG features in one file, including `<image>` with local `SVG` and `PNG` assets.
 
 ```bash
 python main.py tests/fixtures/test_all_features.svg
@@ -120,7 +123,7 @@ See the [draw.io discussion on foreignObject compatibility](https://github.com/j
 
 ## Limitations
 
-- `<image>` elements are currently ignored.
+- `<image>` with shear-heavy transforms is approximated by its transformed bounding box because draw.io image cells do not support true skew/shear.
 - `<clipPath>` and `<mask>` are ignored.
 - Text width is estimated from character count, so long labels may need manual resizing.
 - Only `feDropShadow` is supported from `<filter>`; other filter effects (blur, compositing, etc.) are ignored.

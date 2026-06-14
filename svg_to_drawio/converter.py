@@ -40,6 +40,7 @@ from .transforms import IDENTITY, mat_mul, parse_transform, viewbox_transform
 from .css import collect_css, apply_css
 from .defs import DefsIndex
 from .drawio_output import make_xml
+from .elements.image import emit_image
 from .elements.shapes import emit_line, emit_circle, emit_ellipse, emit_rect
 from .elements.text import emit_text
 from .elements.poly import emit_polyline
@@ -49,7 +50,6 @@ _SKIP_TAGS = frozenset({
     'defs', 'title', 'desc', 'metadata', 'style', 'symbol',
     'clipPath', 'mask', 'linearGradient', 'radialGradient',
     'marker', 'pattern', 'filter', 'animate', 'animateTransform',
-    'image',
 })
 
 _DISPATCH = {
@@ -61,6 +61,7 @@ _DISPATCH = {
     'polyline': lambda c, e, m, css: emit_polyline(c, e, m, closed=False, css=css),
     'polygon':  lambda c, e, m, css: emit_polyline(c, e, m, closed=True,  css=css),
     'path':     emit_path,
+    'image':    emit_image,
 }
 
 
@@ -71,6 +72,7 @@ class Converter:
         self.defs = DefsIndex()
         self._parent_id = '1'
         self._link_url = ''
+        self.source_dir = ''
 
     @property
     def parent_id(self):
@@ -87,6 +89,7 @@ class Converter:
     def convert_file(self, svg_path, out_path=None):
         tree = ET.parse(svg_path)
         root = tree.getroot()
+        self.source_dir = path.dirname(path.abspath(svg_path))
 
         self.defs.index(root)
         css_rules = collect_css(root)

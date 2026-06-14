@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 3600" width="840" height="3600">
+     viewBox="-10 -10 840 3820" width="840" height="3820">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -78,7 +78,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="3600" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="3820" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -443,7 +443,7 @@
   <text x="218" y="1354" font-size="9" fill="#888">mixed filled</text>
 
   <!-- ═══════════════════════════════════════════════════════
-       §10  NEW FEATURES (features 1-14)
+       §10  NEW FEATURES (features 1-22)
   ════════════════════════════════════════════════════════ -->
   <text x="10" y="1390" font-size="13" font-weight="bold" fill="#444">10. New Features</text>
   <line x1="10" y1="1396" x2="810" y2="1396" stroke="#ccc" stroke-width="1"/>
@@ -655,5 +655,18 @@
   <rect x="20mm" y="3478" width="20mm" height="15mm"
         fill="#4db6ac" stroke="#00695c" stroke-width="1.5pt"/>
   <text x="20" y="3558" font-size="9" fill="#888">x=20mm w=20mm h=15mm sw=1.5pt → pixels</text>
+
+  <!-- ——— Feature 22: image (embedded local SVG + PNG) ——— -->
+  <text x="10" y="3590" font-size="11" font-weight="bold" fill="#666">F22: &lt;image&gt; with local SVG and PNG assets</text>
+  <image href="image_asset.svg" x="20" y="3605" width="84" height="84"/>
+  <text x="22" y="3702" font-size="9" fill="#888">href image_asset.svg</text>
+
+  <image xlink:href="image_asset.png" x="145" y="3605" width="84" height="84"/>
+  <text x="147" y="3702" font-size="9" fill="#888">xlink:href image_asset.png</text>
+
+  <g transform="translate(300, 3610) rotate(12)">
+    <image href="image_asset.svg" x="0" y="0" width="84" height="84"/>
+  </g>
+  <text x="300" y="3702" font-size="9" fill="#888">rotated local SVG image</text>
 
 </svg>

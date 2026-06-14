@@ -5,7 +5,7 @@
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
     <mxCell id="2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=none;strokeWidth=1.0;opacity=100;fillOpacity=100;strokeOpacity=100;" vertex="1" parent="1">
-      <mxGeometry x="0.00" y="0.00" width="840.00" height="3600.00" as="geometry"/>
+      <mxGeometry x="0.00" y="0.00" width="840.00" height="3820.00" as="geometry"/>
     </mxCell>
     <mxCell id="3" value="1. Basic shapes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13.0;fontColor=#444444;fontFamily=Helvetica;opacity=100;fontStyle=1;" vertex="1" parent="1">
       <mxGeometry x="20.00" y="20.95" width="120.90" height="23.40" as="geometry"/>
@@ -984,6 +984,30 @@
     </mxCell>
     <mxCell id="270" value="x=20mm w=20mm h=15mm sw=1.5pt → pixels" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" vertex="1" parent="1">
       <mxGeometry x="30.00" y="3560.35" width="212.04" height="16.20" as="geometry"/>
+    </mxCell>
+    <mxCell id="271" value="F22: &lt;image&gt; with local SVG and PNG assets" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11.0;fontColor=#666666;fontFamily=Helvetica;opacity=100;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20.00" y="3590.65" width="286.44" height="19.80" as="geometry"/>
+    </mxCell>
+    <mxCell id="272" value="" style="shape=image;html=1;image=data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22UTF-8%22%3F%3E%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2256%22%20height%3D%2256%22%20rx%3D%2212%22%20fill%3D%22%23e3f2fd%22%20stroke%3D%22%231e88e5%22%20stroke-width%3D%223%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2225%22%20r%3D%2212%22%20fill%3D%22%23ffca28%22%20stroke%3D%22%23f57f17%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M%2018%2048%20L%2032%2014%20L%2046%2048%20Z%22%20fill%3D%22%23ef5350%22%20stroke%3D%22%23c62828%22%20stroke-width%3D%222%22%2F%3E%0A%3C%2Fsvg%3E%0A;aspect=fixed;imageAspect=1;opacity=100;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+      <mxGeometry x="30.00" y="3615.00" width="84.00" height="84.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="273" value="href image_asset.svg" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" vertex="1" parent="1">
+      <mxGeometry x="32.00" y="3704.35" width="111.60" height="16.20" as="geometry"/>
+    </mxCell>
+    <mxCell id="274" value="" style="shape=image;html=1;image=data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22UTF-8%22%3F%3E%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2084.000000%2084.000000%22%20width%3D%2284.000000%22%20height%3D%2284.000000%22%3E%0A%20%20%3Cimage%20href%3D%22data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAyElEQVR42u3QOxFCQRBE0ZWDDhRQhQcCfKECB2jAAxHxQE7Ab2d2H5yuagH3tMt2EyO%2FPlyHvgEAAAAAAAAAAAAAAAAAAAAAAAAAAABA5u87P%2FtPArwSPgKizRpfhdBmjq9AaLPHZyO0JcRnIgBYSnwWAgAA%2Fw6wO%2B6j9zMB4rSKngcAAACAWAxC53gAmQDdERLi0wG6ISTFlwB8jZAYXwbwMUJyfCnAWxAF4cMAHkAKYwEAAAAAAAAAAAAAAAAAAAAAAAAAABA3woSBHhNXRjsAAAAASUVORK5CYII%3D%22%20x%3D%220%22%20y%3D%220%22%20width%3D%2284.000000%22%20height%3D%2284.000000%22%20preserveAspectRatio%3D%22xMidYMid%20meet%22%2F%3E%0A%3C%2Fsvg%3E%0A;aspect=fixed;imageAspect=1;opacity=100;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+      <mxGeometry x="155.00" y="3615.00" width="84.00" height="84.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="275" value="xlink:href image_asset.png" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" vertex="1" parent="1">
+      <mxGeometry x="157.00" y="3704.35" width="145.08" height="16.20" as="geometry"/>
+    </mxCell>
+    <mxCell id="276" value="" style="group;" vertex="1" parent="1">
+      <mxGeometry x="300.35" y="3627.81" width="84.00" height="84.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="277" value="" style="shape=image;html=1;image=data:image/svg+xml,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22UTF-8%22%3F%3E%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2256%22%20height%3D%2256%22%20rx%3D%2212%22%20fill%3D%22%23e3f2fd%22%20stroke%3D%22%231e88e5%22%20stroke-width%3D%223%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2225%22%20r%3D%2212%22%20fill%3D%22%23ffca28%22%20stroke%3D%22%23f57f17%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M%2018%2048%20L%2032%2014%20L%2046%2048%20Z%22%20fill%3D%22%23ef5350%22%20stroke%3D%22%23c62828%22%20stroke-width%3D%222%22%2F%3E%0A%3C%2Fsvg%3E%0A;aspect=fixed;imageAspect=1;opacity=100;strokeColor=none;fillColor=none;rotation=12.00;" vertex="1" parent="276">
+      <mxGeometry x="0.00" y="0.00" width="84.00" height="84.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="278" value="rotated local SVG image" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" vertex="1" parent="1">
+      <mxGeometry x="310.00" y="3704.35" width="128.34" height="16.20" as="geometry"/>
     </mxCell>
       </root>
     </mxGraphModel>
