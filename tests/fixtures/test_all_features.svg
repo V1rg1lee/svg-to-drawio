@@ -233,7 +233,7 @@
         stroke="#e74c3c" stroke-width="2" marker-start="url(#arrow-start)"/>
   <text x="236" y="566" font-size="9" fill="#888">marker-start</text>
 
-  <!-- both markers — same-color markers so SVG matches draw.io -->
+  <!-- both markers - same-color markers so SVG matches draw.io -->
   <line x1="380" y1="548" x2="515" y2="548"
         stroke="#2c3e50" stroke-width="2"
         marker-start="url(#arrow-start-dark)" marker-end="url(#arrow-end)"/>
@@ -251,7 +251,7 @@
         marker-start="url(#diamond-marker)" marker-end="url(#diamond-marker)"/>
   <text x="72" y="645" font-size="9" fill="#888">diamond on path</text>
 
-  <!-- markers on polyline — orange markers match orange stroke -->
+  <!-- markers on polyline - orange markers match orange stroke -->
   <polyline points="280,600 350,580 420,610 490,585 560,615"
             fill="none" stroke="#e67e22" stroke-width="2"
             marker-start="url(#arrow-start-orange)" marker-end="url(#arrow-end-orange)"/>
@@ -439,12 +439,12 @@
         fill="none" stroke="#1abc9c" stroke-width="2.5"/>
   <text x="400" y="1248" font-size="9" fill="#888">T smooth Q</text>
 
-  <!-- A arc — small arc -->
+  <!-- A arc - small arc -->
   <path d="M 560 1225 A 55 30 0 0 1 670 1225"
         fill="none" stroke="#e74c3c" stroke-width="2.5"/>
   <text x="585" y="1248" font-size="9" fill="#888">A arc (small)</text>
 
-  <!-- A arc — large arc (same endpoints, different flag) -->
+  <!-- A arc - large arc (same endpoints, different flag) -->
   <path d="M 560 1225 A 55 30 0 1 0 670 1225"
         fill="#fde8e8" stroke="#e74c3c" stroke-width="1.5" stroke-dasharray="4 3"/>
   <text x="582" y="1208" font-size="9" fill="#888">A arc (large)</text>
@@ -470,7 +470,7 @@
   <text x="10" y="1390" font-size="13" font-weight="bold" fill="#444">10. New Features</text>
   <line x1="10" y1="1396" x2="810" y2="1396" stroke="#ccc" stroke-width="1"/>
 
-  <!-- ─── Feature 1: display:none / visibility:hidden ─── -->
+  <!--  Feature 1: display:none / visibility:hidden  -->
   <text x="10" y="1420" font-size="11" font-weight="bold" fill="#666">F1: Hidden elements (should not appear in output)</text>
   <!-- These two rects should NOT appear in output -->
   <rect x="20" y="1430" width="80" height="40" fill="#ff0000" display="none"/>
@@ -479,7 +479,7 @@
   <rect x="220" y="1430" width="160" height="40" fill="#4caf50" stroke="#388e3c" stroke-width="2"/>
   <text x="240" y="1455" font-size="10" fill="#fff" text-anchor="middle">visible (hidden hidden)</text>
 
-  <!-- ─── Feature 2: currentColor ─── -->
+  <!--  Feature 2: currentColor  -->
   <text x="10" y="1500" font-size="11" font-weight="bold" fill="#666">F2: currentColor</text>
   <g style="color:#e91e63">
     <circle cx="60" cy="1530" r="25" fill="currentColor"/>
@@ -487,14 +487,14 @@
     <text x="85" y="1575" font-size="9" fill="#888">currentColor (#e91e63)</text>
   </g>
 
-  <!-- ─── Feature 3: title tooltip ─── -->
+  <!--  Feature 3: title tooltip  -->
   <text x="10" y="1610" font-size="11" font-weight="bold" fill="#666">F3: title tooltip</text>
   <rect x="20" y="1620" width="160" height="50" fill="#9c27b0" stroke="#6a1b9a" stroke-width="2">
     <title>This is a tooltip</title>
   </rect>
   <text x="40" y="1650" font-size="10" fill="#fff">hover for tooltip</text>
 
-  <!-- ─── Feature 4: CSS ID selectors ─── -->
+  <!--  Feature 4: CSS ID selectors  -->
   <text x="10" y="1700" font-size="11" font-weight="bold" fill="#666">F4: CSS ID selector</text>
   <style>
     #special-rect { fill: #ff5722; stroke: #bf360c; stroke-width: 2; }
@@ -502,7 +502,7 @@
   <rect id="special-rect" x="20" y="1710" width="160" height="50"/>
   <text x="45" y="1740" font-size="9" fill="#fff">id=special-rect (CSS)</text>
 
-  <!-- ─── Feature 5: CSS descendant selectors ─── -->
+  <!--  Feature 5: CSS descendant selectors  -->
   <text x="10" y="1790" font-size="11" font-weight="bold" fill="#666">F5: CSS descendant selector</text>
   <style>
     g.highlight rect { fill: #ffd54f; stroke: #f57f17; stroke-width: 2; }
@@ -512,7 +512,7 @@
     <text x="45" y="1830" font-size="9" fill="#555">g.highlight rect (CSS)</text>
   </g>
 
-  <!-- ─── Feature 6: filter feDropShadow ─── -->
+  <!--  Feature 6: filter feDropShadow  -->
   <text x="10" y="1880" font-size="11" font-weight="bold" fill="#666">F6: feDropShadow filter</text>
   <defs>
     <filter id="drop-shadow">
@@ -524,7 +524,7 @@
         filter="url(#drop-shadow)"/>
   <text x="50" y="1920" font-size="9" fill="#fff">drop shadow</text>
 
-  <!-- ─── Feature 7: symbol + use ─── -->
+  <!--  Feature 7: symbol + use  -->
   <text x="10" y="1980" font-size="11" font-weight="bold" fill="#666">F7: symbol + use</text>
   <defs>
     <symbol id="star-icon" viewBox="0 0 20 20">
@@ -537,7 +537,7 @@
   <use href="#star-icon" x="140" y="1990" width="40" height="40"/>
   <text x="65" y="2045" font-size="9" fill="#888">symbol star x3</text>
 
-  <!-- ─── Feature 8: fill-rule evenodd ─── -->
+  <!--  Feature 8: fill-rule evenodd  -->
   <text x="10" y="2075" font-size="11" font-weight="bold" fill="#666">F8: fill-rule evenodd (donut)</text>
   <!-- outer circle (CW): two half-arcs top→bottom, inner circle (CCW): opposite sweep -->
   <path fill-rule="evenodd" fill="#3f51b5" stroke="#1a237e" stroke-width="2"
@@ -545,7 +545,7 @@
            M 60 2135 A 20 20 0 1 1 60 2175 A 20 20 0 1 1 60 2135 Z"/>
   <text x="30" y="2220" font-size="9" fill="#888">evenodd donut</text>
 
-  <!-- ─── Feature 9: gradientTransform ─── -->
+  <!--  Feature 9: gradientTransform  -->
   <text x="10" y="2240" font-size="11" font-weight="bold" fill="#666">F9: gradientTransform rotate(90)</text>
   <defs>
     <linearGradient id="grad-rotated" x1="0" y1="0" x2="1" y2="0"
@@ -557,19 +557,19 @@
   <rect x="20" y="2255" width="160" height="80" fill="url(#grad-rotated)" stroke="#555" stroke-width="1"/>
   <text x="45" y="2350" font-size="9" fill="#888">top-to-bottom via gradientTransform</text>
 
-  <!-- ─── Feature 10: text-decoration ─── -->
+  <!--  Feature 10: text-decoration  -->
   <text x="10" y="2380" font-size="11" font-weight="bold" fill="#666">F10: text-decoration</text>
   <text x="20" y="2410" font-size="16" fill="#2196f3" text-decoration="underline">Underlined text</text>
   <text x="20" y="2440" font-size="16" fill="#f44336" text-decoration="line-through">Strikethrough text</text>
 
-  <!-- ─── Feature 11: <a> link ─── -->
+  <!--  Feature 11: <a> link  -->
   <text x="10" y="2480" font-size="11" font-weight="bold" fill="#666">F11: anchor link</text>
   <a href="https://example.com">
     <rect x="20" y="2490" width="200" height="50" fill="#009688" stroke="#00695c" stroke-width="2"/>
     <text x="70" y="2520" font-size="12" fill="#fff">click me (link)</text>
   </a>
 
-  <!-- ─── Feature 12: <g> as draw.io container ─── -->
+  <!--  Feature 12: <g> as draw.io container  -->
   <text x="10" y="2570" font-size="11" font-weight="bold" fill="#666">F12: groups as draw.io containers</text>
   <g id="group1">
     <rect x="20" y="2580" width="80" height="50" fill="#e91e63" stroke="#880e4f" stroke-width="2"/>
@@ -578,7 +578,7 @@
     <text x="60" y="2650" font-size="9" fill="#888">group container (3 shapes)</text>
   </g>
 
-  <!-- ─── Feature 13: marker-mid ─── -->
+  <!--  Feature 13: marker-mid  -->
   <text x="10" y="2680" font-size="11" font-weight="bold" fill="#666">F13: marker-mid</text>
   <defs>
     <marker id="mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
@@ -592,14 +592,14 @@
             marker-end="url(#dot-brown)"/>
   <text x="150" y="2750" font-size="9" fill="#888">marker-mid dots at waypoints</text>
 
-  <!-- ─── Feature 14: font-family ─── -->
+  <!--  Feature 14: font-family  -->
   <text x="10" y="2780" font-size="11" font-weight="bold" fill="#666">F14: font-family</text>
   <text x="20"  y="2810" font-size="15" fill="#2c3e50" font-family="Georgia, serif">Georgia serif</text>
   <text x="220" y="2810" font-size="15" fill="#2c3e50" font-family="Courier New, monospace">Courier monospace</text>
   <text x="480" y="2810" font-size="15" fill="#2c3e50" font-family="Arial, sans-serif">Arial sans-serif</text>
   <text x="20"  y="2840" font-size="11" fill="#888">font-family propagated to draw.io fontFamily style</text>
 
-  <!-- ─── Feature 15: hsl() color ─── -->
+  <!--  Feature 15: hsl() color  -->
   <text x="10" y="2870" font-size="11" font-weight="bold" fill="#666">F15: hsl() color</text>
   <!-- hsl(120, 100%, 35%) = dark green; hsl(0, 80%, 50%) = red; hsl(240, 70%, 55%) = blue -->
   <rect x="20"  y="2882" width="80" height="45" fill="hsl(120, 100%, 35%)" stroke="hsl(120, 100%, 20%)" stroke-width="2"/>
@@ -611,7 +611,7 @@
   <circle cx="390" cy="2905" r="22" fill="hsla(30, 100%, 50%, 0.7)" stroke="hsl(30, 100%, 30%)" stroke-width="2"/>
   <text x="376" y="2935" font-size="9" fill="#888">hsla orange</text>
 
-  <!-- ─── Feature 16: stop-opacity in gradients ─── -->
+  <!--  Feature 16: stop-opacity in gradients  -->
   <text x="10" y="2960" font-size="11" font-weight="bold" fill="#666">F16: stop-opacity in gradient</text>
   <defs>
     <!-- First stop fully opaque red, second stop semi-transparent (blended to white) -->
@@ -623,7 +623,7 @@
   <rect x="20" y="2972" width="200" height="55" fill="url(#grad-stop-opacity)" stroke="#555" stroke-width="1"/>
   <text x="40" y="3040" font-size="9" fill="#888">stop-opacity: 1.0 → 0.3 (blended with white)</text>
 
-  <!-- ─── Feature 17: tspan with dy (multi-line text) ─── -->
+  <!--  Feature 17: tspan with dy (multi-line text)  -->
   <text x="10" y="3060" font-size="11" font-weight="bold" fill="#666">F17: tspan dy (multi-line)</text>
   <text x="20" y="3082" font-size="13" fill="#333">
     <tspan dy="0"  fill="#e53935">Line 1 (red)</tspan>
@@ -632,7 +632,7 @@
   </text>
   <text x="20" y="3150" font-size="9" fill="#888">each tspan with dy emitted as separate cell</text>
 
-  <!-- ─── Feature 18: marker-mid on open path ─── -->
+  <!--  Feature 18: marker-mid on open path  -->
   <text x="10" y="3170" font-size="11" font-weight="bold" fill="#666">F18: marker-mid on &lt;path&gt;</text>
   <defs>
     <marker id="path-mid-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
@@ -646,7 +646,7 @@
         marker-end="url(#dot-marker)"/>
   <text x="160" y="3240" font-size="9" fill="#888">marker-mid dots on curved path</text>
 
-  <!-- ─── Feature 19: stroke-width scaling with transform ─── -->
+  <!--  Feature 19: stroke-width scaling with transform  -->
   <text x="10" y="3260" font-size="11" font-weight="bold" fill="#666">F19: stroke-width scaled by transform</text>
   <!-- scale(2) doubles coordinates AND stroke width -->
   <g transform="translate(20, 3278) scale(2)">
@@ -659,26 +659,26 @@
         fill="#fff9c4" stroke="#f57f17" stroke-width="2"/>
   <text x="186" y="3358" font-size="9" fill="#888">same visual size, no transform</text>
 
-  <!-- ─── Feature 20: CSS inherit keyword ─── -->
+  <!--  Feature 20: CSS inherit keyword  -->
   <text x="10" y="3375" font-size="11" font-weight="bold" fill="#666">F20: CSS inherit keyword</text>
   <style>
     .inherit-test { fill: #7b1fa2; stroke: #4a148c; stroke-width: 2; }
   </style>
-  <!-- child uses inherit — should keep parent's fill -->
+  <!-- child uses inherit - should keep parent's fill -->
   <g class="inherit-test">
     <rect x="20" y="3387" width="100" height="45" style="fill:inherit"/>
     <text x="26" y="3415" font-size="9" fill="#fff">fill:inherit</text>
   </g>
   <text x="20" y="3443" font-size="9" fill="#888">child fill:inherit keeps parent purple fill</text>
 
-  <!-- ─── Feature 21: SVG length units (mm, pt) ─── -->
+  <!-- Feature 21: SVG length units (mm, pt) -->
   <text x="10" y="3463" font-size="11" font-weight="bold" fill="#666">F21: SVG length units (mm / pt)</text>
   <!-- 20mm ≈ 75.6px, 15mm ≈ 56.7px -->
   <rect x="20mm" y="3478" width="20mm" height="15mm"
         fill="#4db6ac" stroke="#00695c" stroke-width="1.5pt"/>
   <text x="20" y="3558" font-size="9" fill="#888">x=20mm w=20mm h=15mm sw=1.5pt → pixels</text>
 
-  <!-- ——— Feature 22: image (embedded local SVG + PNG) ——— -->
+  <!-- Feature 22: image (embedded local SVG + PNG) -->
   <text x="10" y="3590" font-size="11" font-weight="bold" fill="#666">F22: &lt;image&gt; with local SVG and PNG assets</text>
   <image href="image_asset.svg" x="20" y="3605" width="84" height="84"/>
   <text x="22" y="3702" font-size="9" fill="#888">href image_asset.svg</text>
@@ -691,7 +691,7 @@
   </g>
   <text x="300" y="3702" font-size="9" fill="#888">rotated local SVG image</text>
 
-  <!-- ─── Feature 23: em font-size chain ─── -->
+  <!--  Feature 23: em font-size chain  -->
   <text x="10" y="3740" font-size="11" font-weight="bold" fill="#666">F23: em font-size chain</text>
   <style>
     .em-parent { font-size: 18px; fill: #1a237e; }
@@ -702,7 +702,7 @@
   </text>
   <text x="20" y="3808" font-size="9" fill="#888">parent 18 px; child tspan = 1.5 × 18 = 27 px</text>
 
-  <!-- ─── Feature 24: CSS custom properties (var()) ─── -->
+  <!--  Feature 24: CSS custom properties (var())  -->
   <text x="10" y="3828" font-size="11" font-weight="bold" fill="#666">F24: CSS var() custom properties</text>
   <style>
     :root { --brand: #e65100; --border: #bf360c; --bw: 3; }
@@ -712,7 +712,7 @@
   <rect x="130" y="3840" width="90" height="50" style="fill:var(--brand);stroke:var(--border);stroke-width:var(--bw)"/>
   <text x="20" y="3905" font-size="9" fill="#888">var(--brand)=#e65100  var(--border)=#bf360c  var(--bw)=3</text>
 
-  <!-- ─── Feature 25: baseline-shift super / sub ─── -->
+  <!--  Feature 25: baseline-shift super / sub  -->
   <text x="10" y="3925" font-size="11" font-weight="bold" fill="#666">F25: baseline-shift super / sub</text>
   <!-- Each tspan isolated with dx so it follows the previous word cleanly -->
   <text x="20" y="3960" font-size="16" fill="#212121">
@@ -723,7 +723,7 @@
   </text>
   <text x="20" y="4020" font-size="9" fill="#888">super raises text by 35% of fs; sub lowers by 35%</text>
 
-  <!-- ─── Feature 26: stroke-linecap / linejoin on closed path stencil ─── -->
+  <!--  Feature 26: stroke-linecap / linejoin on closed path stencil  -->
   <text x="10" y="4040" font-size="11" font-weight="bold" fill="#666">F26: stroke-linecap on stencil path</text>
   <path d="M 20 4100 L 80 4060 L 140 4100 Z"
         fill="#fff3e0" stroke="#e65100" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -732,7 +732,7 @@
         fill="#e8f5e9" stroke="#2e7d32" stroke-width="6" stroke-linecap="square" stroke-linejoin="bevel"/>
   <text x="210" y="4118" font-size="9" fill="#888">square / bevel</text>
 
-  <!-- ─── Feature 27: multi-class selector .a.b ─── -->
+  <!--  Feature 27: multi-class selector .a.b  -->
   <text x="10" y="4138" font-size="11" font-weight="bold" fill="#666">F27: multi-class selector .a.b</text>
   <style>
     .mca { fill: #e3f2fd; }
@@ -746,7 +746,7 @@
   <text x="122" y="4208" font-size="9" fill="#888">.mcb only</text>
   <text x="222" y="4208" font-size="9" fill="#888">.mca.mcb → blue fill</text>
 
-  <!-- ─── Feature 28: child combinator A > B selector ─── -->
+  <!--  Feature 28: child combinator A > B selector  -->
   <text x="10" y="4228" font-size="11" font-weight="bold" fill="#666">F28: child combinator A &gt; B</text>
   <style>
     .child-wrap > rect   { fill: #f3e5f5; stroke: #6a1b9a; stroke-width: 2; }
@@ -758,7 +758,7 @@
   </g>
   <text x="20" y="4298" font-size="9" fill="#888">direct children styled via A &gt; B combinator</text>
 
-  <!-- ─── Feature 29: [attr=val] attribute selector ─── -->
+  <!--  Feature 29: [attr=val] attribute selector  -->
   <text x="10" y="4318" font-size="11" font-weight="bold" fill="#666">F29: [attr=val] attribute selector</text>
   <style>
     rect[data-kind="primary"]   { fill: #e8eaf6; stroke: #3949ab; stroke-width: 2; }
@@ -809,7 +809,7 @@
   <line x1="457" y1="4644" x2="660" y2="4744"
         stroke="#7c5cbf" stroke-width="2" marker-end="url(#net-arrow)"/>
 
-  <!-- ── Envelope icon — message in transit to Client C ── -->
+  <!-- ── Envelope icon - message in transit to Client C ── -->
   <g transform="translate(240, 4700)">
     <rect x="-22" y="-17" width="44" height="32" rx="4"
           fill="#f0ecf9" stroke="#7c5cbf" stroke-width="2"/>
@@ -856,7 +856,7 @@
   <text x="410" y="4722" text-anchor="middle" font-size="10"
         font-weight="bold" fill="#5c4a7a">Server</text>
 
-  <!-- ── Monitor Client A — top left ── translate(90, 4490) -->
+  <!-- ── Monitor Client A - top left ── translate(90, 4490) -->
   <g transform="translate(90, 4490)">
     <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
     <!-- screen bezel -->
@@ -877,7 +877,7 @@
   </g>
   <text x="90" y="4597" text-anchor="middle" font-size="9" fill="#7060a0">Client A</text>
 
-  <!-- ── Monitor Client B — top right ── translate(710, 4490) -->
+  <!-- ── Monitor Client B - top right ── translate(710, 4490) -->
   <g transform="translate(710, 4490)">
     <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
     <rect x="-50" y="-44" width="100" height="80" rx="8"
@@ -892,7 +892,7 @@
   </g>
   <text x="710" y="4597" text-anchor="middle" font-size="9" fill="#7060a0">Client B</text>
 
-  <!-- ── Laptop Client C — bottom left ── translate(90, 4754) -->
+  <!-- ── Laptop Client C - bottom left ── translate(90, 4754) -->
   <g transform="translate(90, 4754)">
     <ellipse cx="4" cy="70" rx="62" ry="11" fill="#b8a8d8" opacity="0.45"/>
     <!-- screen lid -->
@@ -918,7 +918,7 @@
   </g>
   <text x="90" y="4840" text-anchor="middle" font-size="9" fill="#7060a0">Client C</text>
 
-  <!-- ── Monitor Client D — bottom right ── translate(710, 4750) -->
+  <!-- ── Monitor Client D - bottom right ── translate(710, 4750) -->
   <g transform="translate(710, 4750)">
     <ellipse cx="0" cy="81" rx="50" ry="10" fill="#b8a8d8" opacity="0.45"/>
     <rect x="-50" y="-44" width="100" height="80" rx="8"

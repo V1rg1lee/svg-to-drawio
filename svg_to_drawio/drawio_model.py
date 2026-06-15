@@ -178,6 +178,11 @@ def edge_cell(
     return Cell(id=cell_id, value=value, style=style, parent=parent, edge=True, geometry=geometry)
 
 
+def layer_cell(cell_id: str, label: str = "") -> Cell:
+    """Construct a draw.io layer cell (no geometry, always a direct child of the diagram root)."""
+    return Cell(id=cell_id, value=label, style="", parent="1", vertex=True)
+
+
 def group_bbox(cells: Iterable[Cell]) -> tuple[float, float, float, float]:
     """Return the bounding box that contains all given cells."""
     points: list[tuple[float, float]] = []

@@ -54,6 +54,12 @@ def _stop_color(stop_elem: Element) -> str:
     return color
 
 
+def _get_href(elem: Element) -> str | None:
+    """Return the fragment ID from href or xlink:href if it is a local reference."""
+    href = elem.get("href") or elem.get("{http://www.w3.org/1999/xlink}href") or ""
+    return href[1:] if href.startswith("#") else None
+
+
 def _parse_stops(elem: Element) -> list[tuple[float, str]]:
     """Extract and sort gradient stops from a gradient element."""
     stops: list[tuple[float, str]] = []
@@ -89,6 +95,19 @@ class DefsIndex:
                 self._index_marker(elem, element_id)
             elif tag == "filter":
                 self._index_filter(elem, element_id)
+
+        # Second pass: resolve gradient href inheritance for gradients without their own stops.
+        # This handles the common Inkscape pattern of referencing another gradient for stops.
+        for elem in svg_root.iter():
+            tag = strip_ns(elem.tag)
+            if tag not in ("linearGradient", "radialGradient"):
+                continue
+            element_id = elem.get("id")
+            if not element_id or element_id in self._gradients:
+                continue
+            target_id = _get_href(elem)
+            if target_id and target_id in self._gradients:
+                self._gradients[element_id] = self._gradients[target_id]
 
     def _index_linear(self, elem: Element, element_id: str | None) -> None:
         """Register a linear gradient in draw.io's reduced gradient model."""

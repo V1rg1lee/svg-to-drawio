@@ -246,6 +246,7 @@ def apply_css(
     ancestors: Sequence[AncestorInfo] | None = None,
     *,
     custom_props: dict[str, str] | None = None,
+    _match_cache: dict | None = None,
 ) -> dict[str, str]:
     """Compute the effective style dictionary for an element.
 
@@ -253,6 +254,9 @@ def apply_css(
     inherited styles -> matching stylesheet rules by specificity/source order -> inline style
 
     Pass *custom_props* (from `extract_custom_props`) to avoid recomputing it on every call.
+    Pass *_match_cache* (a plain dict) to cache selector-match results across elements with the
+    same tag/id/class combination - only effective for simple selectors without combinators or
+    attribute tests.
     """
     inherited = inherited_styles or {}
     computed = dict(inherited)
@@ -265,7 +269,16 @@ def apply_css(
     ancestor_list = list(ancestors or [])
 
     for rule in css_rules:
-        if not _selector_matches(rule.selector, tag, elem_id, elem_classes, elem, ancestor_list):
+        # Cache simple selector matches (no combinators, no attribute tests) keyed on
+        # (selector, tag, id, frozenset(classes)) - independent of element attributes.
+        sel = rule.selector
+        if _match_cache is not None and ">" not in sel and "[" not in sel and " " not in sel.strip():
+            cache_key = (sel, tag, elem_id, frozenset(elem_classes))
+            if cache_key not in _match_cache:
+                _match_cache[cache_key] = _selector_matches(sel, tag, elem_id, elem_classes, elem, ancestor_list)
+            if not _match_cache[cache_key]:
+                continue
+        elif not _selector_matches(sel, tag, elem_id, elem_classes, elem, ancestor_list):
             continue
         for key, value in rule.props.items():
             resolved = _resolve_vars(str(value), custom_props)

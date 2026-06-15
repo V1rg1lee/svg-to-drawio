@@ -1,6 +1,8 @@
 *.drawio
 *.svg
 __pycache__/
+build/
+dist/
 .mypy_cache/
 .pre-commit-cache*/
 .ruff_cache/

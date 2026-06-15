@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import zlib
 from base64 import b64encode
 from collections.abc import Sequence
@@ -54,6 +55,7 @@ def path_to_stencil(path_data: str | None, ox: float, oy: float, width: float, h
     return commands_to_stencil_path(path_commands(path_data), ox, oy, width, height)
 
 
+@functools.lru_cache(maxsize=256)
 def _compress_drawio_text(text: str) -> str:
     """Encode inline draw.io payloads using the diagrams.net compression format."""
     data = quote(text, safe=_URI_SAFE).encode("utf-8")

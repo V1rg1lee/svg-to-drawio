@@ -1,0 +1,78 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write  # required to upload assets to a release
+
+jobs:
+  build:
+    name: Desktop bundle (${{ matrix.os-label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-label: Linux
+            artifact-name: svg-to-drawio-linux
+            archive: svg-to-drawio-linux.tar.gz
+          - os: windows-latest
+            os-label: Windows
+            artifact-name: svg-to-drawio-windows
+            archive: svg-to-drawio-windows.zip
+          - os: macos-latest
+            os-label: macOS
+            artifact-name: svg-to-drawio-macos
+            archive: svg-to-drawio-macos.zip
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-desktop.txt
+
+      - name: Install desktop build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-desktop.txt
+
+      - name: Build desktop bundle
+        run: python build_desktop.py
+
+      # ── Archive the bundle ──────────────────────────────────────────────────
+      - name: Archive bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\desktop\svg-to-drawio -DestinationPath ${{ matrix.archive }}
+
+      - name: Archive bundle (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.archive }} -C dist/desktop svg-to-drawio
+
+      - name: Archive bundle (macOS)
+        if: runner.os == 'macOS'
+        # ditto preserves .app metadata (resource forks, extended attributes)
+        run: ditto -c -k --sequesterRsrc --keepParent dist/desktop/svg-to-drawio.app ${{ matrix.archive }}
+
+      # ── Store artifact (always, useful for workflow_dispatch runs) ──────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.archive }}
+
+      # ── Attach to the GitHub release (only on tag pushes) ──────────────────
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.archive }}

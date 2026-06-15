@@ -17,7 +17,7 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: ruff check --fix main.py svg_to_drawio tests
+        entry: ruff check --fix main.py desktop_app.py build_desktop.py svg_to_drawio svg_to_drawio_desktop tests
         language: python
         additional_dependencies:
           - ruff==0.15.17
@@ -25,7 +25,7 @@ repos:
         always_run: true
       - id: ruff-format
         name: ruff format
-        entry: ruff format main.py svg_to_drawio tests
+        entry: ruff format main.py desktop_app.py build_desktop.py svg_to_drawio svg_to_drawio_desktop tests
         language: python
         additional_dependencies:
           - ruff==0.15.17

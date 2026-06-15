@@ -133,6 +133,15 @@ def _paint_with_alpha(color: str | None) -> tuple[str | None, float]:
         short_hex = short_hex_match.group(1)
         return "#{0}{0}{1}{1}{2}{2}".format(short_hex[0], short_hex[1], short_hex[2]), 1.0
 
+    # 4-digit hex: #rgba  →  expand to #rrggbb + alpha
+    if re.match(r"^#[0-9a-fA-F]{4}$", text):
+        r_h, g_h, b_h, a_h = text[1], text[2], text[3], text[4]
+        return f"#{r_h}{r_h}{g_h}{g_h}{b_h}{b_h}", _clamp01(int(a_h + a_h, 16) / 255.0)
+
+    # 8-digit hex: #rrggbbaa  →  extract alpha from last two digits
+    if re.match(r"^#[0-9a-fA-F]{8}$", text):
+        return f"#{text[1:7].lower()}", _clamp01(int(text[7:9], 16) / 255.0)
+
     return text, 1.0
 
 

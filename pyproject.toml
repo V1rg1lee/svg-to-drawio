@@ -1,14 +1,14 @@
 [tool.ruff]
 target-version = "py311"
 line-length = 120
-src = ["svg_to_drawio", "tests"]
+src = ["svg_to_drawio", "svg_to_drawio_desktop", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["main.py", "svg_to_drawio"]
+files = ["main.py", "desktop_app.py", "build_desktop.py", "svg_to_drawio", "svg_to_drawio_desktop"]
 warn_unused_configs = true
 warn_return_any = true
 warn_unreachable = true
@@ -17,3 +17,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 no_implicit_optional = true
 pretty = true
+
+[[tool.mypy.overrides]]
+module = ["PyInstaller.*", "PySide6.*"]
+ignore_missing_imports = true

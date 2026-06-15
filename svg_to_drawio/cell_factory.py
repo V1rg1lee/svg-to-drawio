@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .drawio_model import Cell, Geometry, Point, edge_cell, vertex_cell
+from .drawio_model import Cell, Geometry, Point, edge_cell, layer_cell, vertex_cell
 from .element_geometry import BoundsBox
 from .emitter_context import EmitterContext
 
@@ -93,6 +93,11 @@ def make_box_vertex(
         cell_id=cell_id,
         parent_id=parent_id,
     )
+
+
+def make_layer_cell(ctx: EmitterContext, label: str = "", cell_id: str | None = None) -> Cell:
+    """Build a draw.io layer cell with no geometry at the diagram root."""
+    return layer_cell(cell_id or ctx.next_id(), label)
 
 
 def make_edge(
