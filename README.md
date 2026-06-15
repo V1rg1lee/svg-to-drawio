@@ -24,8 +24,8 @@ Features: drag-and-drop, multi-root queues, live progress, cooperative cancellat
 
 **Download release artifacts** from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
 
-- Windows: `Setup.exe` installer plus a plain `.zip` for advanced users
-- Linux: `.AppImage` plus a plain `.tar.gz` for advanced users
+- Windows: `Setup.exe` installer plus a plain `.zip` with executable for advanced users
+- Linux: portable `.AppImage` plus a plain `.tar.gz` with executable for advanced users
 - macOS: `.zip` archive of the app bundle
 
 The Windows installer upgrades an existing installed version automatically by uninstalling it first, then installing the new release.
@@ -40,13 +40,13 @@ python desktop_app.py
 Build the base standalone bundle (Windows / Linux / macOS):
 
 ```bash
-python build_desktop.py        # produces dist/desktop/svg-to-drawio/
+python build_desktop.py        # produces dist/desktop/svg-to-drawio.exe (Windows), svg-to-drawio (Linux), svg-to-drawio.app (macOS)
 ```
 
 Extra packaging layers are built on top of that base bundle:
 
 - Windows installer: `packaging/windows/build_installer.ps1`
-- Linux AppImage: `packaging/linux/build_appimage.sh`
+- Linux portable AppImage: `packaging/linux/build_appimage.sh`
 - macOS: archive only for now
 
 ### Manual packaging
@@ -78,11 +78,17 @@ The installer upgrades an existing installed version automatically by uninstalli
 
 #### Linux AppImage
 
+An AppImage is not a system installer like `Setup.exe` on Windows.
+It is a portable Linux application bundle that you can usually download, mark as executable, and run directly.
+
 Build the base executable first, then package it with `appimagetool`:
 
 ```bash
 python -m pip install -r requirements-desktop.txt
 python build_desktop.py
+curl -L \
+  -o appimagetool-x86_64.AppImage \
+  https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x appimagetool-x86_64.AppImage packaging/linux/AppRun packaging/linux/build_appimage.sh
 VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
 ./packaging/linux/build_appimage.sh \
@@ -92,9 +98,19 @@ VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)'
   "dist/release/svg-to-drawio-${VERSION}-linux-x86_64.AppImage"
 ```
 
+In GitHub Actions, `appimagetool` is downloaded automatically by the workflow.
+For a local Linux build, you need to download it yourself first as shown above.
+
 This produces:
 
 - `dist/release/svg-to-drawio-<version>-linux-x86_64.AppImage`
+
+Typical end-user usage after downloading the AppImage from a release:
+
+```bash
+chmod +x svg-to-drawio-<version>-linux-x86_64.AppImage
+./svg-to-drawio-<version>-linux-x86_64.AppImage
+```
 
 The plain `.zip` / `.tar.gz` archives remain available for advanced users who prefer to launch the raw bundle directly.
 

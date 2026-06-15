@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from os import PathLike
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 from .conversion_service import CancellationToken, ConversionOptions, ConversionService, ConversionSummary
 from .converter import Converter

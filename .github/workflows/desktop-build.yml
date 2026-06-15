@@ -5,13 +5,17 @@ on:
   release:
     types: [published]
 
+# Least-privilege default: jobs that don't upload anything get read-only.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
+    # Only this job needs write — to upload release assets.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -27,11 +31,14 @@ jobs:
             artifact-name: svg-to-drawio-macos
 
     steps:
+      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
+      # To update: find the new SHA on the action's Releases page, then update
+      # the comment and the hash together so the version stays readable.
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.11"
           cache: pip
@@ -76,7 +83,7 @@ jobs:
         run: |
           curl -L \
             -o appimagetool-x86_64.AppImage \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           chmod +x packaging/linux/AppRun packaging/linux/build_appimage.sh
 
@@ -116,13 +123,14 @@ jobs:
             "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.artifact-name }}
           path: dist/release/*
 
+      # gh CLI is pre-installed on all GitHub-hosted runners — no third-party action needed.
       - name: Attach release assets
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/release/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" dist/release/*
