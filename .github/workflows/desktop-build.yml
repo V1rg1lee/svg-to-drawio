@@ -6,11 +6,11 @@ on:
     types: [published]
 
 permissions:
-  contents: write  # required to upload assets to a release
+  contents: write
 
 jobs:
   build:
-    name: Desktop bundle (${{ matrix.os-label }})
+    name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,15 +19,12 @@ jobs:
           - os: ubuntu-latest
             os-label: Linux
             artifact-name: svg-to-drawio-linux
-            archive-suffix: linux.tar.gz
           - os: windows-latest
             os-label: Windows
             artifact-name: svg-to-drawio-windows
-            archive-suffix: windows.zip
           - os: macos-latest
             os-label: macOS
             artifact-name: svg-to-drawio-macos
-            archive-suffix: macos.zip
 
     steps:
       - name: Check out repository
@@ -45,42 +42,87 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-desktop.txt
 
+      - name: Read application version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c "from svg_to_drawio import __version__; print(__version__)")"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build desktop bundle
         run: python build_desktop.py
 
-      # ── Compute versioned archive name ─────────────────────────────────────
-      - name: Set archive name
-        id: archive
+      - name: Prepare release directory
+        shell: bash
+        run: mkdir -p dist/release
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >
+          .\packaging\windows\build_installer.ps1
+          -Version "${{ steps.version.outputs.value }}"
+          -InputExe "dist\desktop\svg-to-drawio.exe"
+          -OutputDir "dist\release"
+
+      - name: Download appimagetool
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          VERSION="${{ github.ref_name }}"
-          echo "name=svg-to-drawio-${VERSION}-${{ matrix.archive-suffix }}" >> "$GITHUB_OUTPUT"
+          curl -L \
+            -o appimagetool-x86_64.AppImage \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          chmod +x packaging/linux/AppRun packaging/linux/build_appimage.sh
 
-      # ── Archive the bundle ──────────────────────────────────────────────────
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          packaging/linux/build_appimage.sh \
+            dist/desktop/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            ./appimagetool-x86_64.AppImage \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-x86_64.AppImage"
+
       - name: Archive bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist\desktop\svg-to-drawio.exe -DestinationPath ${{ steps.archive.outputs.name }}
+        run: >
+          Compress-Archive
+          -Path dist\desktop\svg-to-drawio.exe
+          -DestinationPath dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows.zip
 
       - name: Archive bundle (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ steps.archive.outputs.name }} -C dist/desktop svg-to-drawio
+        shell: bash
+        run: |
+          tar -czf \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux.tar.gz" \
+            -C dist/desktop \
+            svg-to-drawio
 
       - name: Archive bundle (macOS)
         if: runner.os == 'macOS'
-        # ditto preserves .app metadata (resource forks, extended attributes)
-        run: ditto -c -k --sequesterRsrc --keepParent dist/desktop/svg-to-drawio.app ${{ steps.archive.outputs.name }}
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/desktop/svg-to-drawio.app \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.zip"
 
-      # ── Store artifact (always, useful for workflow_dispatch runs) ──────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: ${{ steps.archive.outputs.name }}
+          path: dist/release/*
 
-      # ── Attach to the GitHub release (only on tag pushes) ──────────────────
-      - name: Attach to release
+      - name: Attach release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.archive.outputs.name }}
+          files: dist/release/*

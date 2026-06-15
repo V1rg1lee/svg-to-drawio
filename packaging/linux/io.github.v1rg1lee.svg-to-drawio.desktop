@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SVG to draw.io
+Comment=Convert SVG files into editable draw.io diagrams
+Exec=svg-to-drawio %F
+Icon=io.github.v1rg1lee.svg-to-drawio
+Terminal=false
+Categories=Graphics;Utility;
+MimeType=image/svg+xml;
+StartupWMClass=svg-to-drawio

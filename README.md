@@ -22,7 +22,13 @@ A desktop front-end shares the same conversion engine as the CLI.
 
 Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder.
 
-**Download a pre-built binary** (Windows / Linux / macOS) from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases).
+**Download release artifacts** from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
+
+- Windows: `Setup.exe` installer plus a plain `.zip` for advanced users
+- Linux: `.AppImage` plus a plain `.tar.gz` for advanced users
+- macOS: `.zip` archive of the app bundle
+
+The Windows installer upgrades an existing installed version automatically by uninstalling it first, then installing the new release.
 
 Or run from source:
 
@@ -31,11 +37,66 @@ pip install -r requirements-desktop.txt
 python desktop_app.py
 ```
 
-Build a standalone bundle (Windows / Linux / macOS):
+Build the base standalone bundle (Windows / Linux / macOS):
 
 ```bash
 python build_desktop.py        # produces dist/desktop/svg-to-drawio/
 ```
+
+Extra packaging layers are built on top of that base bundle:
+
+- Windows installer: `packaging/windows/build_installer.ps1`
+- Linux AppImage: `packaging/linux/build_appimage.sh`
+- macOS: archive only for now
+
+### Manual packaging
+
+#### Windows installer
+
+The Windows installer is built with Inno Setup.
+
+Install Inno Setup first, for example with:
+
+```powershell
+winget install JRSoftware.InnoSetup
+```
+
+Then build the base executable and wrap it into a `Setup.exe`:
+
+```powershell
+env\Scripts\python.exe -m pip install -r requirements-desktop.txt
+env\Scripts\python.exe build_desktop.py
+$version = env\Scripts\python.exe -c "from svg_to_drawio import __version__; print(__version__)"
+.\packaging\windows\build_installer.ps1 -Version $version -InputExe "dist\desktop\svg-to-drawio.exe" -OutputDir "dist\release"
+```
+
+This produces:
+
+- `dist\release\svg-to-drawio-<version>-setup.exe`
+
+The installer upgrades an existing installed version automatically by uninstalling it first, then installing the new version.
+
+#### Linux AppImage
+
+Build the base executable first, then package it with `appimagetool`:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+python build_desktop.py
+chmod +x appimagetool-x86_64.AppImage packaging/linux/AppRun packaging/linux/build_appimage.sh
+VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
+./packaging/linux/build_appimage.sh \
+  dist/desktop/svg-to-drawio \
+  "$VERSION" \
+  ./appimagetool-x86_64.AppImage \
+  "dist/release/svg-to-drawio-${VERSION}-linux-x86_64.AppImage"
+```
+
+This produces:
+
+- `dist/release/svg-to-drawio-<version>-linux-x86_64.AppImage`
+
+The plain `.zip` / `.tar.gz` archives remain available for advanced users who prefer to launch the raw bundle directly.
 
 ## CLI reference
 
@@ -195,6 +256,7 @@ Pre-commit runs ruff, mypy, and basic hygiene checks on every commit. Tests run 
 main.py                      # CLI entry point
 desktop_app.py               # Desktop application
 build_desktop.py             # PyInstaller bundle builder
+packaging/                   # Installer and AppImage packaging assets
 svg_to_drawio/
 ├── conversion_service.py    # Shared batch service (CLI + desktop)
 ├── converter.py             # Conversion orchestration

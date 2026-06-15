@@ -50,7 +50,7 @@ def _generate_icns(png_path: Path, output_path: Path) -> bool:
 
 
 def main() -> None:
-    """Build a one-directory desktop bundle in dist/desktop."""
+    """Build the base desktop executable or app bundle in `dist/desktop`."""
     project_root = Path(__file__).resolve().parent
     build_root = project_root / "build" / "pyinstaller"
     dist_root = project_root / "dist" / "desktop"
@@ -76,12 +76,12 @@ def main() -> None:
         str(build_root / "spec"),
     ]
 
-    # Bundle all assets (PNG, ICO, …)
+    # Bundle all runtime assets (PNG, ICO, SVG, and similar files).
     for asset_path in assets_dir.iterdir():
         if asset_path.is_file():
             args.extend(["--add-data", _add_data_argument(asset_path, "svg_to_drawio_desktop/assets")])
 
-    # ── Platform-specific icon ────────────────────────────────────────────────
+    # Apply platform-specific application icons where PyInstaller supports them.
     if sys.platform == "win32":
         # Windows: multi-resolution ICO (native format).
         ico_path = assets_dir / "app_logo.ico"
