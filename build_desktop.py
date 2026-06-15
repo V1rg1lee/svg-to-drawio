@@ -61,7 +61,9 @@ def main() -> None:
         "--noconfirm",
         "--clean",
         "--windowed",
-        "--onedir",
+        # macOS requires a .app bundle (onedir); onefile produces a bare Unix binary
+        # that Finder won't open and the Dock won't integrate with.
+        "--onedir" if sys.platform == "darwin" else "--onefile",
         "--name",
         "svg-to-drawio",
         "--paths",

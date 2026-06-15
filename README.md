@@ -22,6 +22,10 @@ A desktop front-end shares the same conversion engine as the CLI.
 
 Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder.
 
+**Download a pre-built binary** (Windows / Linux / macOS) from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases).
+
+Or run from source:
+
 ```bash
 pip install -r requirements-desktop.txt
 python desktop_app.py

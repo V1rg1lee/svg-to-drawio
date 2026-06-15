@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTextEdit,
@@ -202,7 +203,15 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         """Create the window layout and child widgets."""
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("mainScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
         central = QWidget()
+        central.setObjectName("contentRoot")
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(24, 24, 24, 24)
         root_layout.setSpacing(18)
@@ -262,7 +271,10 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(self._build_options_group())
         right_panel.addWidget(self._build_progress_group(), stretch=1)
 
-        self.setCentralWidget(central)
+        central.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.MinimumExpanding)
+        central.setMinimumHeight(central.sizeHint().height())
+        scroll_area.setWidget(central)
+        self.setCentralWidget(scroll_area)
 
     def _build_sources_group(self) -> QGroupBox:
         """Create the source queue panel."""
@@ -306,16 +318,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(group)
         layout.setContentsMargins(14, 6, 14, 14)
         layout.setSpacing(12)
+        log_surface = QFrame()
+        log_surface.setObjectName("logSurface")
+        log_layout = QVBoxLayout(log_surface)
+        log_layout.setContentsMargins(12, 12, 12, 16)
+        log_layout.setSpacing(0)
 
         self.log_output = QTextEdit()
+        self.log_output.setObjectName("logOutput")
         self.log_output.setReadOnly(True)
         self.log_output.setMinimumHeight(220)
-        self.log_output.setPlaceholderText("Conversion events will appear here…")
+        self.log_output.setFrameShape(QFrame.Shape.NoFrame)
         mono_font = QFont("Consolas")
         mono_font.setStyleHint(QFont.StyleHint.Monospace)
         mono_font.setPointSize(9)
         self.log_output.setFont(mono_font)
-        layout.addWidget(self.log_output)
+        self.log_output.setPlaceholderText("Conversion events will appear here...")
+        log_layout.addWidget(self.log_output)
+        layout.addWidget(log_surface)
         return group
 
     def _build_options_group(self) -> QGroupBox:
@@ -474,6 +494,51 @@ class MainWindow(QMainWindow):
             QWidget {
                 font-size: 12px;
             }
+            QScrollArea#mainScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QWidget#contentRoot {
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 12px;
+                margin: 8px 4px 8px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #cbd5e1;
+                border-radius: 6px;
+                min-height: 36px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #94a3b8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+                height: 0;
+            }
+            QScrollBar:horizontal {
+                background: transparent;
+                height: 12px;
+                margin: 0 8px 4px 8px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #cbd5e1;
+                border-radius: 6px;
+                min-width: 36px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #94a3b8;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: transparent;
+                border: none;
+                width: 0;
+            }
             /* Hero banner */
             QFrame#hero {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -502,6 +567,11 @@ class MainWindow(QMainWindow):
                 color: #64748b;
                 font-size: 11px;
                 font-weight: 700;
+            }
+            QFrame#logSurface {
+                background: #fbfdff;
+                border: 1.5px solid #d7e0ec;
+                border-radius: 12px;
             }
             /* Default / secondary buttons */
             QPushButton, QToolButton {
@@ -608,6 +678,11 @@ class MainWindow(QMainWindow):
                 color: #1e293b;
                 padding: 8px;
                 selection-background-color: #dbeafe;
+            }
+            QTextEdit#logOutput {
+                background: transparent;
+                border: none;
+                padding: 0;
             }
             /* Progress bar */
             QProgressBar {
@@ -1035,6 +1110,7 @@ def create_application() -> QApplication:
     created = QApplication(sys.argv)
     created.setApplicationName(APP_TITLE)
     created.setOrganizationName("svg-to-drawio")
+    created.setDesktopFileName("io.github.v1rg1lee.svg-to-drawio")
     created.setWindowIcon(_load_app_icon())
     created.setStyle("Fusion")
     return created
