@@ -86,3 +86,25 @@ class ConversionServiceTests(SvgTestCase):
             self.assertTrue(path.exists(path.join(output_dir, "one.drawio")))
             self.assertFalse(path.exists(path.join(output_dir, "two.drawio")))
             self.assertIn(ConversionEventKind.CANCELLED, {event.kind for event in events})
+
+    def test_persistent_cache_skips_unchanged_inputs_on_the_second_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            out_path = path.join(tmpdir, "diagram.drawio")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+
+            service = ConversionService()
+            first = service.convert([svg_path], ConversionOptions(overwrite=True, use_cache=True))
+            second = service.convert([svg_path], ConversionOptions(overwrite=True, use_cache=True))
+
+            self.assertEqual(first.converted, 1)
+            self.assertEqual(second.converted, 0)
+            self.assertEqual(second.skipped, 1)
+            self.assertTrue(path.isfile(out_path))
+            self.assertTrue(second.reports)
+            self.assertTrue(second.reports[0].cached)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import html
+import json
 import sys
 from datetime import datetime
 from os import path
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtCore import QSettings, Qt, QThread, QUrl
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -43,7 +44,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QTextEdit,
+    QSystemTrayIcon,
+    QTextBrowser,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -55,12 +57,25 @@ from svg_to_drawio.conversion_service import (
     ConversionOptions,
     ConversionSummary,
 )
+from svg_to_drawio.diagnostics import ConversionReport
 
 from .widgets import SourceListWidget
-from .worker import ConversionWorker
+from .worker import ConversionWorker, ParallelConversionWorker, WatchConversionWorker
 
 APP_TITLE = "SVG to draw.io"
 GITHUB_URL = "https://github.com/V1rg1lee/svg-to-drawio"
+DRAWIO_URL = "https://app.diagrams.net"
+
+
+def _fmt_size(n: int) -> str:
+    """Format a byte count as a human-readable string (B / KB / MB / GB)."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024.0:
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} PB"
+
 
 _LIGHT: dict[str, str] = {
     "bg": "#f1f5f9",
@@ -332,12 +347,17 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._thread: QThread | None = None
-        self._worker: ConversionWorker | None = None
+        self._worker: ConversionWorker | ParallelConversionWorker | WatchConversionWorker | None = None
         self._converted = 0
         self._skipped = 0
         self._failed = 0
         self._close_after_run = False
         self._last_openable_directory: str | None = None
+        self._last_reports: list[ConversionReport] = []
+        self._warning_count = 0
+        self._watch_mode_active = False
+        self._tray: QSystemTrayIcon | None = None
+        self._settings = QSettings()
         self._is_dark = _detect_system_dark()
 
         self.setWindowTitle(APP_TITLE)
@@ -345,10 +365,12 @@ class MainWindow(QMainWindow):
         self.resize(1180, 780)
         self.setMinimumSize(960, 640)
         self._build_ui()
+        self._restore_settings()
         self._install_actions()
         self._apply_styles()
         self._update_summary_labels()
         self._set_idle_state("Drop SVG files or folders to get started.")
+        self._setup_tray()
 
         try:
             QGuiApplication.styleHints().colorSchemeChanged.connect(self._on_system_theme_changed)
@@ -358,6 +380,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Warn before closing while a conversion is still in progress."""
         if self._worker is None:
+            self._save_settings()
             super().closeEvent(event)
             return
 
@@ -375,6 +398,55 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         event.ignore()
+
+    def _restore_settings(self) -> None:
+        """Restore persisted UI preferences from the previous desktop session."""
+        geometry = self._settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+
+        theme_value = self._settings.value("ui/dark")
+        if theme_value is not None:
+            self._is_dark = str(theme_value).lower() in {"1", "true", "yes"}
+
+        output_dir = self._settings.value("options/output_dir", "")
+        self.output_dir_edit.setText(str(output_dir or ""))
+        self.recursive_checkbox.setChecked(self._setting_bool("options/recursive"))
+        self.overwrite_checkbox.setChecked(self._setting_bool("options/overwrite"))
+        self.flatten_checkbox.setChecked(self._setting_bool("options/flatten"))
+        self.watch_checkbox.setChecked(self._setting_bool("options/watch"))
+        self.cache_checkbox.setChecked(self._setting_bool("options/use_cache", default=True))
+        self.workers_spinbox.setValue(self._setting_int("options/workers", default=1))
+        self.max_elements_checkbox.setChecked(self._setting_bool("options/max_enabled"))
+        self.max_elements_spinbox.setValue(self._setting_int("options/max_value", default=1000))
+
+    def _save_settings(self) -> None:
+        """Persist the current UI preferences for the next application launch."""
+        self._settings.setValue("window/geometry", self.saveGeometry())
+        self._settings.setValue("ui/dark", self._is_dark)
+        self._settings.setValue("options/output_dir", self.output_dir_edit.text().strip())
+        self._settings.setValue("options/recursive", self.recursive_checkbox.isChecked())
+        self._settings.setValue("options/overwrite", self.overwrite_checkbox.isChecked())
+        self._settings.setValue("options/flatten", self.flatten_checkbox.isChecked())
+        self._settings.setValue("options/watch", self.watch_checkbox.isChecked())
+        self._settings.setValue("options/use_cache", self.cache_checkbox.isChecked())
+        self._settings.setValue("options/workers", self.workers_spinbox.value())
+        self._settings.setValue("options/max_enabled", self.max_elements_checkbox.isChecked())
+        self._settings.setValue("options/max_value", self.max_elements_spinbox.value())
+        self._settings.sync()
+
+    def _setting_bool(self, key: str, *, default: bool = False) -> bool:
+        """Read one persisted boolean setting with tolerant string parsing."""
+        raw = self._settings.value(key, default)
+        return str(raw).lower() in {"1", "true", "yes"}
+
+    def _setting_int(self, key: str, *, default: int) -> int:
+        """Read one persisted integer setting with a safe fallback."""
+        raw = self._settings.value(key, default)
+        try:
+            return int(str(raw))
+        except (TypeError, ValueError):
+            return default
 
     def _build_ui(self) -> None:
         """Create the window layout and child widgets."""
@@ -490,23 +562,33 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Live Log")
         layout = QVBoxLayout(group)
         layout.setContentsMargins(14, 6, 14, 14)
-        layout.setSpacing(12)
-        log_surface = QFrame()
-        log_surface.setObjectName("logSurface")
-        log_layout = QVBoxLayout(log_surface)
-        log_layout.setContentsMargins(12, 12, 12, 16)
-        log_layout.setSpacing(0)
+        layout.setSpacing(8)
 
-        self.log_output = QTextEdit()
+        self.log_output = QTextBrowser()
         self.log_output.setObjectName("logOutput")
-        self.log_output.setReadOnly(True)
         self.log_output.setMinimumHeight(220)
         self.log_output.setFrameShape(QFrame.Shape.NoFrame)
+        self.log_output.setOpenLinks(False)
+        self.log_output.anchorClicked.connect(self._on_log_link_clicked)
         mono_font = QFont("Consolas")
         mono_font.setStyleHint(QFont.StyleHint.Monospace)
         mono_font.setPointSize(9)
         self.log_output.setFont(mono_font)
         self.log_output.setPlaceholderText("Conversion events will appear here...")
+
+        log_toolbar = QHBoxLayout()
+        log_toolbar.addStretch(1)
+        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button.setObjectName("clearLogButton")
+        self.clear_log_button.clicked.connect(self.log_output.clear)
+        log_toolbar.addWidget(self.clear_log_button)
+        layout.addLayout(log_toolbar)
+
+        log_surface = QFrame()
+        log_surface.setObjectName("logSurface")
+        log_layout = QVBoxLayout(log_surface)
+        log_layout.setContentsMargins(12, 12, 12, 16)
+        log_layout.setSpacing(0)
         log_layout.addWidget(self.log_output)
         layout.addWidget(log_surface)
         return group
@@ -539,9 +621,28 @@ class MainWindow(QMainWindow):
         self.recursive_checkbox = QCheckBox("Recurse into subfolders when a queued item is a directory")
         self.overwrite_checkbox = QCheckBox("Overwrite existing `.drawio` files")
         self.flatten_checkbox = QCheckBox("Flatten groups - emit all shapes at the root level")
+        self.watch_checkbox = QCheckBox("Keep watching source files and auto-convert them on change")
+        self.cache_checkbox = QCheckBox("Reuse the persistent cache and skip unchanged inputs")
+        self.cache_checkbox.setChecked(True)
         form.addRow("", self.recursive_checkbox)
         form.addRow("", self.overwrite_checkbox)
         form.addRow("", self.flatten_checkbox)
+        form.addRow("", self.watch_checkbox)
+        form.addRow("", self.cache_checkbox)
+
+        workers_row = QHBoxLayout()
+        workers_row.setSpacing(6)
+        workers_row.setContentsMargins(0, 0, 0, 0)
+        self.workers_spinbox = QSpinBox()
+        self.workers_spinbox.setRange(1, 8)
+        self.workers_spinbox.setValue(1)
+        self.workers_spinbox.setFixedWidth(50)
+        workers_row.addWidget(self.workers_spinbox)
+        workers_row.addWidget(QLabel("parallel workers  (1 = sequential)"))
+        workers_row.addStretch()
+        workers_container = QWidget()
+        workers_container.setLayout(workers_row)
+        form.addRow("", workers_container)
 
         max_el_row = QHBoxLayout()
         max_el_row.setSpacing(6)
@@ -574,14 +675,19 @@ class MainWindow(QMainWindow):
         self.open_output_button = QPushButton("Open Output Folder")
         self.open_output_button.setObjectName("openOutputButton")
         self.open_output_button.setEnabled(False)
+        self.export_report_button = QPushButton("Export Last Report")
+        self.export_report_button.setObjectName("exportReportButton")
+        self.export_report_button.setEnabled(False)
 
         self.start_button.clicked.connect(self._start_conversion)
         self.cancel_button.clicked.connect(self._request_cancel)
         self.open_output_button.clicked.connect(self._open_output_directory)
+        self.export_report_button.clicked.connect(self._export_last_report)
 
         actions.addWidget(self.start_button)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.open_output_button)
+        actions.addWidget(self.export_report_button)
         layout.addLayout(actions)
         return group
 
@@ -612,10 +718,12 @@ class MainWindow(QMainWindow):
         self.converted_value = self._make_counter_label()
         self.skipped_value = self._make_counter_label()
         self.failed_value = self._make_counter_label()
+        self.warnings_value = self._make_counter_label()
 
         counts.addWidget(self._make_counter_card("Converted", self.converted_value, "success"), 0, 0)
         counts.addWidget(self._make_counter_card("Skipped", self.skipped_value, "warning"), 0, 1)
         counts.addWidget(self._make_counter_card("Failed", self.failed_value, "error"), 0, 2)
+        counts.addWidget(self._make_counter_card("Warnings", self.warnings_value, "neutral"), 1, 0, 1, 3)
         layout.addLayout(counts)
         return group
 
@@ -640,13 +748,16 @@ class MainWindow(QMainWindow):
         start_action.setShortcut("Ctrl+R")
         cancel_action = QAction("Cancel", self)
         open_output_action = QAction("Open Output Folder", self)
+        export_report_action = QAction("Export Last Report...", self)
         start_action.triggered.connect(self._start_conversion)
         cancel_action.triggered.connect(self._request_cancel)
         open_output_action.triggered.connect(self._open_output_directory)
+        export_report_action.triggered.connect(self._export_last_report)
         run_menu.addAction(start_action)
         run_menu.addAction(cancel_action)
         run_menu.addSeparator()
         run_menu.addAction(open_output_action)
+        run_menu.addAction(export_report_action)
 
         help_menu = self.menuBar().addMenu("&Help")
         about_action = QAction("About", self)
@@ -656,6 +767,10 @@ class MainWindow(QMainWindow):
         github_action = QAction("GitHub ↗", self)
         github_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(GITHUB_URL)))
         self.menuBar().addAction(github_action)
+
+        drawio_action = QAction("draw.io ↗", self)
+        drawio_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(DRAWIO_URL)))
+        self.menuBar().addAction(drawio_action)
 
         # Theme toggle in the menu bar — wrapped in a container for right-side breathing room.
         self.theme_button = QPushButton()
@@ -906,7 +1021,7 @@ class MainWindow(QMainWindow):
             QListWidget::item:hover:!selected {{
                 background: {t["list_hover_bg"]};
             }}
-            QTextEdit {{
+            QTextBrowser {{
                 background: {t["input_bg"]};
                 border: 1.5px solid {t["input_border"]};
                 border-radius: 10px;
@@ -914,7 +1029,7 @@ class MainWindow(QMainWindow):
                 padding: 8px;
                 selection-background-color: {t["selection_bg"]};
             }}
-            QTextEdit#logOutput {{
+            QTextBrowser#logOutput {{
                 background: transparent;
                 border: none;
                 padding: 0;
@@ -1043,6 +1158,20 @@ class MainWindow(QMainWindow):
             }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
             QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
+            /* Clear log button — small, neutral */
+            QPushButton#clearLogButton {{
+                background: transparent;
+                color: {t["text_muted"]};
+                border: 1px solid {t["btn_border"]};
+                border-radius: 6px;
+                padding: 2px 10px;
+                font-size: 11px;
+            }}
+            QPushButton#clearLogButton:hover {{
+                background: {t["btn_hover_bg"]};
+                color: {t["btn_hover_color"]};
+                border-color: {t["btn_hover_border"]};
+            }}
             /* SpinBox */
             QSpinBox {{
                 background: {t["input_bg"]};
@@ -1095,8 +1224,15 @@ class MainWindow(QMainWindow):
             if not (path.isdir(normalized) or normalized.lower().endswith(".svg")):
                 self._append_log(f"Ignored unsupported path: {normalized}", "skipped")
                 continue
-            item = QListWidgetItem(normalized)
+            if path.isfile(normalized):
+                label = f"{path.basename(normalized)}  ({_fmt_size(path.getsize(normalized))})"
+                tooltip = normalized
+            else:
+                label = normalized
+                tooltip = f"{normalized}  (folder)"
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, normalized)
+            item.setToolTip(tooltip)
             self.source_list.addItem(item)
             existing.add(normalized)
             added += 1
@@ -1152,14 +1288,26 @@ class MainWindow(QMainWindow):
             overwrite=self.overwrite_checkbox.isChecked(),
             flatten=self.flatten_checkbox.isChecked(),
             max_elements=self.max_elements_spinbox.value() if self.max_elements_checkbox.isChecked() else None,
+            use_cache=self.cache_checkbox.isChecked(),
         )
 
         self._reset_run_state()
-        self._set_running_state("Preparing conversion queue...")
-        self._append_log(f"Starting batch with {len(source_paths)} source path(s).", "info")
+        live_watch = self.watch_checkbox.isChecked()
+        self._watch_mode_active = live_watch
+        self._set_running_state("Preparing watch queue..." if live_watch else "Preparing conversion queue...")
+        self._append_log(
+            f"Starting {'watch session' if live_watch else 'batch'} with {len(source_paths)} source path(s).",
+            "info",
+        )
 
         self._thread = QThread(self)
-        self._worker = ConversionWorker(source_paths, options)
+        workers = self.workers_spinbox.value()
+        if live_watch:
+            self._worker = WatchConversionWorker(source_paths, options)
+        elif workers > 1:
+            self._worker = ParallelConversionWorker(source_paths, options, max_workers=workers)
+        else:
+            self._worker = ConversionWorker(source_paths, options)
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
@@ -1199,13 +1347,13 @@ class MainWindow(QMainWindow):
             if event.output_path:
                 self._last_openable_directory = path.dirname(event.output_path)
                 self.open_output_button.setEnabled(True)
-            self._append_log(event.message, "converted")
+            self._append_log(event.message, "converted", link_path=event.output_path)
         elif event.kind == ConversionEventKind.SKIPPED:
             self._skipped += 1
             if event.output_path:
                 self._last_openable_directory = path.dirname(event.output_path)
                 self.open_output_button.setEnabled(True)
-            self._append_log(event.message, "skipped")
+            self._append_log(event.message, "skipped", link_path=event.output_path)
         elif event.kind == ConversionEventKind.FAILED:
             self._failed += 1
             self._append_log(event.message, "failed")
@@ -1213,6 +1361,12 @@ class MainWindow(QMainWindow):
             self._append_log(event.message, "warning")
         elif event.kind == ConversionEventKind.DISCOVERED:
             self._append_log(event.message, "info")
+
+        if event.report is not None:
+            self._last_reports.append(event.report)
+            self.export_report_button.setEnabled(True)
+            self._warning_count += event.report.warning_count
+            self._append_report_diagnostics(event.report)
 
         self._update_summary_labels()
         if event.summary is None:
@@ -1223,12 +1377,20 @@ class MainWindow(QMainWindow):
         self._converted = summary.converted
         self._skipped = summary.skipped
         self._failed = summary.failed
+        self._last_reports = list(summary.reports)
+        self.export_report_button.setEnabled(bool(self._last_reports))
+        self._warning_count = sum(report.warning_count for report in self._last_reports)
         self._update_summary_labels()
         self.summary_label.setText(summary.to_status_line())
         self.progress_bar.setMaximum(summary.total or 1)
         self.progress_bar.setValue(summary.converted + summary.skipped + summary.failed)
         if summary.cancelled:
-            self.status_label.setText("Batch cancelled after the current file completed.")
+            status_text = (
+                "Watch mode stopped."
+                if self._watch_mode_active
+                else "Batch cancelled after the current file completed."
+            )
+            self.status_label.setText(status_text)
             self._append_log(summary.to_status_line(), "warning")
         elif summary.failed:
             self.status_label.setText("Batch finished with at least one failure.")
@@ -1239,6 +1401,21 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Batch completed successfully.")
             self._append_log(summary.to_status_line(), "converted")
         self._set_controls_enabled(True)
+        if self._tray and not self.isActiveWindow() and summary.total > 0:
+            if summary.failed:
+                self._tray.showMessage(
+                    APP_TITLE,
+                    f"Done: {summary.converted} converted, {summary.failed} failed.",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                    5000,
+                )
+            else:
+                self._tray.showMessage(
+                    APP_TITLE,
+                    f"Done: {summary.converted} file(s) converted successfully.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    4000,
+                )
 
     def _handle_failure(self, error_message: str) -> None:
         """Show unrecoverable worker errors."""
@@ -1256,6 +1433,7 @@ class MainWindow(QMainWindow):
             self._thread.deleteLater()
         self._worker = None
         self._thread = None
+        self._watch_mode_active = False
         self.cancel_button.setEnabled(False)
         if self._close_after_run:
             self._close_after_run = False
@@ -1266,8 +1444,11 @@ class MainWindow(QMainWindow):
         self._converted = 0
         self._skipped = 0
         self._failed = 0
+        self._warning_count = 0
         self._last_openable_directory = None
+        self._last_reports = []
         self.open_output_button.setEnabled(False)
+        self.export_report_button.setEnabled(False)
         self.progress_bar.setValue(0)
         self.summary_label.clear()
         self._update_summary_labels()
@@ -1295,7 +1476,14 @@ class MainWindow(QMainWindow):
             self.output_dir_edit,
             self.recursive_checkbox,
             self.overwrite_checkbox,
+            self.flatten_checkbox,
+            self.watch_checkbox,
+            self.cache_checkbox,
+            self.workers_spinbox,
+            self.max_elements_checkbox,
+            self.max_elements_spinbox,
             self.start_button,
+            self.export_report_button,
         ):
             widget.setEnabled(enabled)
 
@@ -1304,12 +1492,26 @@ class MainWindow(QMainWindow):
         self.converted_value.setText(str(self._converted))
         self.skipped_value.setText(str(self._skipped))
         self.failed_value.setText(str(self._failed))
+        self.warnings_value.setText(str(self._warning_count))
         self.summary_label.setText(
-            f"Converted: {self._converted}   |   Skipped: {self._skipped}   |   Failed: {self._failed}"
+            "Converted: "
+            f"{self._converted}   |   Skipped: {self._skipped}   |   Failed: {self._failed}"
+            f"   |   Warnings: {self._warning_count}"
         )
 
-    def _append_log(self, message: str, tone: str) -> None:
-        """Append a timestamped, styled log line to the output panel."""
+    def _append_report_diagnostics(self, report: ConversionReport) -> None:
+        """Append one compact diagnostics block for a finished file conversion."""
+        if not report.issues:
+            if report.cached:
+                self._append_log(f"Diagnostics: {report.short_status()}", "info")
+            return
+        self._append_log(f"Diagnostics: {report.short_status()}", "warning")
+        for issue in report.issues:
+            tone = "failed" if issue.severity == "error" else "warning"
+            self._append_log(f"{issue.message}", tone)
+
+    def _append_log(self, message: str, tone: str, link_path: str | None = None) -> None:
+        """Append a timestamped, styled log line; optionally make it a clickable file link."""
         t = _DARK if self._is_dark else _LIGHT
         color = {
             "converted": t["log_converted"],
@@ -1319,16 +1521,65 @@ class MainWindow(QMainWindow):
             "info": t["log_info"],
         }.get(tone, t["log_default"])
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_output.append(
-            f'<span style="color: {t["log_ts"]};">[{ts}]</span>'
-            f' <span style="color: {color};">{html.escape(message)}</span>'
-        )
+        escaped = html.escape(message)
+        if link_path:
+            url = QUrl.fromLocalFile(link_path).toString()
+            body = f'<a href="{url}" style="color:{color}; text-decoration:none;">{escaped}</a>'
+        else:
+            body = f'<span style="color:{color};">{escaped}</span>'
+        self.log_output.append(f'<span style="color:{t["log_ts"]};">[{ts}]</span> {body}')
+
+    def _on_log_link_clicked(self, url: QUrl) -> None:
+        """Open the file linked from a log line with the default OS application."""
+        QDesktopServices.openUrl(url)
 
     def _open_output_directory(self) -> None:
         """Open the most recently written output directory in the OS file manager."""
         if not self._last_openable_directory:
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(self._last_openable_directory))
+
+    def _export_last_report(self) -> None:
+        """Write the latest structured diagnostics report to a JSON file."""
+        if not self._last_reports:
+            QMessageBox.information(self, "No report", "Run at least one conversion first.")
+            return
+        target_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export conversion report",
+            "svg-to-drawio-report.json",
+            "JSON files (*.json)",
+        )
+        if not target_path:
+            return
+        payload = {
+            "mode": "desktop",
+            "converted": self._converted,
+            "skipped": self._skipped,
+            "failed": self._failed,
+            "warnings": self._warning_count,
+            "reports": [report.to_dict() for report in self._last_reports],
+        }
+        with open(target_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        self._append_log(f"Exported structured report to: {target_path}", "info", link_path=target_path)
+
+    def _setup_tray(self) -> None:
+        """Create a system tray icon if the desktop environment supports it."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self._tray = QSystemTrayIcon(self)
+        self._tray.setIcon(_load_app_icon())
+        self._tray.setToolTip(APP_TITLE)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Restore the window when the user double-clicks the tray icon."""
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
 
     def _show_about(self) -> None:
         """Display the About dialog with the application version."""

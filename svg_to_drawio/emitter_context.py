@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .defs import DefsIndex
+from .diagnostics import ConversionReport
 from .drawio_model import Cell
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ class EmitterContext:
     source_dir: str
     css_rules: Sequence[CssRule]
     custom_props: dict[str, str]
+    report: ConversionReport
     add_cell: Callable[[Cell], None]
     next_id_callback: Callable[[], str]
 

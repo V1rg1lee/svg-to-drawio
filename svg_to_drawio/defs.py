@@ -7,7 +7,7 @@ import re
 from typing import TypedDict
 from xml.etree.ElementTree import Element
 
-from .styles import GradientStyle, normalize_color
+from .styles import GradientStop, GradientStyle, normalize_color
 from .utils import parse_float, parse_style_attr, strip_ns
 
 # Heuristic mapping of common marker identifiers to draw.io arrow names.
@@ -60,14 +60,21 @@ def _get_href(elem: Element) -> str | None:
     return href[1:] if href.startswith("#") else None
 
 
-def _parse_stops(elem: Element) -> list[tuple[float, str]]:
+def _parse_stop_offset(value: str | None) -> float:
+    """Parse and normalize one SVG gradient stop offset to the inclusive range `[0, 1]`."""
+    text = (value or "0").strip()
+    if text.endswith("%"):
+        return max(0.0, min(1.0, parse_float(text[:-1]) / 100.0))
+    return max(0.0, min(1.0, parse_float(text, 0.0)))
+
+
+def _parse_stops(elem: Element) -> list[GradientStop]:
     """Extract and sort gradient stops from a gradient element."""
-    stops: list[tuple[float, str]] = []
+    stops: list[GradientStop] = []
     for child in elem:
         if strip_ns(child.tag) == "stop":
-            offset = parse_float(child.get("offset", "0"))
-            stops.append((offset, _stop_color(child)))
-    stops.sort(key=lambda stop: stop[0])
+            stops.append({"offset": _parse_stop_offset(child.get("offset")), "color": _stop_color(child)})
+    stops.sort(key=lambda stop: stop["offset"])
     return stops
 
 
@@ -139,9 +146,11 @@ class DefsIndex:
                 direction = "north"
 
         self._gradients[element_id] = {
-            "color": stops[0][1],
-            "color2": stops[-1][1],
+            "color": stops[0]["color"],
+            "color2": stops[-1]["color"],
             "direction": direction,
+            "kind": "linear",
+            "stops": stops,
         }
 
     def _index_radial(self, elem: Element, element_id: str | None) -> None:
@@ -150,9 +159,11 @@ class DefsIndex:
         if not stops or not element_id:
             return
         self._gradients[element_id] = {
-            "color": stops[0][1],
-            "color2": stops[-1][1],
+            "color": stops[0]["color"],
+            "color2": stops[-1]["color"],
             "direction": "radial",
+            "kind": "radial",
+            "stops": stops,
         }
 
     def _index_marker(self, elem: Element, element_id: str | None) -> None:
@@ -214,6 +225,16 @@ class DefsIndex:
                 return gradient["color"], gradient
         return fill_str, None
 
+    def referenced_tag(self, paint_or_ref: str | None) -> str | None:
+        """Return the tag name referenced by a local ``url(#id)`` fragment, if known."""
+        if not paint_or_ref:
+            return None
+        match = re.match(r"url\(#([^)]+)\)", paint_or_ref)
+        if not match:
+            return None
+        elem = self._elements.get(match.group(1))
+        return strip_ns(elem.tag) if elem is not None else None
+
     def resolve_marker(self, marker_str: str | None) -> str:
         """Return the nearest draw.io arrow name for an SVG marker reference."""
         if not marker_str:
@@ -242,6 +263,12 @@ class DefsIndex:
                 ("shadowOffsetY", f"{shadow['dy']:.0f}"),
             ]
         return []
+
+    def supports_filter(self, filter_str: str | None) -> bool:
+        """Return whether a filter reference resolves to a supported draw.io approximation."""
+        if not filter_str:
+            return True
+        return bool(self.resolve_filter_entries(filter_str))
 
     def resolve_filter(self, filter_str: str | None) -> str:
         """Convert a supported SVG filter reference into draw.io style fragments."""

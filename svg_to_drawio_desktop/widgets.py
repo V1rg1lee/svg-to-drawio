@@ -19,6 +19,8 @@ class SourceListWidget(QListWidget):
         self.setAcceptDrops(True)
         self.setAlternatingRowColors(False)
         self.setSelectionMode(self.SelectionMode.ExtendedSelection)
+        self.setDragEnabled(True)
+        self.setDragDropMode(self.DragDropMode.InternalMove)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)

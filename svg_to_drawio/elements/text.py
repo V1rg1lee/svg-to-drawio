@@ -8,6 +8,7 @@ from ..cell_factory import make_bounds_vertex
 from ..emitter_context import EmitterContext
 from ..style_builder import StyleBuilder
 from ..styles import VisualStyle, font_style_flag, get_visual, opacity_pct
+from ..text_metrics import measure_text
 from ..transforms import Matrix, apply_pt
 from ..utils import parse_float, parse_length, parse_style_attr, strip_ns
 from .style_support import add_filter_styles, add_metadata_styles
@@ -47,8 +48,14 @@ def _emit_text_cell(
     font_style = font_style_flag(visual)
 
     x, y = apply_pt(matrix, x0, y0)
-    est_width = max(len(content) * font_size * 0.62, 20)
-    est_height = font_size * 1.8
+    est_width, est_height = measure_text(
+        content,
+        font_size,
+        font_family,
+        font_weight=str(visual.get("font_weight", "normal") or "normal"),
+        font_style=str(visual.get("font_style_v", "normal") or "normal"),
+    )
+    est_width = max(est_width, 20.0)
     tx = x - (est_width / 2 if align == "center" else est_width if align == "right" else 0)
 
     baseline_shift = str(visual.get("baseline_shift") or "0").strip().lower()
@@ -60,7 +67,8 @@ def _emit_text_cell(
         baseline_shift_px = 0.0
     else:
         baseline_shift_px = parse_length(baseline_shift, 0.0)
-    ty = y - font_size * 0.85 - baseline_shift_px
+    baseline_offset = max(font_size * 0.85, est_height * 0.60)
+    ty = y - baseline_offset - baseline_shift_px
 
     style = StyleBuilder()
     style.add_flag("text").add("html", 1).add("strokeColor", "none").add("fillColor", "none")
@@ -134,7 +142,14 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         if elem.text and elem.text.strip():
             content = elem.text.strip()
             _emit_text_cell(ctx, elem, matrix, visual, cur_x, cur_y, content)
-            cur_x += len(content) * max(visual["font_size"], 6) * 0.62
+            advance, _ = measure_text(
+                content,
+                max(visual["font_size"], 6),
+                visual.get("font_family") or "Helvetica",
+                font_weight=str(visual.get("font_weight", "normal") or "normal"),
+                font_style=str(visual.get("font_style_v", "normal") or "normal"),
+            )
+            cur_x += advance
 
         for tspan in elem:
             if strip_ns(tspan.tag) != "tspan":
@@ -152,25 +167,62 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
             raw = tspan.text or ""
             content = raw.strip()
             if not content:
-                cur_x += len(raw) * max(visual["font_size"], 6) * 0.62
+                advance, _ = measure_text(
+                    raw or " ",
+                    max(visual["font_size"], 6),
+                    visual.get("font_family") or "Helvetica",
+                    font_weight=str(visual.get("font_weight", "normal") or "normal"),
+                    font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                )
+                cur_x += advance
                 continue
 
             tspan_visual = _tspan_visual(tspan, css, ctx)
             font_size = max(tspan_visual["font_size"], 6)
 
             prefix_spaces = len(raw) - len(raw.lstrip())
-            cur_x += prefix_spaces * font_size * 0.62
+            if prefix_spaces:
+                prefix_advance, _ = measure_text(
+                    " " * prefix_spaces,
+                    font_size,
+                    tspan_visual.get("font_family") or "Helvetica",
+                    font_weight=str(tspan_visual.get("font_weight", "normal") or "normal"),
+                    font_style=str(tspan_visual.get("font_style_v", "normal") or "normal"),
+                )
+                cur_x += prefix_advance
 
             _emit_text_cell(ctx, elem, matrix, tspan_visual, cur_x, cur_y, content)
-            cur_x += len(content) * font_size * 0.62
+            content_advance, _ = measure_text(
+                content,
+                font_size,
+                tspan_visual.get("font_family") or "Helvetica",
+                font_weight=str(tspan_visual.get("font_weight", "normal") or "normal"),
+                font_style=str(tspan_visual.get("font_style_v", "normal") or "normal"),
+            )
+            cur_x += content_advance
 
             tail = tspan.tail or ""
             tail_content = tail.strip()
             if tail_content:
                 prefix_spaces = len(tail) - len(tail.lstrip())
-                cur_x += prefix_spaces * max(visual["font_size"], 6) * 0.62
+                if prefix_spaces:
+                    prefix_advance, _ = measure_text(
+                        " " * prefix_spaces,
+                        max(visual["font_size"], 6),
+                        visual.get("font_family") or "Helvetica",
+                        font_weight=str(visual.get("font_weight", "normal") or "normal"),
+                        font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                    )
+                    cur_x += prefix_advance
                 _emit_text_cell(ctx, elem, matrix, visual, cur_x, cur_y, tail_content)
-                cur_x += len(tail_content) * max(visual["font_size"], 6) * 0.62
+                tail_advance, _ = measure_text(
+                    tail_content,
+                    max(visual["font_size"], 6),
+                    visual.get("font_family") or "Helvetica",
+                    font_weight=str(visual.get("font_weight", "normal") or "normal"),
+                    font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                )
+                cur_x += tail_advance
         return
 
     content = _collect_text(elem)

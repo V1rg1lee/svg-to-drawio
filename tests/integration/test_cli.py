@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 from contextlib import redirect_stdout
 from os import makedirs, path
@@ -67,3 +68,29 @@ class CliTests(SvgTestCase):
             self.assertEqual(code, 0)
             with open(out_path, encoding="utf-8") as handle:
                 self.assertIn("<mxfile>", handle.read())
+
+    def test_cli_analyze_mode_writes_a_structured_report_without_emitting_drawio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            report_path = path.join(tmpdir, "report.json")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">'
+                    '<defs><clipPath id="cut"><circle cx="40" cy="40" r="20" /></clipPath></defs>'
+                    '<rect x="10" y="10" width="60" height="60" fill="red" clip-path="url(#cut)" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main.main([svg_path, "--analyze", "--report-json", report_path])
+
+            self.assertEqual(code, 0)
+            self.assertTrue(path.isfile(report_path))
+            self.assertFalse(path.exists(path.splitext(svg_path)[0] + ".drawio"))
+            with open(report_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            self.assertEqual(payload["mode"], "analyze")
+            self.assertEqual(len(payload["reports"]), 1)
+            self.assertEqual(payload["reports"][0]["fallback_count"], 1)
+            self.assertIn("score", stdout.getvalue())

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from urllib.parse import quote
 
 from .path_parser import path_commands
+from .path_simplification import simplify_path_commands
 from .path_types import PathCommand
 from .style_builder import StyleBuilder
 
@@ -101,7 +102,9 @@ def make_stencil_style_from_commands(
     linejoin: str = "miter",
 ) -> str | None:
     """Build a draw.io stencil style from already parsed path commands."""
-    stencil_path = commands_to_stencil_path(commands, ox, oy, width, height)
+    tolerance = max(width, height) * 0.002
+    cmds = simplify_path_commands(list(commands), tolerance)
+    stencil_path = commands_to_stencil_path(cmds, ox, oy, width, height)
     if not stencil_path:
         return None
     if fill_rule == "evenodd":

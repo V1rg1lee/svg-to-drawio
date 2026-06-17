@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 4896" width="840" height="4896">
+     viewBox="-10 -10 840 5940" width="840" height="5940">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -100,7 +100,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="4896" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="5940" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -932,5 +932,180 @@
           fill="#a892c8" stroke="#5c4a7a" stroke-width="1.5"/>
   </g>
   <text x="710" y="4857" text-anchor="middle" font-size="9" fill="#7060a0">Client D</text>
+
+  <!--  Feature 30: clipPath fallback  -->
+  <text x="10" y="4890" font-size="11" font-weight="bold" fill="#666">F30: clipPath fallback</text>
+  <defs>
+    <clipPath id="clip-circle" clipPathUnits="userSpaceOnUse">
+      <circle cx="95" cy="4955" r="34"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#clip-circle)">
+    <rect x="45" y="4920" width="120" height="70"
+          fill="#ef5350" stroke="#b71c1c" stroke-width="2"/>
+    <rect x="45" y="4920" width="38" height="70"
+          fill="#ffca28" opacity="0.95"/>
+    <path d="M 52 4980 L 92 4928 L 124 4952 L 165 4924"
+          fill="none" stroke="#263238" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="122" cy="4970" r="9" fill="#5c6bc0" opacity="0.92"/>
+  </g>
+  <text x="45" y="5010" font-size="9" fill="#888">clipped rect preserved via embedded SVG fallback</text>
+
+  <!--  Feature 31: mask fallback  -->
+  <text x="10" y="5050" font-size="11" font-weight="bold" fill="#666">F31: mask fallback</text>
+  <defs>
+    <mask id="soft-punch"
+          maskUnits="userSpaceOnUse"
+          maskContentUnits="userSpaceOnUse"
+          x="45" y="5070" width="150" height="80"
+          style="mask-type:alpha">
+      <rect x="45" y="5070" width="150" height="80" fill="#ffffff" fill-opacity="1"/>
+      <circle cx="103" cy="5110" r="18" fill="#ffffff" fill-opacity="0"/>
+      <rect x="138" y="5070" width="57" height="80" fill="#ffffff" fill-opacity="0.45"/>
+    </mask>
+  </defs>
+  <g mask="url(#soft-punch)">
+    <rect x="45" y="5070" width="150" height="80"
+          fill="#26c6da" stroke="#006064" stroke-width="2"/>
+    <rect x="45" y="5070" width="40" height="80"
+          fill="#ffca28" opacity="0.96"/>
+    <path d="M 55 5130 L 92 5086 L 128 5104 L 178 5078"
+          fill="none" stroke="#263238" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="124" cy="5126" r="10" fill="#8e24aa" opacity="0.94"/>
+  </g>
+  <text x="45" y="5170" font-size="9" fill="#888">masked group preserved via embedded SVG fallback</text>
+
+  <!--  Feature 32: pattern fallback  -->
+  <text x="10" y="5200" font-size="11" font-weight="bold" fill="#666">F32: pattern fallback</text>
+  <defs>
+    <pattern id="diag-stripes" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#fff8e1"/>
+      <path d="M -4 16 L 8 4 M 4 20 L 20 4 M 12 20 L 20 12"
+            fill="none" stroke="#fb8c00" stroke-width="4"/>
+      <circle cx="4" cy="4" r="2" fill="#6d4c41"/>
+    </pattern>
+  </defs>
+  <rect x="45" y="5220" width="150" height="80"
+        fill="url(#diag-stripes)" stroke="#5d4037" stroke-width="2"/>
+  <text x="45" y="5310" font-size="9" fill="#888">pattern fill preserved via embedded SVG fallback</text>
+
+  <!--  Feature 33: multi-stop gradient native approximation on simple shape  -->
+  <text x="10" y="5350" font-size="11" font-weight="bold" fill="#666">F33: multi-stop gradient approximation</text>
+  <defs>
+    <!-- 4-stop east gradient for rounded rect -->
+    <linearGradient id="multi-stop-linear" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#e53935"/>
+      <stop offset="35%"  stop-color="#fb8c00"/>
+      <stop offset="68%"  stop-color="#fdd835"/>
+      <stop offset="100%" stop-color="#1e88e5"/>
+    </linearGradient>
+    <!-- 5-stop east rainbow for circle -->
+    <linearGradient id="multi-stop-rainbow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#e53935"/>
+      <stop offset="25%"  stop-color="#ff6f00"/>
+      <stop offset="50%"  stop-color="#fdd835"/>
+      <stop offset="75%"  stop-color="#43a047"/>
+      <stop offset="100%" stop-color="#1e88e5"/>
+    </linearGradient>
+    <!-- 4-stop south gradient for ellipse -->
+    <linearGradient id="multi-stop-sunset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ff6f00"/>
+      <stop offset="33%"  stop-color="#f06292"/>
+      <stop offset="66%"  stop-color="#7e57c2"/>
+      <stop offset="100%" stop-color="#1a237e"/>
+    </linearGradient>
+    <!-- 5-stop radial gradient: white centre → warm edge -->
+    <radialGradient id="multi-stop-radial">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="25%"  stop-color="#fdd835"/>
+      <stop offset="50%"  stop-color="#e53935"/>
+      <stop offset="75%"  stop-color="#7e57c2"/>
+      <stop offset="100%" stop-color="#1a237e"/>
+    </radialGradient>
+  </defs>
+
+  <!-- rounded rect: 4 stops, east direction -->
+  <rect x="20" y="5368" width="190" height="82" rx="20"
+        fill="url(#multi-stop-linear)" stroke="#37474f" stroke-width="2"/>
+  <text x="20" y="5464" font-size="9" fill="#888">rounded rect · 4 stops · east</text>
+
+  <!-- circle: 5 stops, east direction — vertical band slices -->
+  <circle cx="315" cy="5410" r="62"
+          fill="url(#multi-stop-rainbow)" stroke="#37474f" stroke-width="2"/>
+  <text x="253" y="5481" font-size="9" fill="#888">circle · 5 stops · east</text>
+
+  <!-- ellipse: 4 stops, south direction — horizontal band slices -->
+  <ellipse cx="510" cy="5410" rx="80" ry="52"
+           fill="url(#multi-stop-sunset)" stroke="#37474f" stroke-width="2"/>
+  <text x="430" y="5471" font-size="9" fill="#888">ellipse · 4 stops · south</text>
+
+  <!-- circle: 5 stops, radial — concentric solid-colour ring approximation -->
+  <circle cx="670" cy="5410" r="55"
+          fill="url(#multi-stop-radial)" stroke="#37474f" stroke-width="2"/>
+  <text x="615" y="5471" font-size="9" fill="#888">circle · 5 stops · radial</text>
+
+  <!--  Feature 34: multi-stop linear gradient on complex path — now native via Sutherland–Hodgman clipping  -->
+  <text x="10" y="5500" font-size="11" font-weight="bold" fill="#666">F34: multi-stop gradient on complex path (native)</text>
+  <path d="M 70 5550 C 78 5500 132 5482 164 5510 C 190 5472 252 5485 242 5542 C 236 5585 184 5600 148 5590 C 110 5605 62 5588 70 5550 Z"
+        fill="url(#multi-stop-linear)" stroke="#37474f" stroke-width="2"/>
+  <text x="45" y="5610" font-size="9" fill="#888">complex path · 4 stops · east · native polygon clipping</text>
+
+  <!--  Feature 35: feGaussianBlur filter — SVG fallback (draw.io has no native element blur)  -->
+  <text x="10" y="5640" font-size="11" font-weight="bold" fill="#666">F35: feGaussianBlur → embedded SVG fallback</text>
+  <defs>
+    <filter id="blur-light">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+    <filter id="blur-heavy">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+
+  <!-- Reference: no blur -->
+  <rect x="20"  y="5658" width="130" height="65"
+        fill="#4caf50" stroke="#388e3c" stroke-width="2"/>
+  <text x="25"  y="5700" font-size="9" fill="#fff">no blur (reference)</text>
+
+  <!-- Light blur: feGaussianBlur has no draw.io native equivalent;
+       element is preserved via embedded SVG fallback so blur renders correctly. -->
+  <rect x="185" y="5658" width="130" height="65"
+        fill="#4caf50" stroke="#388e3c" stroke-width="2"
+        filter="url(#blur-light)"/>
+  <text x="190" y="5700" font-size="9" fill="#fff">stdDeviation=3</text>
+
+  <!-- Heavy blur -->
+  <rect x="350" y="5658" width="130" height="65"
+        fill="#e53935" stroke="#b71c1c" stroke-width="2"
+        filter="url(#blur-heavy)"/>
+  <text x="355" y="5700" font-size="9" fill="#fff">stdDeviation=8</text>
+
+  <!-- Blur on circle -->
+  <circle cx="580" cy="5691" r="33"
+          fill="#1565c0" stroke="#0d47a1" stroke-width="2"
+          filter="url(#blur-light)"/>
+  <text x="548" y="5742" font-size="9" fill="#888">circle stdDeviation=3</text>
+
+  <text x="20" y="5760" font-size="9" fill="#888">feGaussianBlur: no draw.io native equivalent; elements embedded as SVG so blur renders correctly</text>
+
+  <!--  Feature 36: path with many collinear points — path simplification via RDP  -->
+  <text x="10" y="5800" font-size="11" font-weight="bold" fill="#666">F36: path simplification (Ramer-Douglas-Peucker)</text>
+
+  <!-- Zigzag path: 20px perpendicular deviation at each point, far above tolerance.
+       RDP correctly PRESERVES all points here (no simplification for large deviations). -->
+  <path d="M 20 5860
+           L 60 5840 L 100 5860 L 140 5840 L 180 5860
+           L 220 5840 L 260 5860 L 300 5840 L 340 5860
+           L 380 5840 L 420 5860 L 460 5840 L 500 5860
+           L 540 5840 L 580 5860 L 620 5840 L 660 5860
+           L 700 5840 L 740 5860 L 780 5840 L 810 5860"
+        fill="none" stroke="#7c5cbf" stroke-width="2"/>
+  <text x="20" y="5885" font-size="9" fill="#888">zigzag: 20px deviation exceeds tolerance — all 21 points preserved (correct)</text>
+
+  <!-- Rect with redundant collinear intermediate points on each edge.
+       RDP simplifies 11 commands (move + 8 lines + close) → 5 (move + 3 lines + close). -->
+  <path d="M 20 5900 L 100 5900 L 200 5900 L 300 5900 L 400 5900
+           L 400 5925 L 300 5925 L 200 5925 L 100 5925 L 20 5925 Z"
+        fill="#fff9c4" stroke="#f57f17" stroke-width="2"/>
+  <text x="20" y="5940" font-size="9" fill="#888">rect (11 commands, collinear extras) — simplified to 5 in stencil output</text>
 
 </svg>

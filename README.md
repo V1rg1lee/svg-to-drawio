@@ -20,7 +20,7 @@ The output is written next to the source file by default (`diagram.svg` → `dia
 
 A desktop front-end shares the same conversion engine as the CLI.
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder, live watch mode, persistent preferences, and JSON report export.
 
 **Download release artifacts** from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
 
@@ -128,6 +128,9 @@ python main.py [INPUT] [OPTIONS]
 | `--stdout` | Write XML to stdout instead of a file (single file only) |
 | `--watch` | Re-convert SVG files automatically whenever they change |
 | `--flatten` | Dissolve `<g>` groups; emit all shapes at the root level |
+| `--analyze` | Inspect SVG compatibility and diagnostics without writing `.drawio` output |
+| `--report-json PATH` | Write a structured JSON report with diagnostics, fallbacks, and compatibility scores |
+| `--no-cache` | Disable the persistent cache for unchanged inputs |
 | `--max-elements N` | Warn and truncate output after N drawable elements |
 
 **Examples:**
@@ -138,6 +141,9 @@ python main.py src/icons/ --recursive --output-dir dist/diagrams --overwrite
 
 # Watch a folder and reconvert on every save
 python main.py src/ --watch --overwrite
+
+# Analyze a file and emit a JSON report without generating a .drawio file
+python main.py diagram.svg --analyze --report-json report.json
 
 # Pipe draw.io XML directly into another tool
 python main.py diagram.svg --stdout > diagram.drawio
@@ -172,6 +178,17 @@ summary = service.convert(
 print(summary.to_status_line())
 ```
 
+For one-off diagnostics without writing output files:
+
+```python
+from svg_to_drawio import analyze_file
+
+report = analyze_file("diagram.svg")
+print(report.compatibility_score)
+for issue in report.issues:
+    print(issue.message)
+```
+
 ## What gets converted
 
 | SVG element | draw.io output |
@@ -181,7 +198,7 @@ print(summary.to_status_line())
 | `<line>` | Edge (no arrow by default) |
 | `<polyline>` | Edge with waypoints |
 | `<polygon>` | Filled stencil shape |
-| `<path>` | Stencil; open unfilled paths with markers become edges |
+| `<path>` | Stencil; open unfilled paths with markers become edges; multi-stop linear gradients approximated natively |
 | `<text>` / `<tspan>` | Text cell |
 | `<image>` | Image cell with embedded asset data |
 | `<g>` | Native draw.io group cell |
@@ -199,20 +216,26 @@ print(summary.to_status_line())
 - `viewBox` mapping with `preserveAspectRatio` (root and nested)
 - `<defs>` + `<use>` reuse
 - Linear and radial gradients with `gradientTransform` and `xlink:href` inheritance
+- Multi-stop linear gradients on `<rect>`, `<circle>`, `<ellipse>`, and `<path>` approximated natively as stacked two-colour gradient bands (no SVG fallback); each band carries an exact draw.io two-colour gradient aligned to its stop interval
+- Multi-stop radial gradients on `<rect>`, `<circle>`, `<ellipse>` approximated as adaptive concentric rings (ring count scales with shape radius, up to 96 rings)
 - `marker-start`, `marker-end`, `marker-mid`
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
 - Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`
+- Embedded SVG fallback for `clip-path`, `mask`, pattern fills, and unsupported filters so those fragments keep their appearance
+- Structured diagnostics and compatibility scoring for CLI, automation, and the desktop app
 - `<title>` → draw.io tooltip; `feDropShadow` → draw.io shadow style
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
 
 ## Limitations
 
-- `<clipPath>` and `<mask>` are ignored.
-- Only `feDropShadow` is supported from `<filter>`; other filter effects are ignored.
-- Gradient approximation uses the two endpoint stop colors only; intermediate stops are dropped. `stop-opacity` is blended against white.
-- Text width is estimated from character count - long labels may need manual resizing.
+- `<clipPath>`, `<mask>`, pattern fills, and unsupported filters fall back to embedded SVG images for visual fidelity, so those fragments are less editable than native shapes.
+- Only `feDropShadow` is mapped to native draw.io shadow styles; other filter effects use the embedded SVG fallback path when possible.
+- Multi-stop **radial** gradients on `<path>` elements fall back to embedded SVG; draw.io's radial gradient always fills the entire cell bounding box so disk-clipping to an arbitrary path outline is not feasible natively. Radial gradients on `<rect>`, `<circle>`, and `<ellipse>` are approximated with concentric rings.
+- Two-stop gradients (one interval) are mapped directly to draw.io's native gradient properties. `stop-opacity` is blended against white for all gradient types.
+- Multi-stop gradients combined with a CSS `filter` or a shear transform fall back to embedded SVG because the filter or skew effect itself requires SVG.
+- Text uses platform font metrics when they are available, with a tuned heuristic fallback in headless environments.
 - `<image>` with shear-heavy transforms is approximated by its bounding box; draw.io image cells do not support true skew.
 - Local `<image>` paths are restricted to files inside the source SVG's folder tree.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding (draw.io handles embedded SVGs more reliably than raw PNGs).
@@ -252,7 +275,7 @@ python -m unittest discover -s tests -v
 **Lint & type-check:**
 
 ```bash
-python -m ruff check main.py svg_to_drawio tests
+python -m ruff check main.py svg_to_drawio svg_to_drawio_desktop tests
 python -m mypy
 ```
 
@@ -287,11 +310,13 @@ svg_to_drawio/
 ├── path_bounds.py           # Tight bounding boxes for path commands
 ├── path_stencil.py          # Path → stencil serialization
 ├── path_utils.py            # Path helper facade
+├── polygon_clip.py          # Sutherland–Hodgman polygon clipper for gradient band approximation
 ├── styles.py                # Visual property extraction
 ├── style_builder.py         # draw.io style-string builder
 ├── transforms.py            # 2D affine transforms + viewBox mapping
 ├── utils.py                 # Shared parsing helpers
 └── elements/
+    ├── gradient_approx.py   # Multi-stop gradient native approximation (bands + radial rings)
     ├── shapes.py            # line, circle, ellipse, rect
     ├── text.py              # text / tspan
     ├── poly.py              # polyline, polygon

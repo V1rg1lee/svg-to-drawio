@@ -38,11 +38,20 @@ class VisualStyle(TypedDict):
 
 
 class GradientStyle(TypedDict):
-    """draw.io gradient values resolved from an SVG gradient definition."""
+    """Resolved SVG gradient information used by native and approximated emitters."""
 
     color: str
     color2: str
     direction: str
+    kind: str
+    stops: list[GradientStop]
+
+
+class GradientStop(TypedDict):
+    """One normalized SVG gradient stop."""
+
+    offset: float
+    color: str
 
 
 _LINECAP: dict[str, str] = {"butt": "flat", "round": "round", "square": "square"}

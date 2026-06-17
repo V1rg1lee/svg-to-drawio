@@ -10,7 +10,7 @@ from urllib.parse import quote_from_bytes, unquote_to_bytes
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_box_vertex
-from ..element_geometry import image_bounds
+from ..element_geometry import BoundsBox, image_bounds
 from ..emitter_context import EmitterContext
 from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
@@ -74,6 +74,24 @@ def _svg_wrapper_data_uri(image_ref: str, width: float, height: float, preserve:
     return _data_uri_from_bytes("image/svg+xml", svg.encode("utf-8"))
 
 
+def emit_embedded_image_uri(
+    ctx: EmitterContext,
+    elem: Element,
+    *,
+    image_ref: str,
+    box: BoundsBox,
+    opacity: int = 100,
+    aspect_style: int = 1,
+) -> None:
+    """Emit a draw.io image cell from a pre-built embeddable image URI."""
+    style = StyleBuilder()
+    style.add("shape", "image").add("html", 1).add("image", image_ref).add("aspect", "fixed")
+    style.add("imageAspect", aspect_style).add("opacity", opacity)
+    style.add("strokeColor", "none").add("fillColor", "none")
+    add_metadata_styles(style, elem, ctx)
+    ctx.add(make_box_vertex(ctx, style.build(), box))
+
+
 def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | None, str | None]:
     """Resolve an image href to a safe embeddable reference and MIME type."""
     if not href:
@@ -84,10 +102,16 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         return None, None
 
     if href.startswith("data:"):
-        return _normalize_data_uri(href)
+        image_ref, mime = _normalize_data_uri(href)
+        if image_ref:
+            ctx.report.add_asset(href=href, status="embedded", mime_type=mime)
+        else:
+            ctx.report.add_asset(href=href, status="invalid", message="Invalid image data URI.")
+        return image_ref, mime
 
     if "://" in href:
         mime = mimetypes.guess_type(href)[0] or ""
+        ctx.report.add_asset(href=href, status="remote", mime_type=mime or None)
         return href, mime
 
     asset_path = href
@@ -98,15 +122,35 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
     if base_dir:
         try:
             if path.commonpath([base_dir, asset_path]) != base_dir:
+                ctx.report.add_asset(
+                    href=href,
+                    status="rejected",
+                    resolved_path=asset_path,
+                    message="Local image is outside the source directory tree.",
+                )
                 return None, None
         except ValueError:
+            ctx.report.add_asset(
+                href=href,
+                status="rejected",
+                resolved_path=asset_path,
+                message="Local image could not be resolved safely.",
+            )
             return None, None
     if not path.isfile(asset_path):
+        ctx.report.add_asset(
+            href=href,
+            status="missing",
+            resolved_path=asset_path,
+            message="Local image file does not exist.",
+        )
         return None, None
 
     mime = mimetypes.guess_type(asset_path)[0] or "application/octet-stream"
     with open(asset_path, "rb") as handle:
         raw = handle.read()
+    ctx.report.add_dependency(asset_path)
+    ctx.report.add_asset(href=href, status="embedded", resolved_path=asset_path, mime_type=mime)
     if mime == "image/svg+xml":
         return _data_uri_from_bytes(mime, raw), mime
     return _base64_data_uri_from_bytes(mime, raw), mime

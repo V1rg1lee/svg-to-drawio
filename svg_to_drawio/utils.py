@@ -66,6 +66,13 @@ def parse_style_attr(style: str | None) -> dict[str, str]:
     return result
 
 
+def format_style_attr(style_map: dict[str, str] | None) -> str:
+    """Serialize a normalized style dictionary into a stable inline CSS string."""
+    if not style_map:
+        return ""
+    return ";".join(f"{key}:{value}" for key, value in sorted(style_map.items()) if value)
+
+
 def get_tooltip(element: Element) -> str:
     """Return the text content of the first child `<title>` element, if any."""
     for child in element:

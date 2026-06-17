@@ -12,6 +12,11 @@ from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix, stroke_scale
 from ..utils import parse_length
+from .gradient_approx import (
+    ShapeSpec,
+    emit_multi_stop_gradient_approximation,
+    supports_multi_stop_gradient_approximation,
+)
 from .shape_paths import ellipse_path_d, rounded_rect_path_d
 from .shape_support import emit_polygon_stencil, emit_transformed_path_stencil
 from .style_support import add_filter_styles, add_gradient_styles, add_metadata_styles
@@ -81,6 +86,23 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
 
+    if supports_multi_stop_gradient_approximation("circle", matrix, gradient, filter_ref=visual["filter"]):
+        assert gradient is not None
+        emit_multi_stop_gradient_approximation(
+            ctx,
+            elem,
+            matrix,
+            ShapeSpec("ellipse", cx0 - radius, cy0 - radius, radius * 2, radius * 2),
+            gradient,
+            stroke=stroke,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            fill_opacity=fill_opacity,
+            stroke_opacity=stroke_opacity,
+            dash=visual["dash_style"],
+        )
+        return
+
     if has_shear(matrix):
         emit_transformed_path_stencil(
             ctx,
@@ -131,6 +153,23 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
     fill_opacity = opacity_pct(visual["fill_opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+
+    if supports_multi_stop_gradient_approximation("ellipse", matrix, gradient, filter_ref=visual["filter"]):
+        assert gradient is not None
+        emit_multi_stop_gradient_approximation(
+            ctx,
+            elem,
+            matrix,
+            ShapeSpec("ellipse", cx0 - rx0, cy0 - ry0, rx0 * 2, ry0 * 2),
+            gradient,
+            stroke=stroke,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            fill_opacity=fill_opacity,
+            stroke_opacity=stroke_opacity,
+            dash=visual["dash_style"],
+        )
+        return
 
     if has_shear(matrix):
         emit_transformed_path_stencil(
@@ -189,6 +228,23 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     fill_opacity = opacity_pct(visual["fill_opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+
+    if supports_multi_stop_gradient_approximation("rect", matrix, gradient, filter_ref=visual["filter"]):
+        assert gradient is not None
+        emit_multi_stop_gradient_approximation(
+            ctx,
+            elem,
+            matrix,
+            ShapeSpec("rect", x0, y0, width0, height0, rx=rx, ry=ry),
+            gradient,
+            stroke=stroke,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            fill_opacity=fill_opacity,
+            stroke_opacity=stroke_opacity,
+            dash=visual["dash_style"],
+        )
+        return
 
     if has_shear(matrix):
         if rx > 0 or ry > 0:

@@ -11,6 +11,7 @@ from ..path_utils import commands_bbox, make_stencil_style_from_commands, path_c
 from ..style_builder import StyleBuilder
 from ..styles import VisualStyle, get_visual, opacity_pct
 from ..transforms import Matrix, apply_pt, stroke_scale
+from .gradient_approx import emit_path_multi_stop_gradient_approximation, supports_multi_stop_gradient_approximation
 from .style_support import add_filter_styles, add_gradient_styles, add_metadata_styles, emit_midpoint_markers
 
 
@@ -90,6 +91,27 @@ def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
     fill_rule = visual.get("fill_rule", "nonzero")
+
+    if gradient is not None and supports_multi_stop_gradient_approximation(
+        "path", matrix, gradient, filter_ref=visual["filter"]
+    ):
+        emit_path_multi_stop_gradient_approximation(
+            ctx,
+            elem,
+            commands,
+            bbox,
+            gradient,
+            stroke=stroke_color,
+            stroke_width=stroke_width,
+            opacity=opacity,
+            fill_opacity=fill_opacity,
+            stroke_opacity=stroke_opacity,
+            fill_rule=fill_rule,
+            linecap=visual["linecap"],
+            linejoin=visual["linejoin"],
+            dash=visual["dash_style"],
+        )
+        return
 
     stencil_style = make_stencil_style_from_commands(
         commands,

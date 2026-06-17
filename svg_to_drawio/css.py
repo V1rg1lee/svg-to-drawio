@@ -12,6 +12,29 @@ from .utils import parse_float, parse_length, parse_style_attr, strip_ns
 Specificity = tuple[int, int, int]
 AncestorInfo = tuple[str, set[str]]
 
+_PRESENTATION_ATTR_SPECIFICITY: Specificity = (0, 0, 0)
+_PRESENTATION_ATTR_ORDER = -1
+_INHERITED_PRESENTATION_ATTRS: tuple[str, ...] = (
+    "baseline-shift",
+    "color",
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-opacity",
+    "stroke-width",
+    "text-anchor",
+    "text-decoration",
+    "visibility",
+)
+
 
 @dataclass
 class CssRule:
@@ -21,6 +44,31 @@ class CssRule:
     props: dict[str, str]
     specificity: Specificity
     order: int
+
+
+def _apply_presentation_attributes(
+    elem: Element,
+    computed: dict[str, str],
+    winners: dict[str, tuple[Specificity, int]],
+    custom_props: dict[str, str],
+) -> None:
+    """Apply inheritable SVG presentation attributes for descendant style propagation.
+
+    SVG presentation attributes such as `fill="#000"` are not part of the stylesheet
+    rule list, but they must still override inherited values on the current element
+    and then become inheritable for descendants. They behave like author styles with
+    zero specificity, so normal stylesheet rules and inline styles can still override
+    them later in the cascade.
+    """
+    for key in _INHERITED_PRESENTATION_ATTRS:
+        value = elem.get(key)
+        if value is None:
+            continue
+        resolved = _resolve_vars(str(value), custom_props)
+        if resolved.strip().lower() == "inherit":
+            continue
+        computed[key] = resolved
+        winners[key] = (_PRESENTATION_ATTR_SPECIFICITY, _PRESENTATION_ATTR_ORDER)
 
 
 def extract_custom_props(css_rules: Sequence[CssRule]) -> dict[str, str]:
@@ -267,6 +315,8 @@ def apply_css(
     elem_id = elem.get("id", "")
     elem_classes = set((elem.get("class") or "").split())
     ancestor_list = list(ancestors or [])
+
+    _apply_presentation_attributes(elem, computed, winners, custom_props)
 
     for rule in css_rules:
         # Cache simple selector matches (no combinators, no attribute tests) keyed on

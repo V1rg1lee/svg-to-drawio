@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from os import PathLike, makedirs, path
 from threading import Event
 
+from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
+from .diagnostics import ConversionReport
 
 Reporter = Callable[["ConversionEvent"], None]
 
@@ -36,6 +39,7 @@ class ConversionOptions:
     overwrite: bool = False
     flatten: bool = False
     max_elements: int | None = None
+    use_cache: bool = True
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class ConversionSummary:
     skipped: int
     failed: int
     cancelled: bool = False
+    reports: list[ConversionReport] = field(default_factory=list)
 
     @property
     def exit_code(self) -> int:
@@ -65,6 +70,17 @@ class ConversionSummary:
         """Render a stable human-readable batch summary."""
         suffix = " before cancellation" if self.cancelled else ""
         return f"Summary: {self.converted} converted, {self.skipped} skipped, {self.failed} failed{suffix}"
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize the batch summary into a JSON-friendly dictionary."""
+        return {
+            "total": self.total,
+            "converted": self.converted,
+            "skipped": self.skipped,
+            "failed": self.failed,
+            "cancelled": self.cancelled,
+            "reports": [report.to_dict() for report in self.reports],
+        }
 
 
 @dataclass(frozen=True)
@@ -79,6 +95,7 @@ class ConversionEvent:
     output_path: str | None = None
     error: str | None = None
     summary: ConversionSummary | None = None
+    report: ConversionReport | None = None
 
 
 class CancellationToken:
@@ -169,6 +186,25 @@ class ConversionService:
 
     def __init__(self, converter_factory: Callable[[], Converter] | None = None) -> None:
         self._converter_factory = converter_factory or Converter
+        self._caches: dict[str, ConversionCache] = {}
+
+    def _cache_for(self, output_path: str, options: ConversionOptions) -> ConversionCache:
+        """Return the persistent cache object for one output location."""
+        manifest_path = default_manifest_path(output_path, options.output_dir)
+        cache = self._caches.get(manifest_path)
+        if cache is None:
+            cache = ConversionCache(manifest_path)
+            self._caches[manifest_path] = cache
+        return cache
+
+    @staticmethod
+    def _options_signature(options: ConversionOptions) -> str:
+        """Return the content-affecting option signature for cache invalidation."""
+        payload = {
+            "flatten": options.flatten,
+            "max_elements": options.max_elements,
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
     def plan(
         self,
@@ -230,6 +266,8 @@ class ConversionService:
         skipped = 0
         failed = 0
         cancelled = False
+        reports: list[ConversionReport] = []
+        options_signature = self._options_signature(options)
 
         for index, job in enumerate(jobs, start=1):
             if cancellation_token and cancellation_token.is_cancelled():
@@ -250,6 +288,27 @@ class ConversionService:
             if out_dir and not path.isdir(out_dir):
                 makedirs(out_dir, exist_ok=True)
 
+            if options.use_cache:
+                cached_report = self._cache_for(job.output_path, options).get_cached_report(
+                    job.source_path,
+                    job.output_path,
+                    options_signature=options_signature,
+                )
+                if cached_report is not None:
+                    skipped += 1
+                    reports.append(cached_report)
+                    self._report(
+                        reporter,
+                        ConversionEventKind.SKIPPED,
+                        f"Skipped unchanged (cache): {path.basename(job.source_path)}  ->  {job.output_path}",
+                        completed=index,
+                        total=total,
+                        source_path=job.source_path,
+                        output_path=job.output_path,
+                        report=cached_report,
+                    )
+                    continue
+
             if path.exists(job.output_path) and not options.overwrite:
                 skipped += 1
                 self._report(
@@ -264,14 +323,23 @@ class ConversionService:
                 continue
 
             try:
-                written = self._converter_factory().convert_file(
+                converter = self._converter_factory()
+                written = converter.convert_file(
                     job.source_path,
                     out_path=job.output_path,
                     flatten=options.flatten,
                     max_elements=options.max_elements,
                 )
+                report = converter.get_report()
             except Exception as exc:  # pragma: no cover - intentionally user-facing
                 failed += 1
+                report = ConversionReport(source_path=job.source_path, output_path=job.output_path)
+                report.add_issue(
+                    "conversion-failed",
+                    "error",
+                    f"Conversion failed: {exc}",
+                )
+                reports.append(report)
                 self._report(
                     reporter,
                     ConversionEventKind.FAILED,
@@ -281,10 +349,19 @@ class ConversionService:
                     source_path=job.source_path,
                     output_path=job.output_path,
                     error=str(exc),
+                    report=report,
                 )
                 continue
 
             converted += 1
+            reports.append(report)
+            if options.use_cache:
+                self._cache_for(job.output_path, options).update(
+                    job.source_path,
+                    written,
+                    options_signature=options_signature,
+                    report=report,
+                )
             self._report(
                 reporter,
                 ConversionEventKind.CONVERTED,
@@ -293,6 +370,7 @@ class ConversionService:
                 total=total,
                 source_path=job.source_path,
                 output_path=written,
+                report=report,
             )
 
         if cancellation_token and cancellation_token.is_cancelled():
@@ -312,6 +390,7 @@ class ConversionService:
             skipped=skipped,
             failed=failed,
             cancelled=cancelled,
+            reports=reports,
         )
         self._report(
             reporter,
@@ -335,6 +414,7 @@ class ConversionService:
         output_path: str | None = None,
         error: str | None = None,
         summary: ConversionSummary | None = None,
+        report: ConversionReport | None = None,
     ) -> None:
         """Emit one progress event when a reporter callback is configured."""
         if reporter is None:
@@ -349,6 +429,7 @@ class ConversionService:
                 output_path=output_path,
                 error=error,
                 summary=summary,
+                report=report,
             )
         )
 
@@ -367,8 +448,18 @@ def watch_svg_files(
     ``KeyboardInterrupt`` is raised by the caller.
     """
     resolved_inputs = [path.abspath(os.fspath(p)) for p in input_paths]
-    last_mtimes: dict[str, float] = {}
     service = ConversionService()
+
+    def scan_signatures() -> dict[str, tuple[int, int]]:
+        signatures: dict[str, tuple[int, int]] = {}
+        for inp in resolved_inputs:
+            for svg in iter_svg_files(inp, recursive=options.recursive):
+                try:
+                    stat = os.stat(svg)
+                except OSError:
+                    continue
+                signatures[svg] = (int(stat.st_mtime_ns), int(stat.st_size))
+        return signatures
 
     # Always overwrite during watch mode; user triggered an explicit watch session
     watch_opts = ConversionOptions(
@@ -377,34 +468,25 @@ def watch_svg_files(
         overwrite=True,
         flatten=options.flatten,
         max_elements=options.max_elements,
+        use_cache=options.use_cache,
     )
 
     # Initial conversion pass
     service.convert(resolved_inputs, watch_opts, reporter=reporter)
 
-    # Record mtimes so we can detect subsequent changes
-    for inp in resolved_inputs:
-        for svg in iter_svg_files(inp, recursive=options.recursive):
-            try:
-                last_mtimes[svg] = os.stat(svg).st_mtime
-            except OSError:
-                pass
+    # Record signatures so we can detect modifications, additions, and content-size changes.
+    last_snapshot = scan_signatures()
 
     while True:
         if stop_event and stop_event.is_set():
             break
         time.sleep(poll_interval)
 
-        changed: list[str] = []
-        for inp in resolved_inputs:
-            for svg in iter_svg_files(inp, recursive=options.recursive):
-                try:
-                    mtime = os.stat(svg).st_mtime
-                except OSError:
-                    continue
-                if last_mtimes.get(svg) != mtime:
-                    last_mtimes[svg] = mtime
-                    changed.append(svg)
+        current_snapshot = scan_signatures()
+        changed = [
+            svg_path for svg_path, signature in current_snapshot.items() if last_snapshot.get(svg_path) != signature
+        ]
+        last_snapshot = current_snapshot
 
         if changed:
             single_opts = ConversionOptions(
@@ -413,5 +495,6 @@ def watch_svg_files(
                 overwrite=True,
                 flatten=options.flatten,
                 max_elements=options.max_elements,
+                use_cache=options.use_cache,
             )
             service.convert(changed, single_opts, reporter=reporter)

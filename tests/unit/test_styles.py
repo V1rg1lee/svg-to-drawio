@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import tempfile
 import xml.etree.ElementTree as ET
+from os import path
+
+from svg_to_drawio.converter import Converter
 
 from tests.helpers import SvgTestCase
 
@@ -56,6 +59,49 @@ class StyleAndTextTests(SvgTestCase):
             styles = self._style_map(cell)
             self.assertEqual(styles["fillColor"], "#123abc")
             self.assertEqual(styles["strokeColor"], "#112233")
+
+    def test_group_presentation_attributes_are_inherited(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <g fill="#000000" stroke="none">
+            <path d="M 0 0 H 10 V 10 H 0 Z" />
+            <rect x="20" y="0" width="10" height="10" />
+          </g>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            path_cell = next(cell for cell in cells if "shape=stencil(" in cell.get("style", ""))
+            rect_cell = next(
+                cell
+                for cell in cells
+                if cell is not path_cell
+                and cell.get("style", "") != "group;"
+                and "shape=stencil(" not in cell.get("style", "")
+            )
+
+            path_styles = self._style_map(path_cell)
+            rect_styles = self._style_map(rect_cell)
+
+            self.assertEqual(path_styles["fillColor"], "#000000")
+            self.assertEqual(path_styles["strokeColor"], "none")
+            self.assertEqual(rect_styles["fillColor"], "#000000")
+            self.assertEqual(rect_styles["strokeColor"], "none")
+
+    def test_inherited_color_presentation_attribute_resolves_current_color(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <g color="#224466">
+            <circle cx="10" cy="10" r="5" fill="currentColor" />
+          </g>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            circle_cell = next(cell for cell in self._user_cells(root) if cell.get("style", "") != "group;")
+            styles = self._style_map(circle_cell)
+            self.assertEqual(styles["fillColor"], "#224466")
 
     def test_opacity_and_alpha_channels_are_combined(self) -> None:
         svg = """
@@ -128,7 +174,9 @@ class StyleAndTextTests(SvgTestCase):
             self.assertEqual(first_styles["align"], "center")
             self.assertEqual(first_styles["fontStyle"], "15")
             self.assertEqual(first_styles["fontSize"], "10.0")
-            self.assertAlmostEqual(float(first.find("mxGeometry").get("y")), 8.0, places=2)
+            first_y = float(first.find("mxGeometry").get("y"))
+            self.assertGreater(first_y, 0.0)
+            self.assertLess(first_y, 10.0)
 
             self.assertEqual(second_styles["fontColor"], "red")
             self.assertEqual(second_styles["fontSize"], "20.0")
@@ -168,6 +216,43 @@ class StyleAndTextTests(SvgTestCase):
             self.assertEqual(circle_styles["fillColor"], "#00ff00")
             self.assertEqual(circle_styles["gradientColor"], "#000000")
             self.assertEqual(circle_styles["gradientDirection"], "radial")
+
+    def test_multi_stop_gradient_on_simple_rect_is_approximated_natively(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="100">
+          <defs>
+            <linearGradient id="multi" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#e53935" />
+              <stop offset="35%" stop-color="#fb8c00" />
+              <stop offset="70%" stop-color="#fdd835" />
+              <stop offset="100%" stop-color="#1e88e5" />
+            </linearGradient>
+          </defs>
+          <rect x="10" y="15" width="120" height="50" rx="12" fill="url(#multi)" stroke="#263238" stroke-width="2" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "approx.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertFalse(any(self._style_map(cell).get("shape") == "image" for cell in cells))
+        self.assertEqual(report.fallback_count, 0)
+        self.assertNotIn("multi-stop-gradient-fallback", {issue.code for issue in report.issues})
+
+        group = next(cell for cell in cells if cell.get("style") == "group;")
+        children = [cell for cell in cells if cell.get("parent") == group.get("id")]
+        # 4 stops → 3 gradient bands + 1 stroke overlay = 4 children
+        self.assertGreaterEqual(len(children), 3)
+        # Each gradient band carries a two-color gradient
+        band_cells = [cell for cell in children if "gradientColor" in self._style_map(cell)]
+        self.assertGreaterEqual(len(band_cells), 3)
 
     def test_fill_rule_evenodd_is_encoded_in_stencil(self) -> None:
         svg = """

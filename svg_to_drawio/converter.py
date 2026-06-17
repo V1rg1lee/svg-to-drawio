@@ -11,14 +11,18 @@ from xml.etree.ElementTree import Element
 from .cell_factory import make_bounds_vertex, make_layer_cell
 from .css import AncestorInfo, CssRule, apply_css, collect_css, extract_custom_props
 from .defs import DefsIndex
+from .diagnostics import ConversionReport
 from .drawio_model import Cell, group_bbox, shift_cells
 from .drawio_output import make_xml
-from .elements.image import emit_image
+from .element_geometry import BoundsBox
+from .elements.gradient_approx import is_multi_stop_gradient, supports_multi_stop_gradient_approximation
+from .elements.image import emit_embedded_image_uri, emit_image
 from .elements.path import emit_path
 from .elements.poly import emit_polyline
 from .elements.shapes import emit_circle, emit_ellipse, emit_line, emit_rect
 from .elements.text import emit_text
 from .emitter_context import EmitterContext
+from .svg_fallback import build_fallback_svg_data_uri
 from .transforms import Matrix, mat_mul, parse_transform, viewbox_transform
 from .utils import parse_length, strip_ns
 
@@ -79,6 +83,8 @@ _DISPATCH: dict[str, ElementEmitter] = {
     "image": emit_image,
 }
 
+_FALLBACK_PAINT_PROPS: tuple[str, str] = ("fill", "stroke")
+
 
 def _inkscape_layer_label(elem: Element) -> str | None:
     """Return the Inkscape layer label if this `<g>` is an Inkscape layer, else None."""
@@ -99,6 +105,7 @@ class Converter:
         self._id: int = 2
         self.cells: list[Cell] = []
         self.defs = DefsIndex()
+        self.report = ConversionReport()
         self.source_dir: str = ""
         self.css_rules: list[CssRule] = []
         self._custom_props: dict[str, str] = {}
@@ -106,6 +113,8 @@ class Converter:
         self._element_count: int = 0
         self._flatten: bool = False
         self._max_elements: int | None = None
+        self._root: Element | None = None
+        self._root_matrix: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
 
     def next_id(self) -> str:
         """Return the next unique draw.io cell identifier."""
@@ -122,6 +131,7 @@ class Converter:
             source_dir=self.source_dir,
             css_rules=self.css_rules,
             custom_props=self._custom_props,
+            report=self.report,
             add_cell=self.cells.append,
             next_id_callback=self.next_id,
         )
@@ -130,15 +140,20 @@ class Converter:
         """Parse an SVG file and return the draw.io XML as a string."""
         tree = ET.parse(svg_path_str)
         root = tree.getroot()
+        self._root = root
+        self.report.source_path = path.abspath(svg_path_str)
         self.source_dir = path.dirname(path.abspath(svg_path_str))
         self.defs.index(root)
         self.css_rules = collect_css(root)
         self._custom_props = extract_custom_props(self.css_rules)
         root_matrix = viewbox_transform(root)
+        self._root_matrix = root_matrix
         context = self._make_context()
         for child in root:
             self._convert(child, context, root_matrix, {}, ancestors=[])
-        return make_xml(self.cells, title)
+        xml = make_xml(self.cells, title)
+        self.report.emitted_cells = len(self.cells)
+        return xml
 
     def convert_file(
         self,
@@ -159,6 +174,7 @@ class Converter:
         output_path = fspath(out_path) if out_path is not None else path.splitext(svg_path_str)[0] + ".drawio"
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(xml)
+        self.report.output_path = output_path
         return output_path
 
     def convert_to_string(
@@ -177,6 +193,209 @@ class Converter:
         title = path.splitext(path.basename(svg_path_str))[0]
         return self._parse_and_convert(svg_path_str, title)
 
+    def analyze_file(
+        self,
+        svg_path: str | PathLike[str],
+        *,
+        flatten: bool = False,
+        max_elements: int | None = None,
+    ) -> ConversionReport:
+        """Analyze one SVG file without writing output, returning its structured report."""
+        self.reset()
+        self._flatten = flatten
+        self._max_elements = max_elements
+        self.report.analyze_only = True
+
+        svg_path_str = fspath(svg_path)
+        title = path.splitext(path.basename(svg_path_str))[0]
+        self._parse_and_convert(svg_path_str, title)
+        return self.get_report()
+
+    def get_report(self) -> ConversionReport:
+        """Return a detached report for the most recent conversion run."""
+        return self.report.clone()
+
+    def _record_issue(
+        self,
+        code: str,
+        message: str,
+        *,
+        severity: str = "warning",
+        elem: Element | None = None,
+        fallback_used: bool = False,
+    ) -> None:
+        """Record one structured issue against the current conversion report."""
+        self.report.add_issue(
+            code=code,
+            severity=severity,
+            message=message,
+            element_tag=strip_ns(elem.tag) if elem is not None else None,
+            element_id=elem.get("id") if elem is not None else None,
+            fallback_used=fallback_used,
+        )
+
+    def _fallback_reason(self, elem: Element, css: dict[str, str]) -> tuple[str, str] | None:
+        """Return the first unsupported visual feature that should trigger SVG fallback."""
+        clip_path = css.get("clip-path") or elem.get("clip-path") or ""
+        if clip_path and clip_path.lower() != "none":
+            return "clip-path-fallback", "Embedded SVG fallback used because `clip-path` is not natively supported."
+
+        mask = css.get("mask") or elem.get("mask") or ""
+        if mask and mask.lower() != "none":
+            return "mask-fallback", "Embedded SVG fallback used because `mask` is not natively supported."
+
+        filter_ref = css.get("filter") or elem.get("filter") or ""
+        if filter_ref and filter_ref.lower() != "none" and not self.defs.supports_filter(filter_ref):
+            return (
+                "filter-fallback",
+                "Embedded SVG fallback used because this SVG filter cannot be approximated by draw.io.",
+            )
+
+        for prop_name in _FALLBACK_PAINT_PROPS:
+            paint_value = css.get(prop_name) or elem.get(prop_name) or ""
+            referenced_tag = self.defs.referenced_tag(paint_value)
+            if referenced_tag == "pattern":
+                return (
+                    "pattern-fallback",
+                    f"Embedded SVG fallback used because `{prop_name}` references an SVG pattern.",
+                )
+        return None
+
+    def _multi_stop_gradient_fallback_reason(
+        self,
+        elem: Element,
+        css: dict[str, str],
+        matrix: Matrix,
+    ) -> tuple[str, str] | None:
+        """Return the fallback reason for multi-stop gradients that cannot stay native."""
+        fill_value = css.get("fill") or elem.get("fill") or ""
+        _, gradient = self.defs.resolve_fill(fill_value)
+        if not is_multi_stop_gradient(gradient):
+            return None
+
+        if supports_multi_stop_gradient_approximation(
+            strip_ns(elem.tag),
+            matrix,
+            gradient,
+            filter_ref=css.get("filter") or elem.get("filter"),
+        ):
+            return None
+
+        return (
+            "multi-stop-gradient-fallback",
+            "Embedded SVG fallback used because multi-stop gradients are only approximated natively "
+            "for simple, unfiltered rectangles, circles, and ellipses.",
+        )
+
+    def _emit_svg_fallback(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        parent_matrix: Matrix,
+        css: dict[str, str],
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo],
+        issue_code: str,
+        issue_message: str,
+    ) -> bool:
+        """Emit an embedded SVG image for one unsupported-but-renderable fragment."""
+        if self._root is None:
+            return False
+
+        bbox = self._estimate_subtree_bounds(elem, parent_matrix, inherited_css, ancestors)
+        if bbox is None:
+            self._record_issue(
+                "fallback-bounds-missing",
+                "Could not estimate bounds for an embedded SVG fallback, so the element was skipped.",
+                severity="error",
+                elem=elem,
+            )
+            return False
+
+        # Compute padding to avoid clipping stroke edges and filter halos.
+        stroke_w = parse_length(css.get("stroke-width") or elem.get("stroke-width") or "1") or 1.0
+        padding = stroke_w / 2.0
+        filter_val = css.get("filter") or elem.get("filter") or ""
+        if filter_val and filter_val.lower() != "none":
+            # SVG filter regions extend ~10% beyond the bbox by default; use 15% to be safe.
+            bx, by, bw, bh = bbox
+            padding = max(padding, max(bw, bh) * 0.15)
+
+        image_ref = build_fallback_svg_data_uri(
+            self._root,
+            elem,
+            parent_matrix=parent_matrix,
+            bbox=bbox,
+            computed_css=css,
+            padding=padding,
+            report=self.report,
+        )
+        self.report.fallback_count += 1
+        self._record_issue(issue_code, issue_message, elem=elem, fallback_used=True)
+
+        x, y, width, height = bbox
+        emit_embedded_image_uri(
+            ctx,
+            elem,
+            image_ref=image_ref,
+            box=BoundsBox(x=x - padding, y=y - padding, width=width + 2.0 * padding, height=height + 2.0 * padding),
+        )
+        return True
+
+    def _estimate_subtree_bounds(
+        self,
+        elem: Element,
+        parent_matrix: Matrix,
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo],
+    ) -> tuple[float, float, float, float] | None:
+        """Estimate one subtree's world-space bounds by reusing the existing emitters in flatten mode."""
+        temp_cells: list[Cell] = []
+        local_id = 1000000
+        temp_report = ConversionReport(source_path=self.report.source_path)
+
+        def next_temp_id() -> str:
+            nonlocal local_id
+            local_id += 1
+            return str(local_id)
+
+        temp_ctx = EmitterContext(
+            defs=self.defs,
+            parent_id="1",
+            link_url="",
+            source_dir=self.source_dir,
+            css_rules=self.css_rules,
+            custom_props=self._custom_props,
+            report=temp_report,
+            add_cell=temp_cells.append,
+            next_id_callback=next_temp_id,
+        )
+
+        old_flatten = self._flatten
+        old_max_elements = self._max_elements
+        old_element_count = self._element_count
+        try:
+            self._flatten = True
+            self._max_elements = None
+            self._convert(
+                elem,
+                temp_ctx,
+                parent_matrix,
+                inherited_css,
+                ancestors=ancestors,
+                allow_fallback=False,
+                record_issues=False,
+                enforce_max_elements=False,
+            )
+        finally:
+            self._flatten = old_flatten
+            self._max_elements = old_max_elements
+            self._element_count = old_element_count
+
+        if not temp_cells:
+            return None
+        return group_bbox(temp_cells)
+
     def _convert(
         self,
         elem: Element,
@@ -184,6 +403,10 @@ class Converter:
         parent_matrix: Matrix,
         inherited_css: dict[str, str],
         ancestors: list[AncestorInfo] | None = None,
+        *,
+        allow_fallback: bool = True,
+        record_issues: bool = True,
+        enforce_max_elements: bool = True,
     ) -> None:
         """Convert a single SVG element and recurse into its children when needed."""
         ancestor_list = list(ancestors or [])
@@ -207,21 +430,73 @@ class Converter:
         if display_value == "none" or visibility_value == "hidden":
             return
 
+        if allow_fallback:
+            fallback_reason = self._fallback_reason(elem, css)
+            if fallback_reason is None:
+                fallback_reason = self._multi_stop_gradient_fallback_reason(elem, css, matrix)
+            if fallback_reason is not None and self._emit_svg_fallback(
+                elem,
+                ctx,
+                parent_matrix,
+                css,
+                inherited_css,
+                ancestor_list,
+                fallback_reason[0],
+                fallback_reason[1],
+            ):
+                return
+
         elem_classes = set((elem.get("class") or "").split())
         child_ancestors = ancestor_list + [(tag, elem_classes)]
 
         if tag == "g":
-            self._convert_group(elem, ctx, matrix, css, child_ancestors)
+            self._convert_group(
+                elem,
+                ctx,
+                matrix,
+                css,
+                child_ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
         elif tag == "a":
-            self._convert_link(elem, ctx, matrix, css, child_ancestors)
+            self._convert_link(
+                elem,
+                ctx,
+                matrix,
+                css,
+                child_ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
         elif tag == "use":
-            self._resolve_use(elem, ctx, matrix, css, child_ancestors)
+            self._resolve_use(
+                elem,
+                ctx,
+                matrix,
+                css,
+                child_ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
         elif tag == "svg":
             inner_matrix = mat_mul(matrix, viewbox_transform(elem))
             for child in elem:
-                self._convert(child, ctx, inner_matrix, css, ancestors=child_ancestors)
+                self._convert(
+                    child,
+                    ctx,
+                    inner_matrix,
+                    css,
+                    ancestors=child_ancestors,
+                    allow_fallback=allow_fallback,
+                    record_issues=record_issues,
+                    enforce_max_elements=enforce_max_elements,
+                )
         elif tag in _DISPATCH:
-            if self._max_elements is not None:
+            if enforce_max_elements and self._max_elements is not None:
                 self._element_count += 1
                 if self._element_count > self._max_elements:
                     if self._element_count == self._max_elements + 1:
@@ -230,6 +505,13 @@ class Converter:
                             RuntimeWarning,
                             stacklevel=2,
                         )
+                        if record_issues:
+                            self.report.truncated = True
+                            self._record_issue(
+                                "max-elements-truncated",
+                                f"Output was truncated after {self._max_elements} drawable elements.",
+                                elem=elem,
+                            )
                     return
             try:
                 _DISPATCH[tag](ctx, elem, matrix, css)
@@ -237,6 +519,12 @@ class Converter:
                 elem_id = elem.get("id")
                 id_hint = f" id={elem_id!r}" if elem_id else ""
                 raise RuntimeError(f"Failed to convert <{tag}{id_hint}>: {exc}") from exc
+        elif record_issues:
+            self._record_issue(
+                "ignored-unsupported-element",
+                f"Ignored unsupported SVG element <{tag}>.",
+                elem=elem,
+            )
 
     def _convert_group(
         self,
@@ -245,6 +533,10 @@ class Converter:
         matrix: Matrix,
         css: dict[str, str],
         ancestors: list[AncestorInfo],
+        *,
+        allow_fallback: bool = True,
+        record_issues: bool = True,
+        enforce_max_elements: bool = True,
     ) -> None:
         """Render an SVG group as a draw.io container with relative child coordinates.
 
@@ -254,13 +546,32 @@ class Converter:
         # Inkscape layers → draw.io layer cells
         layer_label = _inkscape_layer_label(elem)
         if layer_label is not None:
-            self._convert_layer(elem, ctx, matrix, css, ancestors, layer_label)
+            self._convert_layer(
+                elem,
+                ctx,
+                matrix,
+                css,
+                ancestors,
+                layer_label,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
             return
 
         # Flatten mode: dissolve the group and emit children directly under the current parent
         if self._flatten:
             for child in elem:
-                self._convert(child, ctx, matrix, css, ancestors=ancestors)
+                self._convert(
+                    child,
+                    ctx,
+                    matrix,
+                    css,
+                    ancestors=ancestors,
+                    allow_fallback=allow_fallback,
+                    record_issues=record_issues,
+                    enforce_max_elements=enforce_max_elements,
+                )
             return
 
         group_id = ctx.next_id()
@@ -268,7 +579,16 @@ class Converter:
 
         group_ctx = ctx.with_parent(group_id)
         for child in elem:
-            self._convert(child, group_ctx, matrix, css, ancestors=ancestors)
+            self._convert(
+                child,
+                group_ctx,
+                matrix,
+                css,
+                ancestors=ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
 
         new_cells = list(self.cells[start_index:])
         del self.cells[start_index:]
@@ -299,13 +619,26 @@ class Converter:
         css: dict[str, str],
         ancestors: list[AncestorInfo],
         label: str,
+        *,
+        allow_fallback: bool = True,
+        record_issues: bool = True,
+        enforce_max_elements: bool = True,
     ) -> None:
         """Render an Inkscape layer as a draw.io layer cell with absolute-coordinate children."""
         layer_id = ctx.next_id()
         self.cells.append(make_layer_cell(ctx, label=label, cell_id=layer_id))
         layer_ctx = ctx.with_parent(layer_id)
         for child in elem:
-            self._convert(child, layer_ctx, matrix, css, ancestors=ancestors)
+            self._convert(
+                child,
+                layer_ctx,
+                matrix,
+                css,
+                ancestors=ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
 
     def _convert_link(
         self,
@@ -314,12 +647,25 @@ class Converter:
         matrix: Matrix,
         css: dict[str, str],
         ancestors: list[AncestorInfo],
+        *,
+        allow_fallback: bool = True,
+        record_issues: bool = True,
+        enforce_max_elements: bool = True,
     ) -> None:
         """Propagate the current `<a>` link target to all nested drawable children."""
         href = elem.get("href") or elem.get("{http://www.w3.org/1999/xlink}href") or ""
         link_ctx = ctx.with_link(href or ctx.link_url)
         for child in elem:
-            self._convert(child, link_ctx, matrix, css, ancestors=ancestors)
+            self._convert(
+                child,
+                link_ctx,
+                matrix,
+                css,
+                ancestors=ancestors,
+                allow_fallback=allow_fallback,
+                record_issues=record_issues,
+                enforce_max_elements=enforce_max_elements,
+            )
 
     def _resolve_use(
         self,
@@ -328,6 +674,10 @@ class Converter:
         matrix: Matrix,
         inherited_css: dict[str, str],
         ancestors: list[AncestorInfo] | None = None,
+        *,
+        allow_fallback: bool = True,
+        record_issues: bool = True,
+        enforce_max_elements: bool = True,
     ) -> None:
         """Resolve and render the target of a `<use>` element."""
         href = elem.get("href") or elem.get("{http://www.w3.org/1999/xlink}href") or ""
@@ -352,8 +702,26 @@ class Converter:
                 viewbox_transform(ref_elem, override_w=use_width, override_h=use_height),
             )
             for child in ref_elem:
-                self._convert(child, ctx, inner_matrix, inherited_css, ancestors=ancestors or [])
+                self._convert(
+                    child,
+                    ctx,
+                    inner_matrix,
+                    inherited_css,
+                    ancestors=ancestors or [],
+                    allow_fallback=allow_fallback,
+                    record_issues=record_issues,
+                    enforce_max_elements=enforce_max_elements,
+                )
             return
 
         use_matrix = mat_mul(matrix, use_translate)
-        self._convert(ref_elem, ctx, use_matrix, inherited_css, ancestors=ancestors or [])
+        self._convert(
+            ref_elem,
+            ctx,
+            use_matrix,
+            inherited_css,
+            ancestors=ancestors or [],
+            allow_fallback=allow_fallback,
+            record_issues=record_issues,
+            enforce_max_elements=enforce_max_elements,
+        )
