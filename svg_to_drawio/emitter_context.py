@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from .defs import DefsIndex
 from .diagnostics import ConversionReport
 from .drawio_model import Cell
+from .rendering_options import RenderingOptions
 
 if TYPE_CHECKING:
     from .css import CssRule
@@ -30,6 +31,7 @@ class EmitterContext:
     css_rules: Sequence[CssRule]
     custom_props: dict[str, str]
     report: ConversionReport
+    rendering_options: RenderingOptions
     add_cell: Callable[[Cell], None]
     next_id_callback: Callable[[], str]
 

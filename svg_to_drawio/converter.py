@@ -22,6 +22,7 @@ from .elements.poly import emit_polyline
 from .elements.shapes import emit_circle, emit_ellipse, emit_line, emit_rect
 from .elements.text import emit_text
 from .emitter_context import EmitterContext
+from .rendering_options import RenderingOptions, normalize_filter_ref
 from .svg_fallback import build_fallback_svg_data_uri
 from .transforms import Matrix, mat_mul, parse_transform, viewbox_transform
 from .utils import parse_length, strip_ns
@@ -115,6 +116,7 @@ class Converter:
         self._max_elements: int | None = None
         self._root: Element | None = None
         self._root_matrix: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        self.rendering_options = RenderingOptions()
 
     def next_id(self) -> str:
         """Return the next unique draw.io cell identifier."""
@@ -132,6 +134,7 @@ class Converter:
             css_rules=self.css_rules,
             custom_props=self._custom_props,
             report=self.report,
+            rendering_options=self.rendering_options,
             add_cell=self.cells.append,
             next_id_callback=self.next_id,
         )
@@ -162,11 +165,13 @@ class Converter:
         *,
         flatten: bool = False,
         max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
     ) -> str:
         """Convert one SVG file into a `.drawio` file and return the output path."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
+        self.rendering_options = rendering_options or RenderingOptions()
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
@@ -183,11 +188,13 @@ class Converter:
         *,
         flatten: bool = False,
         max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
     ) -> str:
         """Convert one SVG file and return the draw.io XML as a string."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
+        self.rendering_options = rendering_options or RenderingOptions()
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
@@ -199,12 +206,14 @@ class Converter:
         *,
         flatten: bool = False,
         max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
     ) -> ConversionReport:
         """Analyze one SVG file without writing output, returning its structured report."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
         self.report.analyze_only = True
+        self.rendering_options = rendering_options or RenderingOptions()
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
@@ -244,12 +253,18 @@ class Converter:
         if mask and mask.lower() != "none":
             return "mask-fallback", "Embedded SVG fallback used because `mask` is not natively supported."
 
-        filter_ref = css.get("filter") or elem.get("filter") or ""
-        if filter_ref and filter_ref.lower() != "none" and not self.defs.supports_filter(filter_ref):
-            return (
-                "filter-fallback",
-                "Embedded SVG fallback used because this SVG filter cannot be approximated by draw.io.",
-            )
+        filter_ref = normalize_filter_ref(css.get("filter") or elem.get("filter"))
+        if filter_ref is not None:
+            if self.rendering_options.should_force_filter_fallback(filter_ref):
+                return (
+                    "filter-fallback",
+                    "Embedded SVG fallback used because the current filter policy preserves filters through SVG.",
+                )
+            if not self.defs.supports_filter(filter_ref) and not self.rendering_options.should_prefer_native_filter():
+                return (
+                    "filter-fallback",
+                    "Embedded SVG fallback used because this SVG filter cannot be approximated by draw.io.",
+                )
 
         for prop_name in _FALLBACK_PAINT_PROPS:
             paint_value = css.get(prop_name) or elem.get(prop_name) or ""
@@ -273,18 +288,81 @@ class Converter:
         if not is_multi_stop_gradient(gradient):
             return None
 
+        if self.rendering_options.should_force_gradient_fallback():
+            return (
+                "multi-stop-gradient-fallback",
+                "Embedded SVG fallback used because the current gradient policy prefers exact multi-stop rendering.",
+            )
+
+        filter_ref = self._gradient_filter_ref_for_policy(css.get("filter") or elem.get("filter"))
         if supports_multi_stop_gradient_approximation(
             strip_ns(elem.tag),
             matrix,
             gradient,
-            filter_ref=css.get("filter") or elem.get("filter"),
+            filter_ref=filter_ref,
         ):
+            return None
+
+        if self.rendering_options.should_prefer_native_gradient():
             return None
 
         return (
             "multi-stop-gradient-fallback",
-            "Embedded SVG fallback used because multi-stop gradients are only approximated natively "
-            "for simple, unfiltered rectangles, circles, and ellipses.",
+            "Embedded SVG fallback used because this multi-stop gradient cannot be preserved natively "
+            "under the current rendering policy.",
+        )
+
+    def _gradient_filter_ref_for_policy(self, filter_ref: str | None) -> str | None:
+        """Return the filter reference that should constrain native gradient approximations."""
+        normalized = normalize_filter_ref(filter_ref)
+        if normalized is None:
+            return None
+        if self.rendering_options.should_prefer_native_filter():
+            return None
+        return normalized
+
+    def _record_policy_notes(
+        self,
+        elem: Element,
+        css: dict[str, str],
+        matrix: Matrix,
+        *,
+        record_issues: bool,
+    ) -> None:
+        """Record non-fallback rendering compromises chosen by the active policy set."""
+        if not record_issues:
+            return
+
+        filter_ref = normalize_filter_ref(css.get("filter") or elem.get("filter"))
+        if (
+            filter_ref is not None
+            and not self.defs.supports_filter(filter_ref)
+            and self.rendering_options.should_prefer_native_filter()
+        ):
+            self._record_issue(
+                "filter-ignored-for-editability",
+                "Unsupported SVG filter was ignored because the filter policy prefers editable native output.",
+                elem=elem,
+            )
+
+        fill_value = css.get("fill") or elem.get("fill") or ""
+        _, gradient = self.defs.resolve_fill(fill_value)
+        if not is_multi_stop_gradient(gradient) or not self.rendering_options.should_prefer_native_gradient():
+            return
+
+        if supports_multi_stop_gradient_approximation(
+            strip_ns(elem.tag),
+            matrix,
+            gradient,
+            filter_ref=self._gradient_filter_ref_for_policy(filter_ref),
+        ):
+            return
+
+        self._record_issue(
+            "multi-stop-gradient-reduced",
+            "Multi-stop gradient was reduced to draw.io's native two-colour gradient because the gradient policy "
+            "prefers editability over exact fidelity.",
+            elem=elem,
         )
 
     def _emit_svg_fallback(
@@ -367,6 +445,7 @@ class Converter:
             css_rules=self.css_rules,
             custom_props=self._custom_props,
             report=temp_report,
+            rendering_options=self.rendering_options,
             add_cell=temp_cells.append,
             next_id_callback=next_temp_id,
         )
@@ -445,6 +524,8 @@ class Converter:
                 fallback_reason[1],
             ):
                 return
+
+        self._record_policy_notes(elem, css, matrix, record_issues=record_issues)
 
         elem_classes = set((elem.get("class") or "").split())
         child_ancestors = ancestor_list + [(tag, elem_classes)]

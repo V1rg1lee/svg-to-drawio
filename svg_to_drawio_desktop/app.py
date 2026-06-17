@@ -28,6 +28,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -50,7 +53,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from svg_to_drawio import __version__
+from svg_to_drawio import RenderingOptions, __version__
 from svg_to_drawio.conversion_service import (
     ConversionEvent,
     ConversionEventKind,
@@ -58,6 +61,7 @@ from svg_to_drawio.conversion_service import (
     ConversionSummary,
 )
 from svg_to_drawio.diagnostics import ConversionReport
+from svg_to_drawio.rendering_options import as_filter_policy, as_gradient_policy, as_text_metrics_policy
 
 from .widgets import SourceListWidget
 from .worker import ConversionWorker, ParallelConversionWorker, WatchConversionWorker
@@ -359,6 +363,9 @@ class MainWindow(QMainWindow):
         self._tray: QSystemTrayIcon | None = None
         self._settings = QSettings()
         self._is_dark = _detect_system_dark()
+        self._gradient_policy = "auto"
+        self._filter_policy = "auto"
+        self._text_metrics_policy = "auto"
 
         self.setWindowTitle(APP_TITLE)
         self.setWindowIcon(_load_app_icon())
@@ -419,6 +426,9 @@ class MainWindow(QMainWindow):
         self.workers_spinbox.setValue(self._setting_int("options/workers", default=1))
         self.max_elements_checkbox.setChecked(self._setting_bool("options/max_enabled"))
         self.max_elements_spinbox.setValue(self._setting_int("options/max_value", default=1000))
+        self._gradient_policy = str(self._settings.value("rendering/gradient_policy", "auto") or "auto")
+        self._filter_policy = str(self._settings.value("rendering/filter_policy", "auto") or "auto")
+        self._text_metrics_policy = str(self._settings.value("rendering/text_metrics_policy", "auto") or "auto")
 
     def _save_settings(self) -> None:
         """Persist the current UI preferences for the next application launch."""
@@ -433,6 +443,9 @@ class MainWindow(QMainWindow):
         self._settings.setValue("options/workers", self.workers_spinbox.value())
         self._settings.setValue("options/max_enabled", self.max_elements_checkbox.isChecked())
         self._settings.setValue("options/max_value", self.max_elements_spinbox.value())
+        self._settings.setValue("rendering/gradient_policy", self._gradient_policy)
+        self._settings.setValue("rendering/filter_policy", self._filter_policy)
+        self._settings.setValue("rendering/text_metrics_policy", self._text_metrics_policy)
         self._settings.sync()
 
     def _setting_bool(self, key: str, *, default: bool = False) -> bool:
@@ -447,6 +460,12 @@ class MainWindow(QMainWindow):
             return int(str(raw))
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: str) -> None:
+        """Select the combo-box row matching the persisted option value."""
+        index = combo.findData(value)
+        combo.setCurrentIndex(index if index >= 0 else 0)
 
     def _build_ui(self) -> None:
         """Create the window layout and child widgets."""
@@ -665,6 +684,17 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(form)
 
+        rendering_row = QHBoxLayout()
+        rendering_row.addStretch(1)
+        self.advanced_rendering_button = QToolButton()
+        self.advanced_rendering_button.setText("Advanced…")
+        self.advanced_rendering_button.setToolTip(
+            "Open advanced rendering policies for gradients, filters, and text sizing."
+        )
+        self.advanced_rendering_button.clicked.connect(self._open_rendering_options_dialog)
+        rendering_row.addWidget(self.advanced_rendering_button)
+        layout.addLayout(rendering_row)
+
         actions = QHBoxLayout()
         actions.setSpacing(10)
         self.start_button = QPushButton("Start Conversion")
@@ -690,6 +720,147 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.export_report_button)
         layout.addLayout(actions)
         return group
+
+    def _make_policy_combo(self, items: list[tuple[str, str]], current_value: str) -> QComboBox:
+        """Create a combo box initialized to the given persisted policy value."""
+        combo = QComboBox()
+        for label, value in items:
+            combo.addItem(label, value)
+        self._set_combo_value(combo, current_value)
+        return combo
+
+    def _make_help_badge(self, tooltip_text: str) -> QToolButton:
+        """Create a compact round help badge that shows an explanatory tooltip on hover."""
+        button = QToolButton()
+        button.setObjectName("helpBadge")
+        button.setText("?")
+        button.setToolTip(tooltip_text)
+        button.setCursor(Qt.CursorShape.WhatsThisCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setFixedSize(20, 20)
+        return button
+
+    def _make_policy_field(self, combo: QComboBox, tooltip_text: str) -> QWidget:
+        """Create one dialog field with a combo box and inline help badge."""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(combo, stretch=1)
+        layout.addWidget(self._make_help_badge(tooltip_text))
+        return container
+
+    def _open_rendering_options_dialog(self) -> None:
+        """Open a compact pop-up for advanced rendering policies."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Advanced Rendering")
+        dialog.setModal(True)
+        dialog.resize(460, 260)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        intro = QLabel(
+            "Choose how the engine balances native editability, visual fidelity, and deterministic text sizing."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        gradient_combo = self._make_policy_combo(
+            [
+                ("Auto", "auto"),
+                ("Prefer native editability", "prefer-native"),
+                ("Prefer SVG fallback fidelity", "prefer-fallback"),
+            ],
+            self._gradient_policy,
+        )
+        form.addRow(
+            "Gradients",
+            self._make_policy_field(
+                gradient_combo,
+                "Controls how multi-stop gradients balance editability and visual fidelity.\n\n"
+                "Auto: Use native draw.io gradients when the engine can approximate them well; "
+                "otherwise preserve the gradient through embedded SVG fallback.\n\n"
+                "Prefer native editability: Keep the output editable even when an exact multi-stop "
+                "gradient is not supported. The engine may simplify the gradient to a more basic "
+                "draw.io-native version.\n\n"
+                "Prefer SVG fallback fidelity: Preserve the multi-stop gradient through embedded SVG "
+                "fallback whenever needed. This keeps the look closer to the source SVG, but the "
+                "result is less editable in draw.io.",
+            ),
+        )
+
+        filter_combo = self._make_policy_combo(
+            [
+                ("Auto", "auto"),
+                ("Prefer native editability", "prefer-native"),
+                ("Force SVG fallback", "force-fallback"),
+            ],
+            self._filter_policy,
+        )
+        form.addRow(
+            "Filters",
+            self._make_policy_field(
+                filter_combo,
+                "Controls what happens when SVG filters are present.\n\n"
+                "Auto: Keep supported filters natively when possible and use embedded SVG fallback "
+                "for unsupported ones.\n\n"
+                "Prefer native editability: Ignore unsupported filters instead of falling back, so "
+                "the surrounding shapes stay editable. This can reduce visual fidelity if the filter "
+                "effect is important.\n\n"
+                "Force SVG fallback: Preserve filtered content through embedded SVG fallback whenever "
+                "a filter is present. This gives the most faithful visual result, but it is less "
+                "editable in draw.io.",
+            ),
+        )
+
+        text_metrics_combo = self._make_policy_combo(
+            [
+                ("Auto", "auto"),
+                ("System font metrics", "system"),
+                ("Heuristic only", "heuristic"),
+            ],
+            self._text_metrics_policy,
+        )
+        form.addRow(
+            "Text sizing",
+            self._make_policy_field(
+                text_metrics_combo,
+                "Controls how text bounds are estimated before they are turned into draw.io text cells.\n\n"
+                "Auto: Use system font metrics when available and fall back to the built-in heuristic "
+                "otherwise.\n\n"
+                "System font metrics: Prefer real platform font measurements for the most visually "
+                "accurate text sizing on the current machine.\n\n"
+                "Heuristic only: Use the built-in estimator without asking the system font backend. "
+                "This is useful when you want more deterministic results across environments, even if "
+                "the sizing is slightly less precise.",
+            ),
+        )
+        layout.addLayout(form)
+
+        help_text = QLabel(
+            "These settings are shared by the desktop app, CLI, and Python API conceptually. "
+            "Use Auto unless you specifically want to favor editability or exact rendering."
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != int(QDialog.DialogCode.Accepted):
+            return
+
+        self._gradient_policy = str(gradient_combo.currentData())
+        self._filter_policy = str(filter_combo.currentData())
+        self._text_metrics_policy = str(text_metrics_combo.currentData())
+        self._save_settings()
 
     def _build_progress_group(self) -> QGroupBox:
         """Create progress and summary indicators."""
@@ -944,6 +1115,23 @@ class MainWindow(QMainWindow):
                 background: {t["btn_hover_bg"]};
                 color: {t["btn_hover_color"]};
                 border: none;
+            }}
+            QToolButton#helpBadge {{
+                min-width: 20px;
+                max-width: 20px;
+                min-height: 20px;
+                max-height: 20px;
+                padding: 0;
+                border-radius: 10px;
+                border: 1.5px solid {t["btn_border"]};
+                background: {t["card_bg"]};
+                color: {t["text_muted"]};
+                font-weight: 700;
+            }}
+            QToolButton#helpBadge:hover:!disabled {{
+                background: {t["btn_hover_bg"]};
+                border-color: {t["btn_hover_border"]};
+                color: {t["btn_hover_color"]};
             }}
             /* Primary action */
             QPushButton#startButton {{
@@ -1282,6 +1470,11 @@ class MainWindow(QMainWindow):
             return
 
         output_dir = self.output_dir_edit.text().strip() or None
+        rendering_options = RenderingOptions(
+            gradient_policy=as_gradient_policy(self._gradient_policy),
+            filter_policy=as_filter_policy(self._filter_policy),
+            text_metrics_policy=as_text_metrics_policy(self._text_metrics_policy),
+        )
         options = ConversionOptions(
             output_dir=path.abspath(output_dir) if output_dir else None,
             recursive=self.recursive_checkbox.isChecked(),
@@ -1289,6 +1482,7 @@ class MainWindow(QMainWindow):
             flatten=self.flatten_checkbox.isChecked(),
             max_elements=self.max_elements_spinbox.value() if self.max_elements_checkbox.isChecked() else None,
             use_cache=self.cache_checkbox.isChecked(),
+            rendering=rendering_options,
         )
 
         self._reset_run_state()
@@ -1482,6 +1676,7 @@ class MainWindow(QMainWindow):
             self.workers_spinbox,
             self.max_elements_checkbox,
             self.max_elements_spinbox,
+            self.advanced_rendering_button,
             self.start_button,
             self.export_report_button,
         ):

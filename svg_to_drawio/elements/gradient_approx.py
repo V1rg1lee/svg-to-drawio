@@ -15,7 +15,7 @@ from ..style_builder import StyleBuilder
 from ..styles import GradientStyle
 from ..transforms import Matrix, apply_pt
 from .shape_support import emit_polygon_stencil, emit_stencil_commands
-from .style_support import add_metadata_styles
+from .style_support import add_filter_styles, add_metadata_styles
 
 Point2D = tuple[float, float]
 
@@ -103,6 +103,7 @@ def emit_multi_stop_gradient_approximation(
     fill_opacity: int,
     stroke_opacity: int,
     dash: str = "",
+    filter_ref: str | None = None,
 ) -> None:
     """Approximate a multi-stop gradient with grouped native vector children."""
     group_id = ctx.next_id()
@@ -118,6 +119,7 @@ def emit_multi_stop_gradient_approximation(
             gradient,
             opacity=opacity,
             fill_opacity=fill_opacity,
+            filter_ref=filter_ref,
         )
     else:
         _emit_linear_bands(
@@ -128,6 +130,7 @@ def emit_multi_stop_gradient_approximation(
             gradient,
             opacity=opacity,
             fill_opacity=fill_opacity,
+            filter_ref=filter_ref,
         )
 
     if stroke != "none" and stroke_width > 0:
@@ -141,6 +144,7 @@ def emit_multi_stop_gradient_approximation(
             opacity=opacity,
             stroke_opacity=stroke_opacity,
             dash=dash,
+            filter_ref=filter_ref,
         )
 
     if not child_cells:
@@ -163,6 +167,7 @@ def _emit_linear_bands(
     *,
     opacity: int,
     fill_opacity: int,
+    filter_ref: str | None = None,
 ) -> None:
     """Approximate one linear multi-stop gradient using two-color gradient bands.
 
@@ -226,6 +231,7 @@ def _emit_linear_bands(
             opacity,
             fill_opacity,
             100,
+            filter_ref=filter_ref,
         )
 
 
@@ -238,6 +244,7 @@ def _emit_radial_layers(
     *,
     opacity: int,
     fill_opacity: int,
+    filter_ref: str | None = None,
 ) -> None:
     """Approximate one radial multi-stop gradient using concentric shape layers."""
     steps = _radial_step_count(gradient, spec)
@@ -253,6 +260,7 @@ def _emit_radial_layers(
             color=color,
             opacity=opacity,
             fill_opacity=fill_opacity,
+            filter_ref=filter_ref,
         )
 
 
@@ -265,6 +273,7 @@ def _emit_filled_shape(
     color: str,
     opacity: int,
     fill_opacity: int,
+    filter_ref: str | None = None,
 ) -> None:
     """Emit one fill-only simple shape child."""
     if spec.width <= 0 or spec.height <= 0:
@@ -290,6 +299,7 @@ def _emit_filled_shape(
     style.add("opacity", opacity).add("fillOpacity", fill_opacity).add("strokeOpacity", 100)
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
+    add_filter_styles(style, ctx, filter_ref)
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
 
@@ -304,6 +314,7 @@ def _emit_shape_stroke_overlay(
     opacity: int,
     stroke_opacity: int,
     dash: str,
+    filter_ref: str | None = None,
 ) -> None:
     """Emit a fill-less stroke overlay so the approximated gradient keeps the original outline."""
     style = StyleBuilder()
@@ -327,6 +338,7 @@ def _emit_shape_stroke_overlay(
     style.extend_raw(dash)
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
+    add_filter_styles(style, ctx, filter_ref)
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
 
@@ -557,6 +569,7 @@ def emit_path_multi_stop_gradient_approximation(
     linecap: str = "flat",
     linejoin: str = "miter",
     dash: str = "",
+    filter_ref: str | None = None,
 ) -> None:
     """Approximate a multi-stop linear gradient on an arbitrary closed path.
 
@@ -635,6 +648,7 @@ def emit_path_multi_stop_gradient_approximation(
             opacity,
             fill_opacity,
             100,
+            filter_ref=filter_ref,
         )
 
     if stroke != "none" and stroke_width > 0:
@@ -653,6 +667,7 @@ def emit_path_multi_stop_gradient_approximation(
             fill_rule,
             linecap,
             linejoin,
+            filter_ref=filter_ref,
         )
 
     if not child_cells:

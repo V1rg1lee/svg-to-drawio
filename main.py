@@ -19,6 +19,12 @@ from svg_to_drawio.conversion_service import (
 )
 from svg_to_drawio.converter import Converter
 from svg_to_drawio.diagnostics import ConversionReport
+from svg_to_drawio.rendering_options import (
+    RenderingOptions,
+    as_filter_policy,
+    as_gradient_policy,
+    as_text_metrics_policy,
+)
 
 
 def run(
@@ -33,6 +39,9 @@ def run(
     report_json: str | PathLike[str] | None = None,
     analyze: bool = False,
     use_cache: bool = True,
+    gradient_policy: str = "auto",
+    filter_policy: str = "auto",
+    text_metrics_policy: str = "auto",
 ) -> int:
     """Run the conversion CLI logic and return an exit code (0 = success, 1 = error)."""
     if not input_path:
@@ -46,13 +55,24 @@ def run(
         print(f'Error: "{resolved_input}" does not exist.')
         return 1
 
+    rendering_options = RenderingOptions(
+        gradient_policy=as_gradient_policy(gradient_policy),
+        filter_policy=as_filter_policy(filter_policy),
+        text_metrics_policy=as_text_metrics_policy(text_metrics_policy),
+    )
+
     # --stdout: write draw.io XML to stdout; single file only
     if stdout:
         if path.isdir(resolved_input):
             print("Error: --stdout requires a single SVG file, not a directory.", file=sys.stderr)
             return 1
 
-        xml = Converter().convert_to_string(resolved_input, flatten=flatten, max_elements=max_elements)
+        xml = Converter().convert_to_string(
+            resolved_input,
+            flatten=flatten,
+            max_elements=max_elements,
+            rendering_options=rendering_options,
+        )
         sys.stdout.write(xml)
         return 0
 
@@ -63,6 +83,7 @@ def run(
         flatten=flatten,
         max_elements=max_elements,
         use_cache=use_cache,
+        rendering=rendering_options,
     )
 
     def batch_payload(
@@ -105,7 +126,12 @@ def run(
         print(f"Analyzing {len(jobs)} SVG file(s)...")
         for job in jobs:
             try:
-                file_report = Converter().analyze_file(job.source_path, flatten=flatten, max_elements=max_elements)
+                file_report = Converter().analyze_file(
+                    job.source_path,
+                    flatten=flatten,
+                    max_elements=max_elements,
+                    rendering_options=rendering_options,
+                )
                 file_report.output_path = job.output_path
             except Exception as exc:
                 failures += 1
@@ -187,6 +213,24 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Warn and truncate output after N drawable elements (useful for very large SVGs)",
     )
+    parser.add_argument(
+        "--gradient-policy",
+        choices=("auto", "prefer-native", "prefer-fallback"),
+        default="auto",
+        help="Choose how multi-stop gradients trade editability against visual fidelity",
+    )
+    parser.add_argument(
+        "--filter-policy",
+        choices=("auto", "prefer-native", "force-fallback"),
+        default="auto",
+        help="Choose whether SVG filters prefer native editability or embedded SVG fallback",
+    )
+    parser.add_argument(
+        "--text-metrics-policy",
+        choices=("auto", "system", "heuristic"),
+        default="auto",
+        help="Choose how text bounds are measured when sizing draw.io text cells",
+    )
     parser.set_defaults(use_cache=True)
     return parser
 
@@ -208,6 +252,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_json=args.report_json,
         analyze=args.analyze,
         use_cache=args.use_cache,
+        gradient_policy=args.gradient_policy,
+        filter_policy=args.filter_policy,
+        text_metrics_policy=args.text_metrics_policy,
     )
 
 

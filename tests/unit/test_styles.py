@@ -185,6 +185,36 @@ class StyleAndTextTests(SvgTestCase):
                 float(first.find("mxGeometry").get("x")),
             )
 
+    def test_gradient_href_geometry_override_derives_correct_direction(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">
+          <defs>
+            <linearGradient id="base" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#ff0000" />
+              <stop offset="100%" stop-color="#0000ff" />
+            </linearGradient>
+            <linearGradient id="vertical" href="#base" x1="0" y1="0" x2="0" y2="1" />
+          </defs>
+          <rect x="0"  y="0" width="40" height="40" fill="url(#base)" />
+          <rect x="50" y="0" width="40" height="40" fill="url(#vertical)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = sorted(
+                [c for c in self._user_cells(root) if "gradientDirection=" in c.get("style", "")],
+                key=lambda c: float(c.find("mxGeometry").get("x")),
+            )
+            self.assertEqual(len(cells), 2)
+            east_styles = self._style_map(cells[0])
+            south_styles = self._style_map(cells[1])
+            self.assertEqual(east_styles["gradientDirection"], "east")
+            self.assertEqual(south_styles["gradientDirection"], "south")
+            self.assertEqual(east_styles["fillColor"], "#ff0000")
+            self.assertEqual(south_styles["fillColor"], "#ff0000")
+            self.assertEqual(east_styles["gradientColor"], "#0000ff")
+            self.assertEqual(south_styles["gradientColor"], "#0000ff")
+
     def test_linear_and_radial_gradients_are_mapped(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">

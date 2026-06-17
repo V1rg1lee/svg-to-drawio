@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import tempfile
+import xml.etree.ElementTree as ET
 from contextlib import redirect_stdout
 from os import makedirs, path
 
@@ -94,3 +95,31 @@ class CliTests(SvgTestCase):
             self.assertEqual(len(payload["reports"]), 1)
             self.assertEqual(payload["reports"][0]["fallback_count"], 1)
             self.assertIn("score", stdout.getvalue())
+
+    def test_cli_exposes_gradient_policy_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            out_path = path.join(tmpdir, "diagram.drawio")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100">'
+                    "<defs>"
+                    '<linearGradient id="multi" x1="0" y1="0" x2="1" y2="0">'
+                    '<stop offset="0%" stop-color="#e53935" />'
+                    '<stop offset="35%" stop-color="#fb8c00" />'
+                    '<stop offset="70%" stop-color="#fdd835" />'
+                    '<stop offset="100%" stop-color="#1e88e5" />'
+                    "</linearGradient>"
+                    "</defs>"
+                    '<rect x="10" y="15" width="120" height="50" rx="12" '
+                    'fill="url(#multi)" stroke="#263238" stroke-width="2" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main.main([svg_path, "--overwrite", "--gradient-policy", "prefer-fallback"])
+
+            self.assertEqual(code, 0)
+            root = ET.parse(out_path).getroot()
+            self.assertTrue(any(self._style_map(cell).get("shape") == "image" for cell in self._user_cells(root)))

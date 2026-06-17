@@ -68,3 +68,38 @@ class AdvancedCssTests(SvgTestCase):
             self.assertEqual(cells["P"]["fontSize"], "30.0")
             self.assertEqual(cells["E"]["fontSize"], "40.0")
             self.assertEqual(cells["R"]["fontSize"], "24.0")
+
+    def test_css_variables_scoped_to_class_rule_are_resolved(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <style>
+            .brand { --brand-color: #aabbcc; fill: var(--brand-color); }
+            .alt   { --brand-color: #112233; stroke: var(--brand-color); }
+          </style>
+          <rect class="brand" x="0" y="0" width="10" height="10" />
+          <rect class="alt" x="20" y="0" width="10" height="10" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = {
+                (int(float(cell.find("mxGeometry").get("x")))): self._style_map(cell)
+                for cell in self._user_cells(root)
+                if "fillColor=" in cell.get("style", "") or "strokeColor=" in cell.get("style", "")
+            }
+            self.assertEqual(cells[0]["fillColor"], "#aabbcc")
+            self.assertEqual(cells[20]["strokeColor"], "#112233")
+
+    def test_css_variable_defined_on_id_rule_is_resolved(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <style>
+            #box { --accent: #fedcba; fill: var(--accent); }
+          </style>
+          <rect id="box" x="0" y="0" width="10" height="10" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cell = next(c for c in self._user_cells(root) if "fillColor=" in c.get("style", ""))
+            self.assertEqual(self._style_map(cell)["fillColor"], "#fedcba")

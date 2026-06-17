@@ -181,6 +181,7 @@ class ParallelConversionWorker(QObject):
                     out_path=job.output_path,
                     flatten=self._options.flatten,
                     max_elements=self._options.max_elements,
+                    rendering_options=self._options.rendering,
                 )
                 report = converter.get_report()
                 if self._options.use_cache:

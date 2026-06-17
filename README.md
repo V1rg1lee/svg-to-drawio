@@ -20,7 +20,7 @@ The output is written next to the source file by default (`diagram.svg` → `dia
 
 A desktop front-end shares the same conversion engine as the CLI.
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder, live watch mode, persistent preferences, and JSON report export.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, one-click output folder, live watch mode, persistent preferences, advanced rendering controls, and JSON report export.
 
 **Download release artifacts** from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
 
@@ -132,6 +132,9 @@ python main.py [INPUT] [OPTIONS]
 | `--report-json PATH` | Write a structured JSON report with diagnostics, fallbacks, and compatibility scores |
 | `--no-cache` | Disable the persistent cache for unchanged inputs |
 | `--max-elements N` | Warn and truncate output after N drawable elements |
+| `--gradient-policy MODE` | `auto`, `prefer-native`, or `prefer-fallback` for multi-stop gradients |
+| `--filter-policy MODE` | `auto`, `prefer-native`, or `force-fallback` for SVG filters |
+| `--text-metrics-policy MODE` | `auto`, `system`, or `heuristic` for text sizing |
 
 **Examples:**
 
@@ -145,6 +148,9 @@ python main.py src/ --watch --overwrite
 # Analyze a file and emit a JSON report without generating a .drawio file
 python main.py diagram.svg --analyze --report-json report.json
 
+# Prefer editable native output over exact SVG filters and complex gradients
+python main.py diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
+
 # Pipe draw.io XML directly into another tool
 python main.py diagram.svg --stdout > diagram.drawio
 
@@ -155,13 +161,20 @@ python main.py diagram.svg --flatten --overwrite
 ## Python API
 
 ```python
-from svg_to_drawio import convert_file, convert_to_string
+from svg_to_drawio import RenderingOptions, convert_file, convert_to_string
 
 # Write to disk - returns the output path
 out = convert_file("diagram.svg")
 
 # Return XML as a string (no file written)
-xml = convert_to_string("diagram.svg")
+xml = convert_to_string(
+    "diagram.svg",
+    rendering_options=RenderingOptions(
+        gradient_policy="prefer-native",
+        filter_policy="prefer-native",
+        text_metrics_policy="heuristic",
+    ),
+)
 ```
 
 For batch conversions with progress reporting and cancellation:
@@ -188,6 +201,20 @@ print(report.compatibility_score)
 for issue in report.issues:
     print(issue.message)
 ```
+
+## Advanced rendering
+
+The engine now exposes a small set of rendering policies that can be shared across the CLI, Python API, and desktop app:
+
+- `gradient_policy="auto"` keeps the current default behaviour: use native multi-stop approximation when supported, otherwise fall back to embedded SVG.
+- `gradient_policy="prefer-native"` keeps output editable even for unsupported multi-stop gradients by reducing them to draw.io's native two-colour gradients when needed.
+- `gradient_policy="prefer-fallback"` always preserves multi-stop gradients through embedded SVG fallback.
+- `filter_policy="auto"` keeps the current default behaviour: native `feDropShadow` when supported, SVG fallback for unsupported filters.
+- `filter_policy="prefer-native"` ignores unsupported filters instead of falling back, so the surrounding shapes stay editable.
+- `filter_policy="force-fallback"` always preserves filters through embedded SVG fallback.
+- `text_metrics_policy="auto"` uses platform metrics when available and a tuned heuristic otherwise.
+- `text_metrics_policy="system"` explicitly prefers platform font metrics.
+- `text_metrics_policy="heuristic"` keeps text sizing deterministic without consulting the system font backend.
 
 ## What gets converted
 
@@ -235,6 +262,7 @@ for issue in report.issues:
 - Multi-stop **radial** gradients on `<path>` elements fall back to embedded SVG; draw.io's radial gradient always fills the entire cell bounding box so disk-clipping to an arbitrary path outline is not feasible natively. Radial gradients on `<rect>`, `<circle>`, and `<ellipse>` are approximated with concentric rings.
 - Two-stop gradients (one interval) are mapped directly to draw.io's native gradient properties. `stop-opacity` is blended against white for all gradient types.
 - Multi-stop gradients combined with a CSS `filter` or a shear transform fall back to embedded SVG because the filter or skew effect itself requires SVG.
+- The advanced rendering policies can intentionally trade exact fidelity for editability by keeping native shapes and simplifying unsupported gradients or filters.
 - Text uses platform font metrics when they are available, with a tuned heuristic fallback in headless environments.
 - `<image>` with shear-heavy transforms is approximated by its bounding box; draw.io image cells do not support true skew.
 - Local `<image>` paths are restricted to files inside the source SVG's folder tree.
@@ -270,6 +298,16 @@ Local `<image>` paths are resolved relative to the SVG file being converted, the
 
 ```bash
 python -m unittest discover -s tests -v
+```
+
+The checked-in fixture regression snapshot is intentionally generated with
+`text_metrics_policy="heuristic"` so it stays stable across Windows, Linux,
+and CI runners even when system font backends differ.
+
+To regenerate the versioned fixture baseline deterministically:
+
+```bash
+python -m tests.regenerate_fixtures
 ```
 
 **Lint & type-check:**

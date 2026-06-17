@@ -318,9 +318,12 @@ def apply_css(
 
     _apply_presentation_attributes(elem, computed, winners, custom_props)
 
+    # Single pass over rules: collect custom properties from matching rules first so that
+    # var() expressions in later properties can reference element-scoped variables
+    # (e.g. --color defined on .my-class rather than only on :root).
+    element_custom_props = dict(custom_props or {})
+    matched_rules: list[CssRule] = []
     for rule in css_rules:
-        # Cache simple selector matches (no combinators, no attribute tests) keyed on
-        # (selector, tag, id, frozenset(classes)) - independent of element attributes.
         sel = rule.selector
         if _match_cache is not None and ">" not in sel and "[" not in sel and " " not in sel.strip():
             cache_key = (sel, tag, elem_id, frozenset(elem_classes))
@@ -330,8 +333,23 @@ def apply_css(
                 continue
         elif not _selector_matches(sel, tag, elem_id, elem_classes, elem, ancestor_list):
             continue
+        matched_rules.append(rule)
         for key, value in rule.props.items():
-            resolved = _resolve_vars(str(value), custom_props)
+            if key.startswith("--"):
+                element_custom_props[key] = value
+
+    # Also collect custom properties from the inline style so self-referencing vars work.
+    inline_props = parse_style_attr(elem.get("style", ""))
+    for key, value in inline_props.items():
+        if key.startswith("--"):
+            element_custom_props[key] = value
+
+    # Apply matched rules using the element-scoped variable map.
+    for rule in matched_rules:
+        for key, value in rule.props.items():
+            if key.startswith("--"):
+                continue
+            resolved = _resolve_vars(str(value), element_custom_props)
             if resolved.strip().lower() == "inherit":
                 continue
             current = winners.get(key, ((-1, -1, -1), -1))
@@ -342,8 +360,10 @@ def apply_css(
 
     inline_order = len(css_rules)
     inline_specificity: Specificity = (10**6, 0, 0)
-    for key, value in parse_style_attr(elem.get("style", "")).items():
-        resolved = _resolve_vars(str(value), custom_props)
+    for key, value in inline_props.items():
+        if key.startswith("--"):
+            continue
+        resolved = _resolve_vars(str(value), element_custom_props)
         if resolved.strip().lower() == "inherit":
             continue
         computed[key] = resolved

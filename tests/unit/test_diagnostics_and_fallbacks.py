@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 from os import path
+from urllib.parse import unquote
 
 from svg_to_drawio.converter import Converter
 
@@ -152,3 +154,43 @@ class DiagnosticsAndFallbackTests(SvgTestCase):
         self.assertGreaterEqual(len(children), 3)
         band_cells = [cell for cell in children if "gradientColor" in self._style_map(cell)]
         self.assertGreaterEqual(len(band_cells), 3)
+
+    def test_svg_fallback_only_embeds_referenced_defs(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <defs>
+            <linearGradient id="needed-grad">
+              <stop offset="0%" stop-color="#ff0000" />
+              <stop offset="100%" stop-color="#0000ff" />
+            </linearGradient>
+            <linearGradient id="unneeded-grad">
+              <stop offset="0%" stop-color="#00ff00" />
+              <stop offset="100%" stop-color="#ffffff" />
+            </linearGradient>
+            <clipPath id="the-clip">
+              <rect x="5" y="5" width="40" height="40" />
+            </clipPath>
+          </defs>
+          <rect x="0" y="0" width="50" height="50"
+                fill="url(#needed-grad)"
+                clip-path="url(#the-clip)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "slice.svg")
+            with open(svg_path, "w", encoding="utf-8") as f:
+                f.write(svg)
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        image_cell = next(c for c in cells if self._style_map(c).get("shape") == "image")
+        style = image_cell.get("style", "")
+        match = re.search(r"data:image/svg\+xml,([^;\"]+)", style)
+        self.assertIsNotNone(match)
+        assert match is not None
+        fallback_svg = unquote(match.group(1))
+        self.assertIn("the-clip", fallback_svg)
+        self.assertIn("needed-grad", fallback_svg)
+        self.assertNotIn("unneeded-grad", fallback_svg)

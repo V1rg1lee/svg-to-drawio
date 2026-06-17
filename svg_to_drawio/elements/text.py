@@ -43,6 +43,7 @@ def _emit_text_cell(
     font_color = visual["text_fill"] or "#000000"
     font_size = max(visual["font_size"], 6)
     font_family = visual.get("font_family") or "Helvetica"
+    metrics_policy = ctx.rendering_options.text_metrics_policy
     opacity = opacity_pct(visual["opacity"] * visual["text_opacity"])
     align = {"start": "left", "middle": "center", "end": "right"}.get(visual["text_anchor"], "left")
     font_style = font_style_flag(visual)
@@ -54,6 +55,7 @@ def _emit_text_cell(
         font_family,
         font_weight=str(visual.get("font_weight", "normal") or "normal"),
         font_style=str(visual.get("font_style_v", "normal") or "normal"),
+        policy=metrics_policy,
     )
     est_width = max(est_width, 20.0)
     tx = x - (est_width / 2 if align == "center" else est_width if align == "right" else 0)
@@ -133,6 +135,7 @@ def _tspan_visual(
 def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str, str] | None = None) -> None:
     """Emit an SVG `<text>` element."""
     visual = get_visual(elem, css)
+    metrics_policy = ctx.rendering_options.text_metrics_policy
     x0 = parse_length(elem.get("x"))
     y0 = parse_length(elem.get("y"))
 
@@ -148,6 +151,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                 visual.get("font_family") or "Helvetica",
                 font_weight=str(visual.get("font_weight", "normal") or "normal"),
                 font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                policy=metrics_policy,
             )
             cur_x += advance
 
@@ -173,6 +177,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                     visual.get("font_family") or "Helvetica",
                     font_weight=str(visual.get("font_weight", "normal") or "normal"),
                     font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                    policy=metrics_policy,
                 )
                 cur_x += advance
                 continue
@@ -188,6 +193,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                     tspan_visual.get("font_family") or "Helvetica",
                     font_weight=str(tspan_visual.get("font_weight", "normal") or "normal"),
                     font_style=str(tspan_visual.get("font_style_v", "normal") or "normal"),
+                    policy=metrics_policy,
                 )
                 cur_x += prefix_advance
 
@@ -198,6 +204,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                 tspan_visual.get("font_family") or "Helvetica",
                 font_weight=str(tspan_visual.get("font_weight", "normal") or "normal"),
                 font_style=str(tspan_visual.get("font_style_v", "normal") or "normal"),
+                policy=metrics_policy,
             )
             cur_x += content_advance
 
@@ -212,6 +219,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                         visual.get("font_family") or "Helvetica",
                         font_weight=str(visual.get("font_weight", "normal") or "normal"),
                         font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                        policy=metrics_policy,
                     )
                     cur_x += prefix_advance
                 _emit_text_cell(ctx, elem, matrix, visual, cur_x, cur_y, tail_content)
@@ -221,6 +229,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
                     visual.get("font_family") or "Helvetica",
                     font_weight=str(visual.get("font_weight", "normal") or "normal"),
                     font_style=str(visual.get("font_style_v", "normal") or "normal"),
+                    policy=metrics_policy,
                 )
                 cur_x += tail_advance
         return

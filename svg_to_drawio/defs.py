@@ -78,6 +78,36 @@ def _parse_stops(elem: Element) -> list[GradientStop]:
     return stops
 
 
+def _linear_direction(elem: Element) -> str:
+    """Derive a draw.io gradient direction from a linearGradient element's own geometry."""
+    x1 = parse_float(elem.get("x1", "0"))
+    y1 = parse_float(elem.get("y1", "0"))
+    x2 = parse_float(elem.get("x2", "1"))
+    y2 = parse_float(elem.get("y2", "0"))
+    dx, dy = x2 - x1, y2 - y1
+    direction = ("east" if dx >= 0 else "west") if abs(dx) >= abs(dy) else ("south" if dy >= 0 else "north")
+    gradient_transform = elem.get("gradientTransform", "")
+    if gradient_transform:
+        from .transforms import parse_transform
+
+        matrix = parse_transform(gradient_transform)
+        angle = math.degrees(math.atan2(matrix[1], matrix[0]))
+        if -45 <= angle <= 45:
+            direction = "east"
+        elif 45 < angle <= 135:
+            direction = "south"
+        elif angle > 135 or angle < -135:
+            direction = "west"
+        else:
+            direction = "north"
+    return direction
+
+
+def _has_own_geometry(elem: Element) -> bool:
+    """Return True if a gradient element specifies its own directional geometry."""
+    return any(elem.get(attr) is not None for attr in ("x1", "y1", "x2", "y2", "gradientTransform"))
+
+
 class DefsIndex:
     """Index all reusable `<defs>` content for quick lookup during conversion."""
 
@@ -104,7 +134,9 @@ class DefsIndex:
                 self._index_filter(elem, element_id)
 
         # Second pass: resolve gradient href inheritance for gradients without their own stops.
-        # This handles the common Inkscape pattern of referencing another gradient for stops.
+        # SVG spec: attributes not present on the child are inherited from the href parent.
+        # The most common pattern (Inkscape/Illustrator) is: child has no stops but overrides
+        # the geometry (x1/y1/x2/y2 or gradientTransform) to change the gradient direction.
         for elem in svg_root.iter():
             tag = strip_ns(elem.tag)
             if tag not in ("linearGradient", "radialGradient"):
@@ -113,42 +145,32 @@ class DefsIndex:
             if not element_id or element_id in self._gradients:
                 continue
             target_id = _get_href(elem)
-            if target_id and target_id in self._gradients:
-                self._gradients[element_id] = self._gradients[target_id]
+            if not target_id or target_id not in self._gradients:
+                continue
+            parent = self._gradients[target_id]
+            if tag == "linearGradient" and _has_own_geometry(elem):
+                # Merge: stops from parent, direction from child's own geometry.
+                stops = parent["stops"]
+                self._gradients[element_id] = {
+                    "color": stops[0]["color"],
+                    "color2": stops[-1]["color"],
+                    "direction": _linear_direction(elem),
+                    "kind": "linear",
+                    "stops": stops,
+                }
+            else:
+                # No own geometry (or radial): inherit the parent definition entirely.
+                self._gradients[element_id] = parent
 
     def _index_linear(self, elem: Element, element_id: str | None) -> None:
         """Register a linear gradient in draw.io's reduced gradient model."""
         stops = _parse_stops(elem)
         if not stops or not element_id:
             return
-
-        x1 = parse_float(elem.get("x1", "0"))
-        y1 = parse_float(elem.get("y1", "0"))
-        x2 = parse_float(elem.get("x2", "1"))
-        y2 = parse_float(elem.get("y2", "0"))
-        dx, dy = x2 - x1, y2 - y1
-        direction = ("east" if dx >= 0 else "west") if abs(dx) >= abs(dy) else ("south" if dy >= 0 else "north")
-
-        # A gradientTransform can rotate the gradient independently from the endpoints.
-        gradient_transform = elem.get("gradientTransform", "")
-        if gradient_transform:
-            from .transforms import parse_transform
-
-            matrix = parse_transform(gradient_transform)
-            angle = math.degrees(math.atan2(matrix[1], matrix[0]))
-            if -45 <= angle <= 45:
-                direction = "east"
-            elif 45 < angle <= 135:
-                direction = "south"
-            elif angle > 135 or angle < -135:
-                direction = "west"
-            else:
-                direction = "north"
-
         self._gradients[element_id] = {
             "color": stops[0]["color"],
             "color2": stops[-1]["color"],
-            "direction": direction,
+            "direction": _linear_direction(elem),
             "kind": "linear",
             "stops": stops,
         }

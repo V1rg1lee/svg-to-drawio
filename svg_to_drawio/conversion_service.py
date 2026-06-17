@@ -14,6 +14,7 @@ from threading import Event
 from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
 from .diagnostics import ConversionReport
+from .rendering_options import RenderingOptions
 
 Reporter = Callable[["ConversionEvent"], None]
 
@@ -40,6 +41,7 @@ class ConversionOptions:
     flatten: bool = False
     max_elements: int | None = None
     use_cache: bool = True
+    rendering: RenderingOptions = field(default_factory=RenderingOptions)
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,7 @@ class ConversionService:
         payload = {
             "flatten": options.flatten,
             "max_elements": options.max_elements,
+            "rendering": options.rendering.to_dict(),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -329,6 +332,7 @@ class ConversionService:
                     out_path=job.output_path,
                     flatten=options.flatten,
                     max_elements=options.max_elements,
+                    rendering_options=options.rendering,
                 )
                 report = converter.get_report()
             except Exception as exc:  # pragma: no cover - intentionally user-facing
@@ -469,6 +473,7 @@ def watch_svg_files(
         flatten=options.flatten,
         max_elements=options.max_elements,
         use_cache=options.use_cache,
+        rendering=options.rendering,
     )
 
     # Initial conversion pass
@@ -496,5 +501,6 @@ def watch_svg_files(
                 flatten=options.flatten,
                 max_elements=options.max_elements,
                 use_cache=options.use_cache,
+                rendering=options.rendering,
             )
             service.convert(changed, single_opts, reporter=reporter)

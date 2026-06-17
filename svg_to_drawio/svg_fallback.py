@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from urllib.parse import quote_from_bytes
 from xml.etree.ElementTree import Element, tostring
 
 from .diagnostics import ConversionReport
 from .utils import parse_style_attr, strip_ns
+
+# Matches url(#id) or bare #id in attribute values and style text.
+_LOCAL_REF_RE = re.compile(r"url\(#([^)]+)\)|(?:^|[\s:,])#([A-Za-z][\w.-]*)")
 
 _SVG_NS = "http://www.w3.org/2000/svg"
 _XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -31,23 +35,71 @@ def _style_text(computed_css: dict[str, str] | None) -> str | None:
     return ";".join(items) if items else None
 
 
-def _copy_defs_and_styles(wrapper: Element, svg_root: Element) -> None:
-    """Copy global defs and style blocks so the fallback fragment stays self-contained."""
-    copied_defs = False
+def _collect_refs_from_text(text: str, seen: set[str]) -> None:
+    """Accumulate local ID references found in any text (attribute value or style)."""
+    for m in _LOCAL_REF_RE.finditer(text):
+        ref = m.group(1) or m.group(2)
+        if ref:
+            seen.add(ref)
+
+
+def _collect_refs(node: Element, seen: set[str]) -> None:
+    """Recursively collect all local ID references from a sub-tree's attributes."""
+    for val in node.attrib.values():
+        _collect_refs_from_text(val, seen)
+    for child in node:
+        _collect_refs(child, seen)
+
+
+def _slice_defs(svg_root: Element, elem: Element) -> Element | None:
+    """Build a minimal <defs> containing only the definitions referenced by elem's sub-tree.
+
+    Performs a transitive closure so that defs which themselves reference other defs are
+    included too (e.g. a clipPath that uses a gradient).
+    CSS <style> blocks are not included here — they are copied separately because class-based
+    rules can apply to any descendant of the fragment.
+    """
+    id_to_def: dict[str, Element] = {}
     for child in svg_root:
-        tag = strip_ns(child.tag)
-        if tag == "defs":
-            wrapper.append(deepcopy(child))
-            copied_defs = True
-        elif tag == "style":
-            wrapper.append(deepcopy(child))
+        if strip_ns(child.tag) == "defs":
+            for def_child in child:
+                def_id = def_child.get("id")
+                if def_id:
+                    id_to_def[def_id] = def_child
 
-    if copied_defs:
-        return
+    if not id_to_def:
+        return None
 
-    style_nodes = [deepcopy(node) for node in svg_root.iter() if strip_ns(node.tag) == "style"]
-    for node in style_nodes:
-        wrapper.append(node)
+    needed: set[str] = set()
+    _collect_refs(elem, needed)
+
+    # Also scan root-level <style> blocks: CSS rules may reference defs via url(#id).
+    for child in svg_root:
+        if strip_ns(child.tag) == "style":
+            _collect_refs_from_text(child.text or "", needed)
+
+    # Transitive expansion: referenced defs may reference other defs.
+    frontier = set(needed)
+    while frontier:
+        next_frontier: set[str] = set()
+        for ref_id in frontier:
+            def_elem = id_to_def.get(ref_id)
+            if def_elem is not None:
+                inner: set[str] = set()
+                _collect_refs(def_elem, inner)
+                new = inner - needed
+                needed |= new
+                next_frontier |= new
+        frontier = next_frontier
+
+    relevant = [deepcopy(id_to_def[ref_id]) for ref_id in needed if ref_id in id_to_def]
+    if not relevant:
+        return None
+
+    defs_elem = Element("defs")
+    for child in relevant:
+        defs_elem.append(child)
+    return defs_elem
 
 
 def build_fallback_svg_data_uri(
@@ -83,7 +135,12 @@ def build_fallback_svg_data_uri(
             "height": f"{height:.6f}",
         },
     )
-    _copy_defs_and_styles(wrapper, svg_root)
+    sliced = _slice_defs(svg_root, elem)
+    if sliced is not None:
+        wrapper.append(sliced)
+    for child in svg_root:
+        if strip_ns(child.tag) == "style":
+            wrapper.append(deepcopy(child))
 
     outer_group = Element("g", {"transform": matrix_to_svg(parent_matrix)})
     fragment = deepcopy(elem)

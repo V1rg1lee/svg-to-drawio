@@ -87,12 +87,17 @@ def measure_text(
     font_family: str,
     font_weight: str = "normal",
     font_style: str = "normal",
+    *,
+    policy: str = "auto",
 ) -> tuple[float, float]:
     """Measure text using platform fonts when possible, else fall back to a tuned heuristic."""
     normalized_text = text or " "
     normalized_family = _normalized_family(font_family)
     bold = font_weight in {"bold", "600", "700", "800", "900"}
     italic = font_style == "italic"
+
+    if policy == "heuristic":
+        return _heuristic_metrics(normalized_text, font_size, bold=bold, italic=italic)
 
     root = _get_tk_root()
     if root is None or _tkfont is None:

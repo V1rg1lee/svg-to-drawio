@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from os import path
 
-from svg_to_drawio import convert_file
+from svg_to_drawio import RenderingOptions, convert_file
 
 from tests.helpers import FIXTURES_DIR, SvgTestCase
 
@@ -19,7 +19,11 @@ class FixtureRegressionTests(SvgTestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = path.join(tmpdir, "test_all_features.drawio")
-            convert_file(svg_path, out_path=out_path)
+            convert_file(
+                svg_path,
+                out_path=out_path,
+                rendering_options=RenderingOptions(text_metrics_policy="heuristic"),
+            )
 
             with open(expected_path, encoding="utf-8") as handle:
                 expected = handle.read()
