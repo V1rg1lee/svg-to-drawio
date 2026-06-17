@@ -94,6 +94,9 @@ class CliTests(SvgTestCase):
             self.assertEqual(payload["mode"], "analyze")
             self.assertEqual(len(payload["reports"]), 1)
             self.assertEqual(payload["reports"][0]["fallback_count"], 1)
+            self.assertIn("compatibility_overview", payload["reports"][0])
+            self.assertIn("compatibility_matrix", payload["reports"][0])
+            self.assertIn("Compatibility:", stdout.getvalue())
             self.assertIn("score", stdout.getvalue())
 
     def test_cli_exposes_gradient_policy_flags(self) -> None:

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 6550" width="840" height="6550">
+     viewBox="-10 -10 840 6980" width="840" height="6980">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -104,7 +104,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="6550" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="6980" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -1149,5 +1149,41 @@
   <rect x="440" y="6148" width="120" height="65"
         style="--inline-c: #6a1b9a; fill: var(--inline-c); stroke: #333; stroke-width: 1.5;"/>
   <text x="440" y="6226" font-size="9" fill="#888">inline var: #6a1b9a</text>
+
+  <!--  Feature 39: textPath approximation  -->
+  <text x="10" y="6270" font-size="11" font-weight="bold" fill="#666">F39: textPath approximation</text>
+  <defs>
+    <path id="f39-curve" d="M 40 6350 C 120 6288 230 6288 320 6350"/>
+  </defs>
+  <path d="M 40 6350 C 120 6288 230 6288 320 6350"
+        fill="none" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="48" y="6346" font-size="18" font-family="Georgia" fill="#1d4ed8">
+    <textPath href="#f39-curve">Editable text from textPath</textPath>
+  </text>
+  <text x="40" y="6378" font-size="9" fill="#888">text stays editable, but it is flattened near the source anchor instead of following the curve</text>
+
+  <!--  Feature 40: dominant-baseline approximation  -->
+  <text x="10" y="6425" font-size="11" font-weight="bold" fill="#666">F40: dominant-baseline approximation</text>
+  <line x1="40" y1="6480" x2="380" y2="6480"
+        stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="42" y="6460" font-size="9" fill="#888">shared guide line</text>
+  <text x="55" y="6480" font-size="18" fill="#e11d48" dominant-baseline="alphabetic">alphabetic</text>
+  <text x="185" y="6480" font-size="18" fill="#2563eb" dominant-baseline="middle">middle</text>
+  <text x="285" y="6480" font-size="18" fill="#16a34a" dominant-baseline="hanging">hanging</text>
+  <text x="40" y="6515" font-size="9" fill="#888">baseline modes stay editable with approximate vertical placement in draw.io text boxes</text>
+
+  <!--  Feature 41: letter-spacing not preserved natively  -->
+  <text x="10" y="6565" font-size="11" font-weight="bold" fill="#666">F41: letter-spacing not preserved natively</text>
+  <text x="40" y="6610" font-size="16" fill="#0f172a">TRACKING</text>
+  <text x="40" y="6652" font-size="16" fill="#c2410c" letter-spacing="6">TRACKING</text>
+  <text x="40" y="6684" font-size="9" fill="#888">custom tracking is reported, but the editable text content itself is still kept</text>
+
+  <!--  Feature 42: sheared image approximation  -->
+  <text x="10" y="6735" font-size="11" font-weight="bold" fill="#666">F42: sheared image approximation</text>
+  <rect x="40" y="6760" width="150" height="104" rx="12"
+        fill="#ffffff" stroke="#dbeafe" stroke-width="1.5"/>
+  <image href="image_asset.svg" x="0" y="0" width="96" height="96"
+         transform="matrix(1,0,0.36,1,62,6768)"/>
+  <text x="40" y="6882" font-size="9" fill="#888">sheared source image is approximated with an editable draw.io image cell and transformed bounds</text>
 
 </svg>

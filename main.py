@@ -27,6 +27,22 @@ from svg_to_drawio.rendering_options import (
 )
 
 
+def _print_compatibility(report: ConversionReport, *, show_all_rows: bool) -> None:
+    """Print a short, non-technical compatibility summary for one converted file."""
+    rows = report.compatibility_matrix
+    if not rows:
+        return
+
+    overview = report.compatibility_overview
+    print(f"  Compatibility: {overview.headline}")
+    relevant_rows = rows if show_all_rows else [row for row in rows if row.status != "native"]
+    for row in relevant_rows[:5]:
+        print(f"  - {row.label}: {row.status_label}. {row.message}")
+    remaining = len(relevant_rows) - 5
+    if remaining > 0:
+        print(f"  - {remaining} more compatibility detail row(s) omitted for brevity.")
+
+
 def run(
     input_path: str | PathLike[str] | None,
     output_dir: str | PathLike[str] | None = None,
@@ -143,6 +159,7 @@ def run(
                 file_report.add_issue("analysis-failed", "error", f"Analysis failed: {exc}")
             reports.append(file_report)
             print(f"{job.source_path}: {file_report.short_status()}")
+            _print_compatibility(file_report, show_all_rows=True)
             for issue in file_report.issues:
                 print(f"  - {issue.severity.upper()}: {issue.message}")
 
@@ -160,6 +177,8 @@ def run(
             print(event.message)
             if event.report and event.report.issues:
                 print(f"  Diagnostics: {event.report.short_status()}")
+            if event.report and event.kind in {ConversionEventKind.CONVERTED, ConversionEventKind.SKIPPED}:
+                _print_compatibility(event.report, show_all_rows=False)
 
     # --watch: run initial conversion then poll for changes
     if watch:

@@ -5,10 +5,11 @@ from __future__ import annotations
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_bounds_vertex
+from ..compatibility import note_text_backend
 from ..emitter_context import EmitterContext
 from ..style_builder import StyleBuilder
 from ..styles import VisualStyle, font_style_flag, get_visual, opacity_pct
-from ..text_metrics import measure_text
+from ..text_metrics import measure_text, measure_text_detailed
 from ..transforms import Matrix, apply_pt
 from ..utils import parse_float, parse_length, parse_style_attr, strip_ns
 from .style_support import add_filter_styles, add_metadata_styles
@@ -30,6 +31,11 @@ _TSPAN_STYLE_ATTRS: tuple[str, ...] = (
 )
 
 
+def _has_text_path(elem: Element) -> bool:
+    """Return whether the text element contains a `<textPath>` child."""
+    return any(strip_ns(child.tag) == "textPath" for child in elem)
+
+
 def _emit_text_cell(
     ctx: EmitterContext,
     elem: Element,
@@ -49,7 +55,7 @@ def _emit_text_cell(
     font_style = font_style_flag(visual)
 
     x, y = apply_pt(matrix, x0, y0)
-    est_width, est_height = measure_text(
+    est_width, est_height, backend = measure_text_detailed(
         content,
         font_size,
         font_family,
@@ -57,6 +63,7 @@ def _emit_text_cell(
         font_style=str(visual.get("font_style_v", "normal") or "normal"),
         policy=metrics_policy,
     )
+    ctx.report.record_feature_observation(note_text_backend(backend))
     est_width = max(est_width, 20.0)
     tx = x - (est_width / 2 if align == "center" else est_width if align == "right" else 0)
 
@@ -69,7 +76,15 @@ def _emit_text_cell(
         baseline_shift_px = 0.0
     else:
         baseline_shift_px = parse_length(baseline_shift, 0.0)
-    baseline_offset = max(font_size * 0.85, est_height * 0.60)
+    dominant_baseline = str(visual.get("dominant_baseline") or "alphabetic").strip().lower()
+    if dominant_baseline in {"middle", "central"}:
+        baseline_offset = est_height * 0.50
+    elif dominant_baseline in {"text-before-edge", "before-edge", "hanging"}:
+        baseline_offset = est_height * 0.18
+    elif dominant_baseline in {"text-after-edge", "after-edge", "ideographic"}:
+        baseline_offset = est_height * 0.95
+    else:
+        baseline_offset = max(font_size * 0.85, est_height * 0.60)
     ty = y - baseline_offset - baseline_shift_px
 
     style = StyleBuilder()
@@ -84,16 +99,7 @@ def _emit_text_cell(
 
 def _collect_text(elem: Element) -> str:
     """Collect all text content from a `<text>` element, ignoring per-tspan styling."""
-    parts: list[str] = []
-    if elem.text:
-        parts.append(elem.text)
-    for child in elem:
-        if strip_ns(child.tag) == "tspan":
-            if child.text:
-                parts.append(child.text)
-            if child.tail:
-                parts.append(child.tail)
-    return "".join(parts).strip()
+    return "".join(elem.itertext()).strip()
 
 
 def _has_styled_tspans(elem: Element) -> bool:
@@ -138,6 +144,40 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     metrics_policy = ctx.rendering_options.text_metrics_policy
     x0 = parse_length(elem.get("x"))
     y0 = parse_length(elem.get("y"))
+
+    letter_spacing = str(visual.get("letter_spacing") or "normal").strip().lower()
+    if letter_spacing not in {"", "0", "0px", "normal"}:
+        ctx.report.add_issue(
+            "letter-spacing-ignored",
+            "warning",
+            "Letter spacing is not preserved natively in draw.io text; the plain text content was kept.",
+            element_tag=strip_ns(elem.tag),
+            element_id=elem.get("id"),
+        )
+
+    dominant_baseline = str(visual.get("dominant_baseline") or "alphabetic").strip().lower()
+    if dominant_baseline not in {"", "auto", "alphabetic", "baseline"}:
+        ctx.report.add_issue(
+            "dominant-baseline-approximated",
+            "warning",
+            "Dominant-baseline alignment was approximated for editable draw.io text.",
+            element_tag=strip_ns(elem.tag),
+            element_id=elem.get("id"),
+        )
+
+    if _has_text_path(elem):
+        content = _collect_text(elem)
+        if not content:
+            return
+        ctx.report.add_issue(
+            "text-path-approximated",
+            "warning",
+            "Text on a path was flattened into regular editable text near the source anchor point.",
+            element_tag=strip_ns(elem.tag),
+            element_id=elem.get("id"),
+        )
+        _emit_text_cell(ctx, elem, matrix, visual, x0, y0, content)
+        return
 
     if _has_styled_tspans(elem):
         cur_x, cur_y = x0, y0

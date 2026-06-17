@@ -6,6 +6,7 @@ from os import PathLike
 
 __version__ = "3.3.0"
 
+from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
 from .conversion_service import CancellationToken, ConversionOptions, ConversionService, ConversionSummary
 from .converter import Converter
 from .diagnostics import ConversionReport
@@ -64,11 +65,14 @@ def analyze_file(
 
 __all__ = [
     "CancellationToken",
+    "CompatibilityOverview",
+    "CompatibilityRow",
     "ConversionOptions",
     "ConversionReport",
     "ConversionService",
     "ConversionSummary",
     "Converter",
+    "FeatureObservation",
     "RenderingOptions",
     "analyze_file",
     "convert_file",

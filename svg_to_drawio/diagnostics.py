@@ -5,6 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from .compatibility import (
+    CompatibilityOverview,
+    CompatibilityRow,
+    FeatureObservation,
+    build_compatibility_overview,
+    build_compatibility_rows,
+    observation_from_asset,
+    observation_from_issue,
+)
+
 
 def _payload_int(payload: dict[str, object], key: str, default: int = 0) -> int:
     """Read one integer-ish value from a loosely typed JSON payload."""
@@ -119,11 +129,15 @@ class ConversionReport:
     issues: list[DiagnosticIssue] = field(default_factory=list)
     assets: list[AssetReference] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    feature_observations: list[FeatureObservation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._issue_keys: set[tuple[str, str | None, str | None, bool]] = {issue.identity() for issue in self.issues}
         self._asset_keys: set[tuple[str, str, str | None]] = {asset.identity() for asset in self.assets}
         self._dependency_keys: set[str] = set(self.dependencies)
+        self._feature_observation_keys: dict[tuple[str, str, str], int] = {
+            observation.identity(): index for index, observation in enumerate(self.feature_observations)
+        }
 
     def clone(self) -> ConversionReport:
         """Return a detached copy suitable for events or cache snapshots."""
@@ -153,6 +167,9 @@ class ConversionReport:
             return
         self._issue_keys.add(issue_key)
         self.issues.append(issue)
+        compatibility_observation = observation_from_issue(code, message, element_tag=element_tag)
+        if compatibility_observation is not None:
+            self.record_feature_observation(compatibility_observation)
 
     def add_asset(
         self,
@@ -176,6 +193,9 @@ class ConversionReport:
             return
         self._asset_keys.add(asset_key)
         self.assets.append(asset)
+        compatibility_observation = observation_from_asset(status=status, message=message, mime_type=mime_type)
+        if compatibility_observation is not None:
+            self.record_feature_observation(compatibility_observation)
 
     def add_dependency(self, dependency_path: str | None) -> None:
         """Track one file path that should invalidate the conversion cache when it changes."""
@@ -185,6 +205,22 @@ class ConversionReport:
             return
         self._dependency_keys.add(dependency_path)
         self.dependencies.append(dependency_path)
+
+    def record_feature_observation(self, observation: FeatureObservation) -> None:
+        """Append or increment a deduplicated user-facing feature observation."""
+        observation_key = observation.identity()
+        existing_index = self._feature_observation_keys.get(observation_key)
+        if existing_index is not None:
+            current = self.feature_observations[existing_index]
+            self.feature_observations[existing_index] = FeatureObservation(
+                feature_key=current.feature_key,
+                status=current.status,
+                detail=current.detail,
+                count=current.count + max(1, observation.count),
+            )
+            return
+        self._feature_observation_keys[observation_key] = len(self.feature_observations)
+        self.feature_observations.append(observation)
 
     @property
     def warning_count(self) -> int:
@@ -207,6 +243,16 @@ class ConversionReport:
         if self.truncated:
             score -= 20
         return max(0, score)
+
+    @property
+    def compatibility_matrix(self) -> list[CompatibilityRow]:
+        """Return a beginner-friendly compatibility matrix for the converted file."""
+        return build_compatibility_rows(self.feature_observations)
+
+    @property
+    def compatibility_overview(self) -> CompatibilityOverview:
+        """Return a short beginner-friendly compatibility summary."""
+        return build_compatibility_overview(self.compatibility_matrix)
 
     def short_status(self) -> str:
         """Return a compact human-readable status line for logs and the CLI."""
@@ -238,6 +284,9 @@ class ConversionReport:
             "issues": [issue.to_dict() for issue in self.issues],
             "assets": [asset.to_dict() for asset in self.assets],
             "dependencies": list(self.dependencies),
+            "feature_observations": [observation.to_dict() for observation in self.feature_observations],
+            "compatibility_overview": self.compatibility_overview.to_dict(),
+            "compatibility_matrix": [row.to_dict() for row in self.compatibility_matrix],
         }
 
     @classmethod
@@ -259,4 +308,9 @@ class ConversionReport:
                 AssetReference.from_dict(item) for item in _payload_list(payload, "assets") if isinstance(item, dict)
             ],
             dependencies=[str(item) for item in _payload_list(payload, "dependencies") if item is not None],
+            feature_observations=[
+                FeatureObservation.from_dict(item)
+                for item in _payload_list(payload, "feature_observations")
+                if isinstance(item, dict)
+            ],
         )

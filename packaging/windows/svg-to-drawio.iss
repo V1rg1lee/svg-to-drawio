@@ -10,11 +10,23 @@
 #endif
 
 #ifndef MyAppSourceExe
-  #error MyAppSourceExe define is required.
+  #define MyAppSourceExe ""
+#endif
+
+#ifndef MyAppSourceDir
+  #define MyAppSourceDir ""
 #endif
 
 #ifndef MyOutputDir
   #error MyOutputDir define is required.
+#endif
+
+#if MyAppSourceExe == "" && MyAppSourceDir == ""
+  #error One of MyAppSourceExe or MyAppSourceDir must be defined.
+#endif
+
+#if MyAppSourceExe != "" && MyAppSourceDir != ""
+  #error Define only one of MyAppSourceExe or MyAppSourceDir.
 #endif
 
 #ifndef MyLicenseFile
@@ -62,7 +74,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
+#if MyAppSourceDir != ""
+Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#else
 Source: "{#MyAppSourceExe}"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

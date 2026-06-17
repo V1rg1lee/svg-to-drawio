@@ -1,19 +1,52 @@
-"""Build Windows, Linux, and macOS desktop bundles with PyInstaller."""
+"""Build desktop bundles with PyInstaller."""
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-
-from PyInstaller.__main__ import run as pyinstaller_run
 
 
 def _add_data_argument(source: Path, destination: str) -> str:
     """Return one PyInstaller --add-data argument for the current platform."""
     separator = ";" if sys.platform == "win32" else ":"
     return f"{source}{separator}{destination}"
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for the desktop bundle build."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--bundle-mode",
+        choices=("auto", "onefile", "onedir"),
+        default="auto",
+        help="PyInstaller layout to build. Defaults to onedir on macOS and onefile elsewhere.",
+    )
+    parser.add_argument(
+        "--dist-dir",
+        default="dist/desktop",
+        help="Output directory for the built bundle, relative to the repository root by default.",
+    )
+    return parser.parse_args(argv)
+
+
+def _resolve_bundle_mode(bundle_mode: str) -> str:
+    """Resolve the effective PyInstaller bundle mode for this platform."""
+    if bundle_mode != "auto":
+        return bundle_mode
+    # macOS requires a .app bundle; Windows/Linux default to a portable onefile build.
+    return "onedir" if sys.platform == "darwin" else "onefile"
+
+
+def _resolve_path(project_root: Path, raw_path: str) -> Path:
+    """Resolve an absolute or repository-relative path."""
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = project_root / path
+    return path.resolve()
 
 
 def _generate_icns(png_path: Path, output_path: Path) -> bool:
@@ -49,11 +82,15 @@ def _generate_icns(png_path: Path, output_path: Path) -> bool:
         return result.returncode == 0 and output_path.is_file()
 
 
-def main() -> None:
-    """Build the base desktop executable or app bundle in `dist/desktop`."""
+def main(argv: Sequence[str] | None = None) -> None:
+    """Build the base desktop executable or app bundle."""
+    from PyInstaller.__main__ import run as pyinstaller_run
+
+    options = _parse_args(argv)
     project_root = Path(__file__).resolve().parent
-    build_root = project_root / "build" / "pyinstaller"
-    dist_root = project_root / "dist" / "desktop"
+    bundle_mode = _resolve_bundle_mode(options.bundle_mode)
+    build_root = project_root / "build" / "pyinstaller" / bundle_mode
+    dist_root = _resolve_path(project_root, options.dist_dir)
     assets_dir = project_root / "svg_to_drawio_desktop" / "assets"
 
     args = [
@@ -61,9 +98,7 @@ def main() -> None:
         "--noconfirm",
         "--clean",
         "--windowed",
-        # macOS requires a .app bundle (onedir); onefile produces a bare Unix binary
-        # that Finder won't open and the Dock won't integrate with.
-        "--onedir" if sys.platform == "darwin" else "--onefile",
+        f"--{bundle_mode}",
         "--name",
         "svg-to-drawio",
         "--paths",

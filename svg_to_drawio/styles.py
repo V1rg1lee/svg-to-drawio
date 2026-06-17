@@ -35,6 +35,9 @@ class VisualStyle(TypedDict):
     fill_rule: str
     text_decoration: str
     baseline_shift: str
+    dominant_baseline: str
+    letter_spacing: str
+    stroke_miterlimit: str
 
 
 class GradientStyle(TypedDict):
@@ -226,6 +229,9 @@ def get_visual(element: Element, computed_css: dict[str, str] | None = None) -> 
         "fill_rule": get_attr("fill-rule", "nonzero") or "nonzero",
         "text_decoration": get_attr("text-decoration", "none") or "none",
         "baseline_shift": get_attr("baseline-shift", "0") or "0",
+        "dominant_baseline": get_attr("dominant-baseline", "alphabetic") or "alphabetic",
+        "letter_spacing": get_attr("letter-spacing", "normal") or "normal",
+        "stroke_miterlimit": get_attr("stroke-miterlimit", "4") or "4",
     }
 
 

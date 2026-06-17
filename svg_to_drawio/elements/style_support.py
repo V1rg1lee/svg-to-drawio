@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_bounds_vertex
+from ..compatibility import note_filter_usage
 from ..emitter_context import EmitterContext
 from ..style_builder import StyleBuilder
 from ..styles import GradientStyle, gradient_entries
@@ -26,7 +27,10 @@ def add_gradient_styles(builder: StyleBuilder, gradient: GradientStyle | None) -
 
 def add_filter_styles(builder: StyleBuilder, ctx: EmitterContext, filter_ref: str | None) -> StyleBuilder:
     """Append filter-related style entries when the SVG element references one."""
-    return builder.extend_pairs(ctx.defs.resolve_filter_entries(filter_ref))
+    entries = ctx.defs.resolve_filter_entries(filter_ref)
+    if entries:
+        ctx.report.record_feature_observation(note_filter_usage(native=True))
+    return builder.extend_pairs(entries)
 
 
 def emit_midpoint_markers(

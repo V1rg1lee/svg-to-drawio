@@ -6,6 +6,7 @@ import re
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_bounds_vertex, make_edge
+from ..compatibility import note_gradient_usage, note_marker_usage, note_shape_usage
 from ..emitter_context import EmitterContext
 from ..path_utils import commands_bbox, make_stencil_style_from_commands, path_commands, sample_open_path
 from ..rendering_options import normalize_filter_ref
@@ -55,6 +56,9 @@ def _emit_open_path_as_edge(
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
+    if start_arrow != "none" or end_arrow != "none" or visual.get("marker_mid"):
+        ctx.report.record_feature_observation(note_marker_usage())
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
 
     src, *mid, tgt = points_t
     style = StyleBuilder()
@@ -107,6 +111,8 @@ def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     if gradient is not None and supports_multi_stop_gradient_approximation(
         "path", matrix, gradient, filter_ref=approx_support_filter
     ):
+        ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=True))
         emit_path_multi_stop_gradient_approximation(
             ctx,
             elem,
@@ -126,6 +132,9 @@ def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         )
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+    if gradient is not None:
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
     stencil_style = make_stencil_style_from_commands(
         commands,
         bx,

@@ -6,6 +6,7 @@ import re
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_box_vertex, make_edge
+from ..compatibility import note_marker_usage, note_shape_usage
 from ..element_geometry import bounds_from_points
 from ..emitter_context import EmitterContext
 from ..path_utils import make_stencil_style_from_xml
@@ -31,6 +32,7 @@ def emit_polyline(
     if len(points) < 2:
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
     stroke_color = visual["stroke"] or "#000000"
     fill = visual["fill"] or "none"
     opacity = opacity_pct(visual["opacity"])
@@ -65,6 +67,8 @@ def emit_polyline(
 
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
+    if start_arrow != "none" or end_arrow != "none" or visual.get("marker_mid"):
+        ctx.report.record_feature_observation(note_marker_usage())
     src, *mid, tgt = points
     style = StyleBuilder()
     style.add("rounded", 1 if visual["linejoin"] == "round" else 0)

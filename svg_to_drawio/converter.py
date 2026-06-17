@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from os import PathLike, fspath, path
 from xml.etree.ElementTree import Element
 
 from .cell_factory import make_bounds_vertex, make_layer_cell
+from .compatibility import note_reference_usage
 from .css import AncestorInfo, CssRule, apply_css, collect_css, extract_custom_props
 from .defs import DefsIndex
 from .diagnostics import ConversionReport
@@ -395,9 +397,15 @@ class Converter:
         padding = stroke_w / 2.0
         filter_val = css.get("filter") or elem.get("filter") or ""
         if filter_val and filter_val.lower() != "none":
-            # SVG filter regions extend ~10% beyond the bbox by default; use 15% to be safe.
-            bx, by, bw, bh = bbox
-            padding = max(padding, max(bw, bh) * 0.15)
+            padding = max(padding, self._estimate_filter_padding(filter_val, bbox))
+        marker_values = [
+            (css.get(name) or elem.get(name) or "").strip().lower()
+            for name in ("marker-start", "marker-mid", "marker-end")
+        ]
+        if any(value and value != "none" for value in marker_values):
+            padding = max(padding, stroke_w * 2.5)
+        if (css.get("stroke-linejoin") or elem.get("stroke-linejoin") or "").strip().lower() == "miter":
+            padding = max(padding, stroke_w)
 
         image_ref = build_fallback_svg_data_uri(
             self._root,
@@ -419,6 +427,43 @@ class Converter:
             box=BoundsBox(x=x - padding, y=y - padding, width=width + 2.0 * padding, height=height + 2.0 * padding),
         )
         return True
+
+    def _estimate_filter_padding(
+        self,
+        filter_ref: str,
+        bbox: tuple[float, float, float, float],
+    ) -> float:
+        """Estimate how much one SVG filter may extend beyond the raw geometry bounds."""
+        normalized = normalize_filter_ref(filter_ref)
+        if normalized is None:
+            return 0.0
+
+        match = re.match(r"url\(#([^)]+)\)", normalized)
+        if not match:
+            _, _, width, height = bbox
+            return max(width, height) * 0.12
+
+        filter_elem = self.defs.get_element(match.group(1))
+        if filter_elem is None:
+            _, _, width, height = bbox
+            return max(width, height) * 0.12
+
+        padding = 0.0
+        for child in filter_elem.iter():
+            child_tag = strip_ns(child.tag)
+            if child_tag == "feGaussianBlur":
+                padding = max(padding, parse_length(child.get("stdDeviation"), 0.0) * 3.0)
+            elif child_tag == "feDropShadow":
+                std_deviation = parse_length(child.get("stdDeviation"), 0.0)
+                dx = abs(parse_length(child.get("dx"), 0.0))
+                dy = abs(parse_length(child.get("dy"), 0.0))
+                padding = max(padding, max(dx, dy) + std_deviation * 3.0)
+
+        if padding > 0.0:
+            return padding
+
+        _, _, width, height = bbox
+        return max(width, height) * 0.12
 
     def _estimate_subtree_bounds(
         self,
@@ -564,6 +609,7 @@ class Converter:
                 enforce_max_elements=enforce_max_elements,
             )
         elif tag == "svg":
+            ctx.report.record_feature_observation(note_reference_usage())
             inner_matrix = mat_mul(matrix, viewbox_transform(elem))
             for child in elem:
                 self._convert(
@@ -768,6 +814,8 @@ class Converter:
         ref_elem = self.defs.get_element(href[1:])
         if ref_elem is None:
             return
+
+        ctx.report.record_feature_observation(note_reference_usage())
 
         use_x = parse_length(elem.get("x", "0"))
         use_y = parse_length(elem.get("y", "0"))

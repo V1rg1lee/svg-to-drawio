@@ -5,6 +5,7 @@ from __future__ import annotations
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_bounds_vertex, make_box_vertex, make_edge
+from ..compatibility import note_gradient_usage, note_marker_usage, note_shape_usage
 from ..element_geometry import ellipse_bounds, has_shear, line_endpoints, rect_bounds, rect_corners
 from ..emitter_context import EmitterContext
 from ..path_utils import make_stencil_style_from_commands
@@ -50,6 +51,8 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
     linecap = visual["linecap"]
+    if start_arrow != "none" or end_arrow != "none":
+        ctx.report.record_feature_observation(note_marker_usage())
 
     # Non-flat linecap without markers: emit as a stencil vertex so draw.io's
     # stencil renderer applies strokelinecap from the XML. Edge connectors do not
@@ -65,6 +68,7 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
             cmds, bx, by, bw, bh, "none", stroke_color, stroke_width, opacity, linecap=linecap
         )
         if stencil_style:
+            ctx.report.record_feature_observation(note_shape_usage(approximated=True))
             style = StyleBuilder().extend_raw(stencil_style)
             style.add("strokeOpacity", stroke_opacity)
             style.extend_raw(visual["dash_style"])
@@ -73,6 +77,7 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
             ctx.add(make_bounds_vertex(ctx, style.build(), bx, by, bw, bh))
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
     style = StyleBuilder()
     style.add("rounded", 0)
     style.add("startArrow", start_arrow).add("endArrow", end_arrow).add("html", 1)
@@ -100,6 +105,8 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
 
     if supports_multi_stop_gradient_approximation("circle", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None
+        ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=True))
         emit_multi_stop_gradient_approximation(
             ctx,
             elem,
@@ -117,6 +124,9 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
         return
 
     if has_shear(matrix):
+        ctx.report.record_feature_observation(note_shape_usage(approximated=True))
+        if gradient is not None:
+            ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
         emit_transformed_path_stencil(
             ctx,
             elem,
@@ -136,6 +146,9 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
         )
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+    if gradient is not None:
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
     box = ellipse_bounds(matrix, cx0, cy0, radius, radius)
     rotation = box.rotation_if_visible() if box.has_distinct_axes() else None
     rotation_style = f"{rotation:.2f}" if rotation is not None else None
@@ -170,6 +183,8 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
 
     if supports_multi_stop_gradient_approximation("ellipse", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None
+        ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=True))
         emit_multi_stop_gradient_approximation(
             ctx,
             elem,
@@ -187,6 +202,9 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
         return
 
     if has_shear(matrix):
+        ctx.report.record_feature_observation(note_shape_usage(approximated=True))
+        if gradient is not None:
+            ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
         emit_transformed_path_stencil(
             ctx,
             elem,
@@ -206,6 +224,9 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
         )
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+    if gradient is not None:
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
     box = ellipse_bounds(matrix, cx0, cy0, rx0, ry0)
     rotation = box.rotation_if_visible()
     rotation_style = f"{rotation:.2f}" if rotation is not None else None
@@ -247,6 +268,8 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
 
     if supports_multi_stop_gradient_approximation("rect", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None
+        ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=True))
         emit_multi_stop_gradient_approximation(
             ctx,
             elem,
@@ -264,6 +287,9 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         return
 
     if has_shear(matrix):
+        ctx.report.record_feature_observation(note_shape_usage(approximated=True))
+        if gradient is not None:
+            ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
         if rx > 0 or ry > 0:
             emit_transformed_path_stencil(
                 ctx,
@@ -300,6 +326,9 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         )
         return
 
+    ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+    if gradient is not None:
+        ctx.report.record_feature_observation(note_gradient_usage(approximated=False))
     box = rect_bounds(matrix, x0, y0, width0, height0)
     rotation = box.rotation_if_visible()
     rotation_style = f"{rotation:.2f}" if rotation is not None else None

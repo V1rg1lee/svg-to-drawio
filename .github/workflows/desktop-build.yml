@@ -59,6 +59,10 @@ jobs:
       - name: Build desktop bundle
         run: python build_desktop.py
 
+      - name: Build Windows installer bundle
+        if: runner.os == 'Windows'
+        run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-installer
+
       - name: Prepare release directory
         shell: bash
         run: mkdir -p dist/release
@@ -74,7 +78,7 @@ jobs:
         run: >
           .\packaging\windows\build_installer.ps1
           -Version "${{ steps.version.outputs.value }}"
-          -InputExe "dist\desktop\svg-to-drawio.exe"
+          -InputDir "dist\desktop-installer\svg-to-drawio"
           -OutputDir "dist\release"
 
       - name: Download appimagetool

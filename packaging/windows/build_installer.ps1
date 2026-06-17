@@ -1,9 +1,13 @@
+[CmdletBinding(DefaultParameterSetName = "Exe")]
 param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Exe")]
     [string]$InputExe,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "Dir")]
+    [string]$InputDir,
 
     [string]$OutputDir = "dist\desktop",
 
@@ -15,11 +19,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$resolvedExe = Resolve-Path $InputExe
 $resolvedOutputDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDir))
 $installerScript = Join-Path $repoRoot "packaging\windows\svg-to-drawio.iss"
 $licensePath = Join-Path $repoRoot $LicenseFile
 $iconPath = Join-Path $repoRoot $SetupIconFile
+$resolvedExe = $null
+$resolvedInputDir = $null
+
+if ($PSCmdlet.ParameterSetName -eq "Exe") {
+    $resolvedExe = Resolve-Path $InputExe
+} else {
+    $resolvedInputDir = Resolve-Path $InputDir
+}
 
 New-Item -ItemType Directory -Force -Path $resolvedOutputDir | Out-Null
 
@@ -40,9 +51,16 @@ if (-not $isccPath) {
 
 $arguments = @(
     "/DMyAppVersion=$Version",
-    "/DMyAppSourceExe=$resolvedExe",
     "/DMyOutputDir=$resolvedOutputDir"
 )
+
+if ($resolvedExe) {
+    $arguments += "/DMyAppSourceExe=$resolvedExe"
+}
+
+if ($resolvedInputDir) {
+    $arguments += "/DMyAppSourceDir=$resolvedInputDir"
+}
 
 if (Test-Path $licensePath) {
     $arguments += "/DMyLicenseFile=$licensePath"

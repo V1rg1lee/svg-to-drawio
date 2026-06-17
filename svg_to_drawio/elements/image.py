@@ -10,7 +10,8 @@ from urllib.parse import quote_from_bytes, unquote_to_bytes
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_box_vertex
-from ..element_geometry import BoundsBox, image_bounds
+from ..compatibility import note_image_usage
+from ..element_geometry import BoundsBox, has_shear, image_bounds
 from ..emitter_context import EmitterContext
 from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
@@ -112,6 +113,12 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
     if "://" in href:
         mime = mimetypes.guess_type(href)[0] or ""
         ctx.report.add_asset(href=href, status="remote", mime_type=mime or None)
+        ctx.report.add_issue(
+            "image-remote-linked",
+            "warning",
+            "Remote image URLs stay linked instead of being embedded into the draw.io document.",
+            element_tag="image",
+        )
         return href, mime
 
     asset_path = href
@@ -176,6 +183,18 @@ def emit_image(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str
     box = image_bounds(matrix, x0, y0, width0, height0)
     rotation = box.rotation_if_visible()
     rotation_style = f"{rotation:.2f}" if rotation is not None else None
+
+    if has_shear(matrix):
+        ctx.report.add_issue(
+            "image-shear-approximated",
+            "warning",
+            "A sheared image was approximated with its transformed bounding box because draw.io images do not skew.",
+            element_tag="image",
+            element_id=elem.get("id"),
+        )
+        ctx.report.record_feature_observation(note_image_usage(approximated=True))
+    else:
+        ctx.report.record_feature_observation(note_image_usage(approximated=False))
 
     preserve_raw = (elem.get("preserveAspectRatio") or "").strip()
     preserve = preserve_raw.lower()
