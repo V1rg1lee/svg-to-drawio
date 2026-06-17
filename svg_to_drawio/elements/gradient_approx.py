@@ -23,7 +23,7 @@ _APPROXIMATION_TAGS: frozenset[str] = frozenset({"rect", "circle", "ellipse"})
 _LINEAR_PATH_TAGS: frozenset[str] = frozenset({"path"})
 _RADIAL_MAX_STEPS = 96  # hard cap: beyond this, file size / render cost outweigh quality gains
 _RADIAL_MIN_STEPS = 16  # floor: even tiny shapes get at least 16 rings
-_RADIAL_TARGET_PX = 1.5  # target ring width in SVG units — keeps steps sub-pixel at normal zoom
+_RADIAL_TARGET_PX = 1.5  # target ring width in SVG units - keeps steps sub-pixel at normal zoom
 _SAMPLES_PER_CURVE = 32  # linear bands: samples per edge for arc approximation in rounded corners
 _BAND_OVERLAP = 0.002  # linear bands: normalized overlap to prevent sub-pixel anti-aliasing gaps
 

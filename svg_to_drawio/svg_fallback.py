@@ -56,7 +56,7 @@ def _slice_defs(svg_root: Element, elem: Element) -> Element | None:
 
     Performs a transitive closure so that defs which themselves reference other defs are
     included too (e.g. a clipPath that uses a gradient).
-    CSS <style> blocks are not included here — they are copied separately because class-based
+    CSS <style> blocks are not included here - they are copied separately because class-based
     rules can apply to any descendant of the fragment.
     """
     id_to_def: dict[str, Element] = {}

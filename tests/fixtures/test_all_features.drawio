@@ -1574,13 +1574,13 @@
     <mxCell id="472" value="" style="shape=stencil(lZTRbsMgDEW/Jq+WwTEhz137HzRlC2uaRIS129+PiHXtOmmaX5Dty9UxsnBFm6V3s680Xip6qrRWiPnMef+Qu2X2XSrFs4vB7QdflCXF6egv4ZC+PGHsfQzpXh3C6Ds3F/15cL/E1ymMRT2F5OMq07aizd51x5c4vY2Hks9upazRaTqvfb8XF8K10Y/vxq+lXTGsmJuBAc0Pw9/XFYIiEUAxqFZAyLJmESG/gbSAQAhkRQRiqGsBoUZgJSLUDNwICIxgZHNghgYFBIPQGBHBMFjJHBoE24oIDUPLAoJVgLI5WANoBYRWgapFhNaARtGP+8efzsFtI5Rtcq89bo9cKvuOtp8=);fillColor=none;strokeColor=#7c5cbf;strokeWidth=2.0;opacity=100;fillOpacity=100;strokeOpacity=100;" parent="1" vertex="1">
       <mxGeometry x="30.00" y="5850.00" width="790.00" height="20.00" as="geometry"/>
     </mxCell>
-    <mxCell id="473" value="zigzag: 20px deviation exceeds tolerance — all 21 points preserved (correct)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
+    <mxCell id="473" value="zigzag: 20px deviation exceeds tolerance - all 21 points preserved (correct)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
       <mxGeometry x="30.00" y="5887.17" width="335.34" height="13.05" as="geometry"/>
     </mxCell>
     <mxCell id="474" value="" style="shape=stencil(pZHdDsIgDIWfhluD4xF0vkfHOlfHgABu+vZCqm6ZXph4Q9rz9aQ/CHWIPXgUlZyFOoqq2kuZ35z3mxyiR51YnCAQNAaZxBTcgDO16ekh22OgtKaGLGrwzDsDH/DiyDIdKWEoWNVCHRrQwzm4q20591C6lGh0U5n7xi65ew163wgnLi9NlvK81t+GlfTV8oNBGxfxneVgWa8jY/g8a749R5b4A1X9AA==);fillColor=#fff9c4;strokeColor=#f57f17;strokeWidth=2.0;opacity=100;fillOpacity=100;strokeOpacity=100;" parent="1" vertex="1">
       <mxGeometry x="30.00" y="5910.00" width="380.00" height="25.00" as="geometry"/>
     </mxCell>
-    <mxCell id="475" value="rect (11 commands, collinear extras) — simplified to 5 in stencil output" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
+    <mxCell id="475" value="rect (11 commands, collinear extras) - simplified to 5 in stencil output" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
       <mxGeometry x="30.00" y="5942.17" width="316.08" height="13.05" as="geometry"/>
     </mxCell>
     <mxCell id="476" value="F37: gradient href geometry override (Inkscape/Illustrator pattern)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11.0;fontColor=#666666;fontFamily=Helvetica;opacity=100;fontStyle=1;" parent="1" vertex="1">

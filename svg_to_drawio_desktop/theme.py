@@ -476,7 +476,7 @@ def build_stylesheet(t: dict[str, str]) -> str:
             color: {t["btn_disabled_color"]};
             border-color: {t["btn_disabled_border"]};
         }}
-        /* Theme toggle and overflow menu — blend into header */
+        /* Theme toggle and overflow menu - blend into header */
         QPushButton#themeButton, QToolButton#overflowButton {{
             background: transparent;
             border: none;
@@ -703,7 +703,7 @@ def build_stylesheet(t: dict[str, str]) -> str:
         }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
         QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
-        /* Clear log button — small, neutral */
+        /* Clear log button - small, neutral */
         QPushButton#clearLogButton {{
             background: transparent;
             color: {t["text_muted"]};

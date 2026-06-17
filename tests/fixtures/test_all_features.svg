@@ -1033,28 +1033,28 @@
         fill="url(#multi-stop-linear)" stroke="#37474f" stroke-width="2"/>
   <text x="20" y="5464" font-size="9" fill="#888">rounded rect · 4 stops · east</text>
 
-  <!-- circle: 5 stops, east direction — vertical band slices -->
+  <!-- circle: 5 stops, east direction - vertical band slices -->
   <circle cx="315" cy="5410" r="62"
           fill="url(#multi-stop-rainbow)" stroke="#37474f" stroke-width="2"/>
   <text x="253" y="5481" font-size="9" fill="#888">circle · 5 stops · east</text>
 
-  <!-- ellipse: 4 stops, south direction — horizontal band slices -->
+  <!-- ellipse: 4 stops, south direction - horizontal band slices -->
   <ellipse cx="510" cy="5410" rx="80" ry="52"
            fill="url(#multi-stop-sunset)" stroke="#37474f" stroke-width="2"/>
   <text x="430" y="5471" font-size="9" fill="#888">ellipse · 4 stops · south</text>
 
-  <!-- circle: 5 stops, radial — concentric solid-colour ring approximation -->
+  <!-- circle: 5 stops, radial - concentric solid-colour ring approximation -->
   <circle cx="670" cy="5410" r="55"
           fill="url(#multi-stop-radial)" stroke="#37474f" stroke-width="2"/>
   <text x="615" y="5471" font-size="9" fill="#888">circle · 5 stops · radial</text>
 
-  <!--  Feature 34: multi-stop linear gradient on complex path — now native via Sutherland–Hodgman clipping  -->
+  <!--  Feature 34: multi-stop linear gradient on complex path - now native via Sutherland–Hodgman clipping  -->
   <text x="10" y="5500" font-size="11" font-weight="bold" fill="#666">F34: multi-stop gradient on complex path (native)</text>
   <path d="M 70 5550 C 78 5500 132 5482 164 5510 C 190 5472 252 5485 242 5542 C 236 5585 184 5600 148 5590 C 110 5605 62 5588 70 5550 Z"
         fill="url(#multi-stop-linear)" stroke="#37474f" stroke-width="2"/>
   <text x="45" y="5610" font-size="9" fill="#888">complex path · 4 stops · east · native polygon clipping</text>
 
-  <!--  Feature 35: feGaussianBlur filter — SVG fallback (draw.io has no native element blur)  -->
+  <!--  Feature 35: feGaussianBlur filter - SVG fallback (draw.io has no native element blur)  -->
   <text x="10" y="5640" font-size="11" font-weight="bold" fill="#666">F35: feGaussianBlur → embedded SVG fallback</text>
   <defs>
     <filter id="blur-light">
@@ -1091,7 +1091,7 @@
 
   <text x="20" y="5760" font-size="9" fill="#888">feGaussianBlur: no draw.io native equivalent; elements embedded as SVG so blur renders correctly</text>
 
-  <!--  Feature 36: path with many collinear points — path simplification via RDP  -->
+  <!--  Feature 36: path with many collinear points - path simplification via RDP  -->
   <text x="10" y="5800" font-size="11" font-weight="bold" fill="#666">F36: path simplification (Ramer-Douglas-Peucker)</text>
 
   <!-- Zigzag path: 20px perpendicular deviation at each point, far above tolerance.
@@ -1103,14 +1103,14 @@
            L 540 5840 L 580 5860 L 620 5840 L 660 5860
            L 700 5840 L 740 5860 L 780 5840 L 810 5860"
         fill="none" stroke="#7c5cbf" stroke-width="2"/>
-  <text x="20" y="5885" font-size="9" fill="#888">zigzag: 20px deviation exceeds tolerance — all 21 points preserved (correct)</text>
+  <text x="20" y="5885" font-size="9" fill="#888">zigzag: 20px deviation exceeds tolerance - all 21 points preserved (correct)</text>
 
   <!-- Rect with redundant collinear intermediate points on each edge.
        RDP simplifies 11 commands (move + 8 lines + close) → 5 (move + 3 lines + close). -->
   <path d="M 20 5900 L 100 5900 L 200 5900 L 300 5900 L 400 5900
            L 400 5925 L 300 5925 L 200 5925 L 100 5925 L 20 5925 Z"
         fill="#fff9c4" stroke="#f57f17" stroke-width="2"/>
-  <text x="20" y="5940" font-size="9" fill="#888">rect (11 commands, collinear extras) — simplified to 5 in stencil output</text>
+  <text x="20" y="5940" font-size="9" fill="#888">rect (11 commands, collinear extras) - simplified to 5 in stencil output</text>
 
   <!--  Feature 37: gradient href geometry override  -->
   <!--  Base gradient has stops; child gradients reference it via href and override direction.  -->

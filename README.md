@@ -1,137 +1,52 @@
 # svg-to-drawio
 
-Convert SVG files into editable [draw.io](https://app.diagrams.net/) diagrams where each SVG element becomes an individual, selectable draw.io cell instead of one flat embedded image.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/V1rg1lee/svg-to-drawio/actions/workflows/ci.yml/badge.svg)](https://github.com/V1rg1lee/svg-to-drawio/actions/workflows/ci.yml)
+
+Turn any SVG into a real, editable [draw.io](https://app.diagrams.net/) diagram. Every shape, line, and text label becomes its own selectable cell - not a single flattened picture pasted onto the canvas.
+
+- **Truly editable output** - rectangles, circles, paths, text, and groups all stay as native, movable draw.io cells.
+- **One engine, three ways in** - the CLI, the Python API, and the desktop app all share the exact same conversion logic, so results are identical everywhere.
+- **Smart fallbacks, not silent failures** - gradients, filters, masks, and clip-paths render natively whenever draw.io supports them, and fall back to a faithful embedded SVG image when it can't, instead of dropping detail.
+- **Built for batches** - convert a single icon or an entire folder tree recursively, with watch mode, incremental caching, and structured diagnostics.
 
 ## Quick start
 
 **Requirements:** Python 3.11+, no external runtime dependency for the CLI.
 
-Install locally as a package from the repository root:
-
 ```bash
-python -m pip install .
-```
-
-Once installed, you can use either the console script or the module entry point:
-
-```bash
+pip install svg-to-drawio
 svg-to-drawio diagram.svg
-python -m svg_to_drawio diagram.svg
-```
-
-```bash
-# Convert one file directly from the repository checkout
-python main.py diagram.svg
-
-# Convert a folder recursively and overwrite existing outputs
-python main.py path/to/folder/ --recursive --overwrite
 ```
 
 By default, output is written next to the source file (`diagram.svg` -> `diagram.drawio`).
 
+Running from a repository checkout instead of an installed package works the same way:
+
+```bash
+python main.py diagram.svg
+python main.py path/to/folder/ --recursive --overwrite
+```
+
 ## Desktop app
 
-The desktop app uses the exact same conversion engine as the CLI and Python API.
+For anyone who would rather drag, drop, and click than type commands. The desktop app uses the exact same conversion engine as the CLI and Python API, so there is no difference in output quality.
 
-Current desktop features include drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close options, one-click output folder access, watch mode, persistent preferences, advanced rendering controls, a plain-English compatibility panel, and JSON report export.
+Download a release artifact from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
 
-Download release artifacts from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
-
-- Windows: `Setup.exe` installer plus a plain `.zip` for advanced users
-- Linux: portable `.AppImage` plus a plain `.tar.gz` for advanced users
+- Windows: `Setup.exe` installer (auto-upgrades an existing install) or a plain `.zip` for advanced users
+- Linux: portable `.AppImage` or a plain `.tar.gz`
 - macOS: `.zip` archive of the app bundle
 
-The Windows installer upgrades an existing installed version automatically by uninstalling it first, then installing the new release.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, advanced rendering controls, a plain-English compatibility panel, and JSON report export.
 
-Run the desktop app from source:
+Run it from source instead:
 
 ```bash
 pip install -r requirements-desktop.txt
 python desktop_app.py
 ```
-
-Build the base standalone bundle (Windows / Linux / macOS):
-
-```bash
-python build_desktop.py
-```
-
-This produces:
-
-- `dist/desktop/svg-to-drawio.exe` on Windows
-- `dist/desktop/svg-to-drawio` on Linux
-- `dist/desktop/svg-to-drawio.app` on macOS
-
-On Windows, the plain `.zip` archive keeps this default portable `onefile` build. The `Setup.exe` installer uses a separate `onedir` bundle so the installed app starts faster once deployed.
-
-Extra packaging layers are built on top of that base bundle:
-
-- Windows installer: `packaging/windows/build_installer.ps1`
-- Linux AppImage: `packaging/linux/build_appimage.sh`
-- macOS: archive only for now
-
-### Manual packaging
-
-#### Windows installer
-
-The Windows installer is built with Inno Setup.
-
-Install Inno Setup, for example:
-
-```powershell
-winget install JRSoftware.InnoSetup
-```
-
-Then build the dedicated `onedir` installer bundle and wrap it into a `Setup.exe`:
-
-```powershell
-env\Scripts\python.exe -m pip install -r requirements-desktop.txt
-env\Scripts\python.exe build_desktop.py --bundle-mode onedir --dist-dir dist\desktop-installer
-$version = env\Scripts\python.exe -c "from svg_to_drawio import __version__; print(__version__)"
-.\packaging\windows\build_installer.ps1 -Version $version -InputDir "dist\desktop-installer\svg-to-drawio" -OutputDir "dist\release"
-```
-
-This produces:
-
-- `dist\release\svg-to-drawio-<version>-setup.exe`
-
-#### Linux AppImage
-
-An AppImage is not a system installer like `Setup.exe` on Windows. It is a portable Linux application bundle that you usually download, mark as executable, and run directly.
-
-Build the base executable first, then package it with `appimagetool`:
-
-```bash
-python -m pip install -r requirements-desktop.txt
-python build_desktop.py
-curl -L \
-  -o appimagetool-x86_64.AppImage \
-  https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-chmod +x appimagetool-x86_64.AppImage packaging/linux/AppRun packaging/linux/build_appimage.sh
-VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
-./packaging/linux/build_appimage.sh \
-  dist/desktop/svg-to-drawio \
-  "$VERSION" \
-  ./appimagetool-x86_64.AppImage \
-  "dist/release/svg-to-drawio-${VERSION}-linux-x86_64.AppImage"
-```
-
-In GitHub Actions, `appimagetool` is downloaded automatically by the workflow. For a local Linux build, you need to download it yourself first as shown above.
-
-This produces:
-
-- `dist/release/svg-to-drawio-<version>-linux-x86_64.AppImage`
-
-Typical end-user usage after downloading the AppImage from a release:
-
-```bash
-chmod +x svg-to-drawio-<version>-linux-x86_64.AppImage
-./svg-to-drawio-<version>-linux-x86_64.AppImage
-```
-
-Some Linux systems require FUSE / `libfuse.so.2` to run AppImages directly. If the AppImage fails to start with a FUSE-related error, install your distro's FUSE 2 compatibility package first, or extract the AppImage manually.
-
-The plain `.zip` / `.tar.gz` archives remain available for advanced users who prefer to launch the raw bundle directly.
 
 ## CLI reference
 
@@ -252,7 +167,8 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 - `text_metrics_policy="system"` explicitly prefers platform font metrics.
 - `text_metrics_policy="heuristic"` keeps text sizing deterministic without consulting the system font backend.
 
-## What gets converted
+<details>
+<summary><strong>What gets converted</strong></summary>
 
 | SVG element | draw.io output |
 |---|---|
@@ -270,7 +186,10 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 | `<use>` / `<symbol>` | Resolved from `<defs>` and rendered in place |
 | nested `<svg>` | Handled with its own `viewBox` transform |
 
-## Supported CSS and SVG features
+</details>
+
+<details>
+<summary><strong>Supported CSS and SVG features</strong></summary>
 
 - CSS `<style>` blocks: element, class (`.cls`), ID (`#id`), descendant (`A B`), child (`A > B`), multi-class (`.a.b`), and attribute selectors
 - CSS inheritance through `<g>` groups and custom properties (`var(--name, fallback)`)
@@ -292,7 +211,10 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
 
-## Limitations
+</details>
+
+<details>
+<summary><strong>Limitations</strong></summary>
 
 - `<clipPath>`, `<mask>`, pattern fills, and unsupported filters fall back to embedded SVG images for visual fidelity, so those fragments are less editable than native shapes.
 - Only `feDropShadow` is mapped to native draw.io shadow styles; other filter effects use embedded SVG fallback when possible.
@@ -303,10 +225,13 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 - Text uses platform font metrics when available, with a tuned heuristic fallback in headless environments.
 - `letter-spacing` is reported when encountered, but draw.io text does not preserve it natively.
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
-- Local `<image>` paths are restricted to files inside the source SVG's folder tree.
+- Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
 
-## Transform rendering
+</details>
+
+<details>
+<summary><strong>Transform rendering</strong></summary>
 
 | Transform | draw.io output |
 |---|---|
@@ -318,17 +243,15 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 
 Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable.
 
-## Re-exporting to SVG from draw.io
+</details>
+
+## Tip: re-exporting to SVG from draw.io
 
 draw.io wraps text labels in `<foreignObject>` when exporting SVG, which many tools do not support. Before exporting:
 
 1. **Edit -> Select All**
 2. In the right-hand panel, click **Convert labels to SVG**
 3. **File -> Export as -> SVG**
-
-## Image resolution
-
-Local `<image>` paths are resolved relative to the SVG file being converted, then embedded in the `.drawio` output so the result stays self-contained.
 
 ## Development
 
@@ -363,7 +286,94 @@ python -m pre_commit run --all-files
 
 Pre-commit runs ruff, mypy, and repository hygiene hooks on every commit. Tests run on every push, and GitHub Actions mirrors the same checks remotely.
 
-## Project structure
+<details>
+<summary><strong>Manual packaging (desktop app)</strong></summary>
+
+Build the base standalone bundle (Windows / Linux / macOS):
+
+```bash
+python build_desktop.py
+```
+
+This produces:
+
+- `dist/desktop/svg-to-drawio.exe` on Windows
+- `dist/desktop/svg-to-drawio` on Linux
+- `dist/desktop/svg-to-drawio.app` on macOS
+
+On Windows, the plain `.zip` archive keeps this default portable `onefile` build. The `Setup.exe` installer uses a separate `onedir` bundle so the installed app starts faster once deployed.
+
+Extra packaging layers are built on top of that base bundle:
+
+- Windows installer: `packaging/windows/build_installer.ps1`
+- Linux AppImage: `packaging/linux/build_appimage.sh`
+- macOS: archive only for now
+
+**Windows installer**
+
+The Windows installer is built with Inno Setup.
+
+Install Inno Setup, for example:
+
+```powershell
+winget install JRSoftware.InnoSetup
+```
+
+Then build the dedicated `onedir` installer bundle and wrap it into a `Setup.exe`:
+
+```powershell
+env\Scripts\python.exe -m pip install -r requirements-desktop.txt
+env\Scripts\python.exe build_desktop.py --bundle-mode onedir --dist-dir dist\desktop-installer
+$version = env\Scripts\python.exe -c "from svg_to_drawio import __version__; print(__version__)"
+.\packaging\windows\build_installer.ps1 -Version $version -InputDir "dist\desktop-installer\svg-to-drawio" -OutputDir "dist\release"
+```
+
+This produces:
+
+- `dist\release\svg-to-drawio-<version>-setup.exe`
+
+**Linux AppImage**
+
+An AppImage is not a system installer like `Setup.exe` on Windows. It is a portable Linux application bundle that you usually download, mark as executable, and run directly.
+
+Build the base executable first, then package it with `appimagetool`:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+python build_desktop.py
+curl -L \
+  -o appimagetool-x86_64.AppImage \
+  https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+chmod +x appimagetool-x86_64.AppImage packaging/linux/AppRun packaging/linux/build_appimage.sh
+VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
+./packaging/linux/build_appimage.sh \
+  dist/desktop/svg-to-drawio \
+  "$VERSION" \
+  ./appimagetool-x86_64.AppImage \
+  "dist/release/svg-to-drawio-${VERSION}-linux-x86_64.AppImage"
+```
+
+In GitHub Actions, `appimagetool` is downloaded automatically by the workflow. For a local Linux build, you need to download it yourself first as shown above.
+
+This produces:
+
+- `dist/release/svg-to-drawio-<version>-linux-x86_64.AppImage`
+
+Typical end-user usage after downloading the AppImage from a release:
+
+```bash
+chmod +x svg-to-drawio-<version>-linux-x86_64.AppImage
+./svg-to-drawio-<version>-linux-x86_64.AppImage
+```
+
+Some Linux systems require FUSE / `libfuse.so.2` to run AppImages directly. If the AppImage fails to start with a FUSE-related error, install your distro's FUSE 2 compatibility package first, or extract the AppImage manually.
+
+The plain `.zip` / `.tar.gz` archives remain available for advanced users who prefer to launch the raw bundle directly.
+
+</details>
+
+<details>
+<summary><strong>Project structure</strong></summary>
 
 ```text
 main.py                      # CLI entry point
@@ -417,8 +427,10 @@ svg_to_drawio_desktop/
   worker.py                  # Background conversion workers
 tests/
   unit/                      # Rendering, styles, transforms, compatibility, fuzz
-  integration/               # CLI and end-to-end flows
+  integration/              # CLI and end-to-end flows
 ```
+
+</details>
 
 ## License
 

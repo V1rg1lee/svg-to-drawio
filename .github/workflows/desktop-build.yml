@@ -13,7 +13,7 @@ jobs:
   build:
     name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
-    # Only this job needs write — to upload release assets.
+    # Only this job needs write - to upload release assets.
     permissions:
       contents: write
     strategy:
@@ -142,7 +142,7 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: dist/release/*
 
-      # gh CLI is pre-installed on all GitHub-hosted runners — no third-party action needed.
+      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
       - name: Attach release assets
         if: github.event_name == 'release'
         env:
