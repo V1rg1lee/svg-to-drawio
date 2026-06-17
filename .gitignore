@@ -7,6 +7,7 @@ dist/
 .pre-commit-cache*/
 .ruff_cache/
 .svg-to-drawio-cache.json
+site/
 !tests/fixtures/test_all_features.svg
 !tests/fixtures/test_all_features.drawio
 !tests/fixtures/image_asset.svg

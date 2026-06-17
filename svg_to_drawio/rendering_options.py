@@ -8,10 +8,12 @@ from typing import Literal, cast
 GradientPolicy = Literal["auto", "prefer-native", "prefer-fallback"]
 FilterPolicy = Literal["auto", "prefer-native", "force-fallback"]
 TextMetricsPolicy = Literal["auto", "system", "heuristic"]
+RenderingPresetKey = Literal["balanced", "editability", "fidelity"]
 
 _GRADIENT_POLICIES: frozenset[str] = frozenset({"auto", "prefer-native", "prefer-fallback"})
 _FILTER_POLICIES: frozenset[str] = frozenset({"auto", "prefer-native", "force-fallback"})
 _TEXT_METRICS_POLICIES: frozenset[str] = frozenset({"auto", "system", "heuristic"})
+_RENDERING_PRESETS: frozenset[str] = frozenset({"balanced", "editability", "fidelity"})
 
 
 def _validate_choice(name: str, value: str, allowed: frozenset[str]) -> None:
@@ -85,3 +87,39 @@ class RenderingOptions:
     def should_prefer_native_gradient(self) -> bool:
         """Return whether multi-stop gradients should stay native whenever possible."""
         return self.gradient_policy == "prefer-native"
+
+
+def rendering_preset_options(preset: str) -> RenderingOptions:
+    """Return the rendering policy bundle associated with one user-facing preset."""
+    _validate_choice("rendering_preset", preset, _RENDERING_PRESETS)
+    if preset == "editability":
+        return RenderingOptions(
+            gradient_policy="prefer-native",
+            filter_policy="prefer-native",
+            text_metrics_policy="heuristic",
+        )
+    if preset == "fidelity":
+        return RenderingOptions(
+            gradient_policy="prefer-fallback",
+            filter_policy="force-fallback",
+            text_metrics_policy="system",
+        )
+    return RenderingOptions()
+
+
+def rendering_preset_label(preset: str) -> str:
+    """Return the public label for one rendering preset."""
+    _validate_choice("rendering_preset", preset, _RENDERING_PRESETS)
+    return {
+        "balanced": "Balanced",
+        "editability": "Best editability",
+        "fidelity": "Best visual fidelity",
+    }[preset]
+
+
+def detect_rendering_preset(options: RenderingOptions) -> RenderingPresetKey | None:
+    """Return the preset key matching the given options, or ``None`` for custom mixes."""
+    for preset in ("balanced", "editability", "fidelity"):
+        if rendering_preset_options(preset) == options:
+            return cast(RenderingPresetKey, preset)
+    return None

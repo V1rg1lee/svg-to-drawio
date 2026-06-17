@@ -20,6 +20,7 @@ _MARKER_ID_MAP: dict[str, str] = {
     "diamond": "diamond",
     "open": "open",
 }
+_POINT_RE = re.compile(r"[-\d.eE+]+")
 
 
 class ShadowFilter(TypedDict):
@@ -193,8 +194,10 @@ class DefsIndex:
         if not element_id:
             return
 
+        lower_id = element_id.lower()
+
         for key, arrow in _MARKER_ID_MAP.items():
-            if key in element_id.lower():
+            if key in lower_id:
                 self._markers[element_id] = arrow
                 return
 
@@ -203,7 +206,27 @@ class DefsIndex:
             if tag == "circle":
                 self._markers[element_id] = "oval"
                 return
-            if tag in ("polygon", "path"):
+            if tag == "polygon":
+                coords = _POINT_RE.findall(child.get("points", ""))
+                point_count = len(coords) // 2
+                if point_count == 4 and "diamond" in lower_id:
+                    self._markers[element_id] = "diamond"
+                    return
+                if point_count == 3 and any(token in lower_id for token in ("arrow", "triangle", "arrowhead")):
+                    self._markers[element_id] = "block"
+                    return
+                self._markers[element_id] = "open"
+                return
+            if tag == "path":
+                if "diamond" in lower_id:
+                    self._markers[element_id] = "diamond"
+                    return
+                if any(token in lower_id for token in ("arrow", "triangle", "arrowhead")):
+                    self._markers[element_id] = "block"
+                    return
+                self._markers[element_id] = "open"
+                return
+            if tag == "rect" and any(token in lower_id for token in ("square", "box")):
                 self._markers[element_id] = "block"
                 return
 
@@ -266,6 +289,18 @@ class DefsIndex:
             return self._markers.get(match.group(1), "open")
         return "none"
 
+    def resolve_custom_marker_shape(self, marker_str: str | None) -> str | None:
+        """Return a simple endpoint-shape marker when the marker is not a native draw.io arrow."""
+        if not marker_str or self.resolve_marker(marker_str) != "open":
+            return None
+        match = re.match(r"url\(#([^)]+)\)", marker_str)
+        if not match:
+            return None
+        marker = self._elements.get(match.group(1))
+        if marker is None:
+            return None
+        return _simple_marker_shape(marker)
+
     def resolve_filter_entries(self, filter_str: str | None) -> list[tuple[str, str | int]]:
         """Convert a supported SVG filter reference into ordered draw.io style entries."""
         if not filter_str:
@@ -295,3 +330,27 @@ class DefsIndex:
     def resolve_filter(self, filter_str: str | None) -> str:
         """Convert a supported SVG filter reference into draw.io style fragments."""
         return "".join(f"{key}={value};" for key, value in self.resolve_filter_entries(filter_str))
+
+
+def _simple_marker_shape(marker: Element) -> str | None:
+    """Infer a simple editable endpoint shape from a marker definition."""
+    marker_id = (marker.get("id") or "").lower()
+    for child in marker:
+        tag = strip_ns(child.tag)
+        if tag == "circle":
+            return "ellipse"
+        if tag == "rect":
+            return "square"
+        if tag == "polygon":
+            coords = _POINT_RE.findall(child.get("points", ""))
+            point_count = len(coords) // 2
+            if point_count == 3:
+                return "triangle"
+            if point_count == 4:
+                return "diamond"
+        if tag == "path":
+            if "diamond" in marker_id:
+                return "diamond"
+            if any(token in marker_id for token in ("triangle", "arrow", "arrowhead")):
+                return "triangle"
+    return None

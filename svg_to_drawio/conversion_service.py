@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import importlib.util
 import json
 import os
 import time
@@ -9,7 +11,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from os import PathLike, makedirs, path
-from threading import Event
+from threading import Event, Lock
+from typing import Any, Literal
 
 from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
@@ -17,6 +20,7 @@ from .diagnostics import ConversionReport
 from .rendering_options import RenderingOptions
 
 Reporter = Callable[["ConversionEvent"], None]
+WatchBackend = Literal["auto", "poll", "event"]
 
 
 class ConversionEventKind(StrEnum):
@@ -133,6 +137,27 @@ def iter_svg_files(input_path: str, recursive: bool = False) -> list[str]:
         if path.isfile(file_path) and name.lower().endswith(".svg"):
             svg_paths.append(file_path)
     return svg_paths
+
+
+def event_watch_available() -> bool:
+    """Return whether the optional watchdog backend is available."""
+    return (
+        importlib.util.find_spec("watchdog.events") is not None
+        and importlib.util.find_spec("watchdog.observers") is not None
+    )
+
+
+def resolve_watch_backend(backend: WatchBackend) -> Literal["poll", "event"]:
+    """Resolve the requested watch backend into a concrete implementation name."""
+    if backend == "poll":
+        return "poll"
+    if backend == "event":
+        if not event_watch_available():
+            raise RuntimeError(
+                "The event-driven watch backend requires the optional 'watchdog' package to be installed."
+            )
+        return "event"
+    return "event" if event_watch_available() else "poll"
 
 
 def build_output_path(
@@ -406,6 +431,187 @@ class ConversionService:
         )
         return summary
 
+    def convert_parallel(
+        self,
+        input_paths: Sequence[str | PathLike[str]],
+        options: ConversionOptions,
+        *,
+        max_workers: int = 4,
+        reporter: Reporter | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ConversionSummary:
+        """Convert every planned SVG in parallel while keeping batch semantics stable."""
+        jobs = self.plan(input_paths, options)
+        total = len(jobs)
+
+        self._report(
+            reporter,
+            ConversionEventKind.DISCOVERED,
+            "No SVG files found." if total == 0 else f"Found {total} SVG file(s) to convert.",
+            completed=0,
+            total=total,
+        )
+        if total == 0:
+            summary = ConversionSummary(total=0, converted=0, skipped=0, failed=0, reports=[])
+            self._report(
+                reporter,
+                ConversionEventKind.COMPLETED,
+                summary.to_status_line(),
+                completed=0,
+                total=0,
+                summary=summary,
+            )
+            return summary
+
+        lock = Lock()
+        counts: dict[str, int] = {"done": 0, "converted": 0, "skipped": 0, "failed": 0}
+        reports: list[ConversionReport] = []
+        options_signature = self._options_signature(options)
+
+        def run_one(job: ConversionJob) -> None:
+            if cancellation_token and cancellation_token.is_cancelled():
+                return
+
+            with lock:
+                progress = counts["done"]
+            self._report(
+                reporter,
+                ConversionEventKind.STARTED,
+                f"Converting: {path.basename(job.source_path)}",
+                completed=progress,
+                total=total,
+                source_path=job.source_path,
+                output_path=job.output_path,
+            )
+
+            out_dir = path.dirname(job.output_path)
+            if out_dir and not path.isdir(out_dir):
+                makedirs(out_dir, exist_ok=True)
+
+            if options.use_cache:
+                cached_report = self._cache_for(job.output_path, options).get_cached_report(
+                    job.source_path,
+                    job.output_path,
+                    options_signature=options_signature,
+                )
+                if cached_report is not None:
+                    with lock:
+                        counts["done"] += 1
+                        counts["skipped"] += 1
+                        completed = counts["done"]
+                        reports.append(cached_report)
+                    self._report(
+                        reporter,
+                        ConversionEventKind.SKIPPED,
+                        f"Skipped unchanged (cache): {path.basename(job.source_path)}  ->  {job.output_path}",
+                        completed=completed,
+                        total=total,
+                        source_path=job.source_path,
+                        output_path=job.output_path,
+                        report=cached_report,
+                    )
+                    return
+
+            if path.exists(job.output_path) and not options.overwrite:
+                with lock:
+                    counts["done"] += 1
+                    counts["skipped"] += 1
+                    completed = counts["done"]
+                self._report(
+                    reporter,
+                    ConversionEventKind.SKIPPED,
+                    f"Skipped existing: {path.basename(job.source_path)}  ->  {job.output_path}",
+                    completed=completed,
+                    total=total,
+                    source_path=job.source_path,
+                    output_path=job.output_path,
+                )
+                return
+
+            try:
+                converter = self._converter_factory()
+                result = converter.convert_file_result(
+                    job.source_path,
+                    out_path=job.output_path,
+                    flatten=options.flatten,
+                    max_elements=options.max_elements,
+                    rendering_options=options.rendering,
+                )
+                report = result.report
+                if options.use_cache:
+                    self._cache_for(job.output_path, options).update(
+                        job.source_path,
+                        result.output_path or job.output_path,
+                        options_signature=options_signature,
+                        report=report,
+                    )
+                with lock:
+                    counts["done"] += 1
+                    counts["converted"] += 1
+                    completed = counts["done"]
+                    reports.append(report)
+                self._report(
+                    reporter,
+                    ConversionEventKind.CONVERTED,
+                    f"Converted: {path.basename(job.source_path)}  ->  {result.output_path}",
+                    completed=completed,
+                    total=total,
+                    source_path=job.source_path,
+                    output_path=result.output_path,
+                    report=report,
+                )
+            except Exception as exc:  # pragma: no cover - user-facing
+                report = ConversionReport(source_path=job.source_path, output_path=job.output_path)
+                report.add_issue("conversion-failed", "error", f"Conversion failed: {exc}")
+                with lock:
+                    counts["done"] += 1
+                    counts["failed"] += 1
+                    completed = counts["done"]
+                    reports.append(report)
+                self._report(
+                    reporter,
+                    ConversionEventKind.FAILED,
+                    f"Failed: {path.basename(job.source_path)}  ({exc})",
+                    completed=completed,
+                    total=total,
+                    source_path=job.source_path,
+                    output_path=job.output_path,
+                    error=str(exc),
+                    report=report,
+                )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(run_one, job) for job in jobs]
+            concurrent.futures.wait(futures)
+
+        cancelled = bool(cancellation_token and cancellation_token.is_cancelled())
+        if cancelled:
+            self._report(
+                reporter,
+                ConversionEventKind.CANCELLED,
+                f"Cancellation requested after {counts['done']} processed file(s).",
+                completed=counts["done"],
+                total=total,
+            )
+
+        summary = ConversionSummary(
+            total=total,
+            converted=counts["converted"],
+            skipped=counts["skipped"],
+            failed=counts["failed"],
+            cancelled=cancelled,
+            reports=reports,
+        )
+        self._report(
+            reporter,
+            ConversionEventKind.COMPLETED,
+            summary.to_status_line(),
+            completed=counts["done"],
+            total=total,
+            summary=summary,
+        )
+        return summary
+
     def _report(
         self,
         reporter: Reporter | None,
@@ -444,13 +650,35 @@ def watch_svg_files(
     reporter: Reporter | None = None,
     poll_interval: float = 1.0,
     stop_event: Event | None = None,
+    backend: WatchBackend = "auto",
 ) -> None:
-    """Poll SVG files for modifications and re-convert when changes are detected.
+    """Watch SVG files for modifications and re-convert when changes are detected.
 
-    Runs an initial conversion of all discovered files, then loops (sleeping
-    *poll_interval* seconds between checks) until *stop_event* is set or a
-    ``KeyboardInterrupt`` is raised by the caller.
+    Runs an initial conversion of all discovered files, then either uses an
+    event-driven watcher when available or falls back to polling.
     """
+    resolved_backend = resolve_watch_backend(backend)
+    if resolved_backend == "event":
+        _watch_svg_files_event(input_paths, options, reporter=reporter, stop_event=stop_event)
+        return
+
+    _watch_svg_files_poll(
+        input_paths,
+        options,
+        reporter=reporter,
+        poll_interval=poll_interval,
+        stop_event=stop_event,
+    )
+
+
+def _watch_svg_files_poll(
+    input_paths: Sequence[str | PathLike[str]],
+    options: ConversionOptions,
+    reporter: Reporter | None = None,
+    poll_interval: float = 1.0,
+    stop_event: Event | None = None,
+) -> None:
+    """Poll SVG files for modifications and re-convert when changes are detected."""
     resolved_inputs = [path.abspath(os.fspath(p)) for p in input_paths]
     service = ConversionService()
 
@@ -504,3 +732,83 @@ def watch_svg_files(
                 rendering=options.rendering,
             )
             service.convert(changed, single_opts, reporter=reporter)
+
+
+def _watch_svg_files_event(
+    input_paths: Sequence[str | PathLike[str]],
+    options: ConversionOptions,
+    reporter: Reporter | None = None,
+    stop_event: Event | None = None,
+) -> None:
+    """Use watchdog to re-convert SVG files as soon as the filesystem reports a change."""
+    if not event_watch_available():  # pragma: no cover - guarded by resolve_watch_backend
+        raise RuntimeError("The event-driven watch backend is unavailable because watchdog is not installed.")
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    resolved_inputs = [path.abspath(os.fspath(p)) for p in input_paths]
+    service = ConversionService()
+    watch_opts = ConversionOptions(
+        output_dir=options.output_dir,
+        recursive=options.recursive,
+        overwrite=True,
+        flatten=options.flatten,
+        max_elements=options.max_elements,
+        use_cache=options.use_cache,
+        rendering=options.rendering,
+    )
+    service.convert(resolved_inputs, watch_opts, reporter=reporter)
+
+    changed_paths: set[str] = set()
+    changed_lock = Lock()
+
+    class SvgWatchHandler(FileSystemEventHandler):  # type: ignore[misc]
+        """Collect changed SVG paths reported by watchdog."""
+
+        def on_any_event(self, event: Any) -> None:  # pragma: no cover - depends on watchdog runtime
+            if getattr(event, "is_directory", False):
+                return
+            candidate = path.abspath(getattr(event, "src_path", "") or "")
+            if not candidate.lower().endswith(".svg"):
+                return
+            with changed_lock:
+                changed_paths.add(candidate)
+
+    observer = Observer()
+    handler = SvgWatchHandler()
+    scheduled: set[str] = set()
+    for input_path in resolved_inputs:
+        watch_root = input_path if path.isdir(input_path) else path.dirname(input_path)
+        watch_root = path.abspath(watch_root or ".")
+        if watch_root in scheduled:
+            continue
+        observer.schedule(handler, watch_root, recursive=options.recursive)
+        scheduled.add(watch_root)
+    observer.start()
+
+    try:
+        while True:
+            if stop_event and stop_event.is_set():
+                break
+            time.sleep(0.35)
+            with changed_lock:
+                batch = sorted(changed_paths)
+                changed_paths.clear()
+            if not batch:
+                continue
+            existing = [candidate for candidate in batch if path.isfile(candidate)]
+            if not existing:
+                continue
+            single_opts = ConversionOptions(
+                output_dir=options.output_dir,
+                recursive=False,
+                overwrite=True,
+                flatten=options.flatten,
+                max_elements=options.max_elements,
+                use_cache=options.use_cache,
+                rendering=options.rendering,
+            )
+            service.convert(existing, single_opts, reporter=reporter)
+    finally:  # pragma: no cover - watchdog lifecycle is runtime-specific
+        observer.stop()
+        observer.join(timeout=2.0)

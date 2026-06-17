@@ -20,6 +20,12 @@ pip install svg-to-drawio
 svg-to-drawio diagram.svg
 ```
 
+If you want the optional event-driven watch mode instead of polling:
+
+```bash
+pip install "svg-to-drawio[watch]"
+```
+
 By default, output is written next to the source file (`diagram.svg` -> `diagram.drawio`).
 
 Running from a repository checkout instead of an installed package works the same way:
@@ -39,7 +45,7 @@ Download a release artifact from the [Releases page](https://github.com/V1rg1lee
 - Linux: portable `.AppImage` or a plain `.tar.gz`
 - macOS: `.zip` archive of the app bundle
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, advanced rendering controls, a plain-English compatibility panel, and JSON report export.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
 Run it from source instead:
 
@@ -61,14 +67,20 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--overwrite` | Replace existing `.drawio` outputs (skip by default) |
 | `--stdout` | Write XML to stdout instead of a file (single file only) |
 | `--watch` | Re-convert SVG files automatically whenever they change |
+| `--watch-backend MODE` | `auto`, `poll`, or `event` when watch mode is enabled |
 | `--flatten` | Dissolve `<g>` groups and emit all shapes at the root level |
 | `--analyze` | Inspect compatibility and diagnostics without writing `.drawio` output |
 | `--report-json PATH` | Write a structured JSON report with diagnostics, fallbacks, and compatibility data |
 | `--no-cache` | Disable the persistent cache for unchanged inputs |
 | `--max-elements N` | Warn and truncate output after N drawable elements |
+| `--workers N` | Convert files in parallel |
 | `--gradient-policy MODE` | `auto`, `prefer-native`, or `prefer-fallback` for multi-stop gradients |
 | `--filter-policy MODE` | `auto`, `prefer-native`, or `force-fallback` for SVG filters |
 | `--text-metrics-policy MODE` | `auto`, `system`, or `heuristic` for text sizing |
+| `--fail-on-warning` | Exit with code 1 if any converted file reports a warning |
+| `--fail-on-fallback` | Exit with code 1 if any file uses embedded SVG fallback |
+| `--min-score N` | Exit with code 1 if any file scores below N compatibility points |
+| `--require-native CAPABILITY...` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native |
 
 **Examples**
 
@@ -79,11 +91,17 @@ svg-to-drawio src/icons/ --recursive --output-dir dist/diagrams --overwrite
 # Watch a folder and reconvert on every save
 svg-to-drawio src/ --watch --overwrite
 
+# Force CI to fail if a conversion needed SVG fallback
+svg-to-drawio assets/ --recursive --fail-on-fallback --min-score 90
+
 # Analyze a file and emit a JSON report without generating a .drawio file
 svg-to-drawio diagram.svg --analyze --report-json report.json
 
 # Prefer editable native output over exact SVG filters and complex gradients
 svg-to-drawio diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
+
+# Use parallel workers for a larger batch
+svg-to-drawio src/ --recursive --workers 4 --overwrite
 
 # Pipe draw.io XML directly into another tool
 svg-to-drawio diagram.svg --stdout > diagram.drawio
@@ -97,10 +115,16 @@ During a normal conversion run, the CLI prints a short compatibility summary and
 ## Python API
 
 ```python
-from svg_to_drawio import RenderingOptions, convert_file, convert_to_string
+from svg_to_drawio import RenderingOptions, convert_file, convert_file_result, convert_to_string
 
 # Write to disk and get the output path back
 out = convert_file("diagram.svg")
+
+# Or keep the XML + structured report together
+result = convert_file_result("diagram.svg")
+print(result.output_path)
+print(result.compatibility_score)
+print(result.report.compatibility_overview.headline)
 
 # Return draw.io XML as a string without writing a file
 xml = convert_to_string(
@@ -111,6 +135,21 @@ xml = convert_to_string(
         text_metrics_policy="heuristic",
     ),
 )
+```
+
+For in-memory use cases such as web backends, notebooks, or CI transforms:
+
+```python
+from svg_to_drawio import convert_svg_string_result
+
+result = convert_svg_string_result(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40">'
+    '<rect x="0" y="0" width="80" height="40" fill="#2563eb" />'
+    "</svg>",
+    title="memory-diagram",
+)
+print(result.xml)
+print(result.report.to_dict()["schema_version"])
 ```
 
 For batch conversions with progress reporting and cancellation:
@@ -153,6 +192,20 @@ report = converter.get_report()
 payload = report.to_dict()  # JSON-friendly diagnostics + compatibility data
 ```
 
+For automation gates in CI:
+
+```python
+from svg_to_drawio import QualityGateOptions, convert_svg_string_result, evaluate_quality_gates
+
+result = convert_svg_string_result(svg_text, title="ci-check")
+violations = evaluate_quality_gates(
+    [result.report],
+    QualityGateOptions(fail_on_fallback=True, min_score=90, require_native=("text",)),
+)
+if violations:
+    raise SystemExit(1)
+```
+
 ## Advanced rendering
 
 The engine exposes a small set of rendering policies shared by the CLI, Python API, and desktop app:
@@ -166,6 +219,12 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 - `text_metrics_policy="auto"` uses platform text metrics when available and a tuned heuristic otherwise.
 - `text_metrics_policy="system"` explicitly prefers platform font metrics.
 - `text_metrics_policy="heuristic"` keeps text sizing deterministic without consulting the system font backend.
+
+The desktop app also exposes three beginner-friendly presets built on top of those policies:
+
+- `Balanced`
+- `Best editability`
+- `Best visual fidelity`
 
 <details>
 <summary><strong>What gets converted</strong></summary>
@@ -200,12 +259,12 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 - Linear and radial gradients with `gradientTransform` and `xlink:href` inheritance
 - Multi-stop linear gradients on `<rect>`, `<circle>`, `<ellipse>`, and `<path>` approximated natively as stacked two-color gradient bands
 - Multi-stop radial gradients on `<rect>`, `<circle>`, and `<ellipse>` approximated as adaptive concentric rings
-- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching
+- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
 - Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`
 - `<textPath>` flattened into regular editable text near the original anchor point, with a compatibility warning
-- Embedded SVG fallback for `clip-path`, `mask`, pattern fills, and unsupported filters so those fragments keep their appearance
+- Simple `clip-path` / `mask` rewrites for some solid-filled cases; otherwise embedded SVG fallback keeps the appearance
 - Structured diagnostics, compatibility scoring, and a user-facing compatibility matrix for CLI, automation, and the desktop app
 - `<title>` -> draw.io tooltip; `feDropShadow` -> draw.io shadow style
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
@@ -216,7 +275,7 @@ The engine exposes a small set of rendering policies shared by the CLI, Python A
 <details>
 <summary><strong>Limitations</strong></summary>
 
-- `<clipPath>`, `<mask>`, pattern fills, and unsupported filters fall back to embedded SVG images for visual fidelity, so those fragments are less editable than native shapes.
+- Some very simple solid-filled `clipPath` and `mask` cases can stay editable, but most advanced clips, masks, pattern fills, and unsupported filters still fall back to embedded SVG images for visual fidelity.
 - Only `feDropShadow` is mapped to native draw.io shadow styles; other filter effects use embedded SVG fallback when possible.
 - Multi-stop radial gradients on `<path>` elements fall back to embedded SVG because draw.io's radial gradient always fills the whole cell bounding box.
 - Two-stop gradients are mapped directly to draw.io's native gradient properties. `stop-opacity` is blended against white for all gradient types.

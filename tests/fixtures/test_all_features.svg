@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 6980" width="840" height="6980">
+     viewBox="-10 -10 840 7240" width="840" height="7240">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -104,7 +104,7 @@
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="6980" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="7240" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -1185,5 +1185,33 @@
   <image href="image_asset.svg" x="0" y="0" width="96" height="96"
          transform="matrix(1,0,0.36,1,62,6768)"/>
   <text x="40" y="6882" font-size="9" fill="#888">sheared source image is approximated with an editable draw.io image cell and transformed bounds</text>
+
+  <!--  Feature 43: simple clipPath/mask kept editable  -->
+  <text x="10" y="6930" font-size="11" font-weight="bold" fill="#666">F43: simple clipPath/mask kept editable</text>
+  <defs>
+    <clipPath id="f43-clip-circle">
+      <circle cx="95" cy="6995" r="30"/>
+    </clipPath>
+    <mask id="f43-mask-circle" maskUnits="userSpaceOnUse">
+      <circle cx="245" cy="6995" r="30" fill="#ffffff"/>
+    </mask>
+  </defs>
+  <rect x="45" y="6961" width="100" height="68" fill="#7c3aed" clip-path="url(#f43-clip-circle)"/>
+  <rect x="195" y="6961" width="100" height="68" fill="#0ea5e9" mask="url(#f43-mask-circle)"/>
+  <text x="40" y="7053" font-size="9" fill="#888">no stroke/filter and full containment let both stay native &amp; editable instead of an SVG fallback</text>
+
+  <!--  Feature 44: custom marker endpoint shapes  -->
+  <text x="10" y="7100" font-size="11" font-weight="bold" fill="#666">F44: custom marker endpoint shapes</text>
+  <defs>
+    <marker id="f44-marker-a" markerWidth="10" markerHeight="10" refX="4" refY="4" orient="auto">
+      <polygon points="0,8 8,0 8,8"/>
+    </marker>
+    <marker id="f44-marker-b" markerWidth="10" markerHeight="10" refX="4" refY="4" orient="auto">
+      <rect x="0" y="0" width="8" height="8"/>
+    </marker>
+  </defs>
+  <line x1="40" y1="7150" x2="320" y2="7150" stroke="#0f172a" stroke-width="2.5"
+        marker-start="url(#f44-marker-a)" marker-end="url(#f44-marker-b)"/>
+  <text x="40" y="7185" font-size="9" fill="#888">unrecognized marker artwork becomes small editable endpoint shapes instead of a generic arrow</text>
 
 </svg>

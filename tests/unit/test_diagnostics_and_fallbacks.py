@@ -24,7 +24,16 @@ class DiagnosticsAndFallbackTests(SvgTestCase):
               <circle cx="40" cy="40" r="20" />
             </clipPath>
           </defs>
-          <rect x="10" y="10" width="60" height="60" fill="#ff0000" clip-path="url(#cut)" />
+          <rect
+            x="10"
+            y="10"
+            width="60"
+            height="60"
+            fill="#ff0000"
+            stroke="#222222"
+            stroke-width="2"
+            clip-path="url(#cut)"
+          />
         </svg>
         """
         with tempfile.TemporaryDirectory() as tmpdir:

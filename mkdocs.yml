@@ -1,0 +1,54 @@
+site_name: svg-to-drawio
+site_description: Convert SVG files into editable draw.io diagrams.
+site_url: https://v1rg1lee.github.io/svg-to-drawio/
+repo_url: https://github.com/V1rg1lee/svg-to-drawio
+repo_name: V1rg1lee/svg-to-drawio
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - CLI reference: cli.md
+  - Python API: python-api.md
+  - Advanced rendering: advanced-rendering.md
+  - Compatibility reference: reference.md
+  - API reference: api-reference.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.highlight
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            docstring_style: google
+            merge_init_into_class: true

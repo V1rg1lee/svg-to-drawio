@@ -15,6 +15,8 @@ from .compatibility import (
     observation_from_issue,
 )
 
+REPORT_SCHEMA_VERSION = 1
+
 
 def _payload_int(payload: dict[str, object], key: str, default: int = 0) -> int:
     """Read one integer-ish value from a loosely typed JSON payload."""
@@ -272,6 +274,7 @@ class ConversionReport:
     def to_dict(self) -> dict[str, object]:
         """Serialize the full report into a JSON-friendly dictionary."""
         return {
+            "schema_version": REPORT_SCHEMA_VERSION,
             "source_path": self.source_path,
             "output_path": self.output_path,
             "generated_at": self.generated_at,

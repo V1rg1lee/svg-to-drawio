@@ -5,7 +5,7 @@
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
     <mxCell id="2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=none;strokeWidth=1.0;opacity=100;fillOpacity=100;strokeOpacity=100;" parent="1" vertex="1">
-      <mxGeometry x="0.00" y="0.00" width="840.00" height="6980.00" as="geometry"/>
+      <mxGeometry x="0.00" y="0.00" width="840.00" height="7240.00" as="geometry"/>
     </mxCell>
     <mxCell id="3" value="1. Basic shapes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13.0;fontColor=#444444;fontFamily=Helvetica;opacity=100;fontStyle=1;" parent="1" vertex="1">
       <mxGeometry x="20.00" y="20.69" width="104.51" height="18.85" as="geometry"/>
@@ -1717,6 +1717,36 @@
     </mxCell>
     <mxCell id="519" value="sheared source image is approximated with an editable draw.io image cell and transformed bounds" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
       <mxGeometry x="50.00" y="6884.17" width="438.48" height="13.05" as="geometry"/>
+    </mxCell>
+    <mxCell id="520" value="F43: simple clipPath/mask kept editable" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11.0;fontColor=#666666;fontFamily=Helvetica;opacity=100;fontStyle=1;" parent="1" vertex="1">
+      <mxGeometry x="20.00" y="6930.43" width="231.09" height="15.95" as="geometry"/>
+    </mxCell>
+    <mxCell id="521" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#7c3aed;strokeColor=none;strokeWidth=1.0;opacity=100;fillOpacity=100;strokeOpacity=100;" parent="1" vertex="1">
+      <mxGeometry x="75.00" y="6975.00" width="60.00" height="60.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="522" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#0ea5e9;strokeColor=none;strokeWidth=1.0;opacity=100;fillOpacity=100;strokeOpacity=100;" parent="1" vertex="1">
+      <mxGeometry x="225.00" y="6975.00" width="60.00" height="60.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="523" value="no stroke/filter and full containment let both stay native &amp; editable instead of an SVG fallback" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
+      <mxGeometry x="50.00" y="7055.17" width="421.56" height="13.05" as="geometry"/>
+    </mxCell>
+    <mxCell id="524" value="F44: custom marker endpoint shapes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11.0;fontColor=#666666;fontFamily=Helvetica;opacity=100;fontStyle=1;" parent="1" vertex="1">
+      <mxGeometry x="20.00" y="7100.43" width="208.21" height="15.95" as="geometry"/>
+    </mxCell>
+    <mxCell id="525" value="" style="rounded=0;startArrow=none;endArrow=none;html=1;strokeColor=#0f172a;strokeWidth=2.50;opacity=100;strokeOpacity=100;" parent="1" edge="1">
+      <mxGeometry relative="1" as="geometry">
+        <mxPoint x="50.00" y="7160.00" as="sourcePoint"/>
+        <mxPoint x="330.00" y="7160.00" as="targetPoint"/>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="526" value="" style="shape=triangle;whiteSpace=wrap;html=1;fillColor=#0f172a;strokeColor=#0f172a;opacity=100;rotation=180.00;" parent="1" vertex="1">
+      <mxGeometry x="45.00" y="7155.00" width="10.00" height="10.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="527" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0f172a;strokeColor=#0f172a;opacity=100;rotation=0.00;" parent="1" vertex="1">
+      <mxGeometry x="325.00" y="7155.00" width="10.00" height="10.00" as="geometry"/>
+    </mxCell>
+    <mxCell id="528" value="unrecognized marker artwork becomes small editable endpoint shapes instead of a generic arrow" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9.0;fontColor=#888888;fontFamily=Helvetica;opacity=100;fontStyle=0;" parent="1" vertex="1">
+      <mxGeometry x="50.00" y="7187.17" width="430.29" height="13.05" as="geometry"/>
     </mxCell>
       </root>
     </mxGraphModel>

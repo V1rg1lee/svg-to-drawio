@@ -81,6 +81,7 @@ class ConvertPage(QWidget):
         layout.addWidget(self._build_sources_group(), stretch=1)
         layout.addWidget(self._build_essentials_group())
         layout.addWidget(self._build_more_options_section())
+        layout.addWidget(self._build_preflight_group())
         layout.addLayout(self._build_actions_row())
 
     def _build_sources_group(self) -> QGroupBox:
@@ -165,8 +166,14 @@ class ConvertPage(QWidget):
         self.workers_spinbox.setRange(1, 8)
         self.workers_spinbox.setValue(1)
         self.workers_spinbox.setFixedWidth(56)
+        self.workers_spinbox.setToolTip(
+            "Use multiple workers for one-shot batch conversions. "
+            "Watch mode processes changes sequentially as they arrive."
+        )
+        self.workers_label = QLabel("parallel workers  (1 = sequential)")
+        self.workers_label.setToolTip(self.workers_spinbox.toolTip())
         workers_row.addWidget(self.workers_spinbox)
-        workers_row.addWidget(QLabel("parallel workers  (1 = sequential)"))
+        workers_row.addWidget(self.workers_label)
         workers_row.addStretch()
         section.content_layout.addLayout(workers_row)
 
@@ -193,9 +200,25 @@ class ConvertPage(QWidget):
         actions.setSpacing(10)
         self.start_button = QPushButton("Start Conversion")
         self.start_button.setObjectName("startButton")
+        self.copy_cli_button = QPushButton("Copy CLI Command")
+        self.copy_cli_button.setObjectName("copyCliButton")
         actions.addWidget(self.start_button)
+        actions.addWidget(self.copy_cli_button)
         actions.addStretch(1)
         return actions
+
+    def _build_preflight_group(self) -> QGroupBox:
+        group = QGroupBox("Conversion summary")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 10, 14, 14)
+        layout.setSpacing(8)
+
+        self.preflight_summary_label = QLabel()
+        self.preflight_summary_label.setObjectName("preflightSummaryLabel")
+        self.preflight_summary_label.setWordWrap(True)
+        self.preflight_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(self.preflight_summary_label)
+        return group
 
     def controls(self) -> list[QWidget]:
         """Return the widgets that should be disabled while a batch is running."""
@@ -216,6 +239,7 @@ class ConvertPage(QWidget):
             self.max_elements_checkbox,
             self.max_elements_spinbox,
             self.start_button,
+            self.copy_cli_button,
         ]
 
 
@@ -303,6 +327,13 @@ class ResultsPage(QWidget):
         self.compatibility_summary_label.setWordWrap(True)
         layout.addWidget(self.compatibility_summary_label)
 
+        self.compatibility_hint_label = QLabel(
+            "Click any capability row below to see the affected elements and details."
+        )
+        self.compatibility_hint_label.setObjectName("compatibilityHintLabel")
+        self.compatibility_hint_label.setWordWrap(True)
+        layout.addWidget(self.compatibility_hint_label)
+
         self.compatibility_output = QTextBrowser()
         self.compatibility_output.setObjectName("compatibilityOutput")
         self.compatibility_output.setFrameShape(QFrame.Shape.NoFrame)
@@ -376,6 +407,29 @@ class SettingsPage(QWidget):
         form.setContentsMargins(14, 10, 14, 16)
         form.setSpacing(14)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.preset_combo = make_policy_combo(
+            [
+                ("Balanced", "balanced"),
+                ("Best editability", "editability"),
+                ("Best visual fidelity", "fidelity"),
+                ("Custom", "custom"),
+            ],
+            "balanced",
+        )
+        form.addRow(
+            "Preset",
+            make_policy_field(
+                self.preset_combo,
+                "Choose a ready-made rendering profile.\n\n"
+                "Balanced: keeps the default mix of editability and fidelity.\n\n"
+                "Best editability: favors native draw.io content whenever possible, even when this means "
+                "simplifying unsupported gradients or filters.\n\n"
+                "Best visual fidelity: prefers embedded SVG fallback more aggressively so the result looks "
+                "closer to the source SVG.\n\n"
+                "Custom: appears automatically when you tweak the advanced policies manually.",
+            ),
+        )
 
         self.gradient_combo = make_policy_combo(
             [

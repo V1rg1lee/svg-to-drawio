@@ -23,7 +23,16 @@ class CompatibilityTests(SvgTestCase):
               <circle cx="40" cy="40" r="20" />
             </clipPath>
           </defs>
-          <rect x="10" y="10" width="60" height="60" fill="#ff0000" clip-path="url(#cut)" />
+          <rect
+            x="10"
+            y="10"
+            width="60"
+            height="60"
+            fill="#ff0000"
+            stroke="#222222"
+            stroke-width="2"
+            clip-path="url(#cut)"
+          />
         </svg>
         """
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -120,6 +129,64 @@ class CompatibilityTests(SvgTestCase):
         rows = {row.feature_key: row for row in report.compatibility_matrix}
         self.assertIn("text", rows)
         self.assertEqual(rows["text"].status, "ignored")
+
+    def test_simple_clip_path_can_stay_editable_through_geometry_rewrite(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+          <defs>
+            <clipPath id="cut">
+              <circle cx="40" cy="40" r="20" />
+            </clipPath>
+          </defs>
+          <rect x="10" y="10" width="60" height="60" fill="#ff0000" clip-path="url(#cut)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "clip-native.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertEqual(len(cells), 1)
+        self.assertEqual(self._style_map(cells[0]).get("ellipse"), True)
+        self.assertEqual(report.fallback_count, 0)
+        self.assertIn("clip-path-simplified-native", {issue.code for issue in report.issues})
+        rows = {row.feature_key: row for row in report.compatibility_matrix}
+        self.assertEqual(rows["clipping"].status, "approximate")
+
+    def test_simple_mask_can_stay_editable_through_geometry_rewrite(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+          <defs>
+            <mask id="soft-cut" maskUnits="userSpaceOnUse">
+              <circle cx="40" cy="40" r="20" fill="#ffffff" />
+            </mask>
+          </defs>
+          <rect x="10" y="10" width="60" height="60" fill="#00bcd4" mask="url(#soft-cut)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "mask-native.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertEqual(len(cells), 1)
+        self.assertEqual(self._style_map(cells[0]).get("ellipse"), True)
+        self.assertEqual(report.fallback_count, 0)
+        self.assertIn("mask-simplified-native", {issue.code for issue in report.issues})
+        rows = {row.feature_key: row for row in report.compatibility_matrix}
+        self.assertEqual(rows["clipping"].status, "approximate")
 
     def test_sheared_image_is_reported_as_an_approximation(self) -> None:
         png = base64.b64encode(

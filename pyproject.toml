@@ -28,6 +28,7 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/V1rg1lee/svg-to-drawio"
+Documentation = "https://v1rg1lee.github.io/svg-to-drawio/"
 Repository = "https://github.com/V1rg1lee/svg-to-drawio"
 Issues = "https://github.com/V1rg1lee/svg-to-drawio/issues"
 
@@ -35,6 +36,9 @@ Issues = "https://github.com/V1rg1lee/svg-to-drawio/issues"
 svg-to-drawio = "svg_to_drawio.cli:main"
 
 [project.optional-dependencies]
+watch = [
+  "watchdog>=6.0",
+]
 dev = [
   "build>=1.2",
   "hatchling>=1.27",
@@ -42,6 +46,11 @@ dev = [
   "pre-commit>=4.0",
   "ruff>=0.12",
   "twine>=6.1",
+]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.27",
 ]
 
 [tool.hatch.version]
@@ -71,5 +80,5 @@ no_implicit_optional = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["PyInstaller.*", "PySide6.*"]
+module = ["PyInstaller.*", "PySide6.*", "watchdog.*"]
 ignore_missing_imports = true

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from xml.etree.ElementTree import Element
 
@@ -51,3 +52,33 @@ def emit_midpoint_markers(
             .build()
         )
         ctx.add(make_bounds_vertex(ctx, style, px - size / 2, py - size / 2, size, size))
+
+
+def segment_angle_degrees(start: Point2D, end: Point2D) -> float:
+    """Return the angle of a line segment in degrees."""
+    return math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+
+
+def emit_endpoint_marker(
+    ctx: EmitterContext,
+    point: Point2D,
+    shape: str,
+    color: str,
+    opacity: int,
+    *,
+    size: float = 10.0,
+    rotation: float | None = None,
+) -> None:
+    """Emit a simple editable endpoint marker shape near an edge endpoint."""
+    style = StyleBuilder()
+    if shape == "ellipse":
+        style.add_flag("ellipse")
+    elif shape == "diamond":
+        style.add("shape", "rhombus").add("whiteSpace", "wrap").add("html", 1)
+    elif shape == "triangle":
+        style.add("shape", "triangle").add("whiteSpace", "wrap").add("html", 1)
+    else:
+        style.add("rounded", 0).add("whiteSpace", "wrap").add("html", 1)
+    style.add("fillColor", color).add("strokeColor", color).add("opacity", opacity)
+    style.add("rotation", f"{rotation:.2f}", when=rotation is not None)
+    ctx.add(make_bounds_vertex(ctx, style.build(), point[0] - size / 2, point[1] - size / 2, size, size))

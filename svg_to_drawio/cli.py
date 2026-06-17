@@ -8,17 +8,21 @@ import os
 import sys
 from collections.abc import Sequence
 from os import PathLike, path
+from typing import Literal, cast
 
-from . import __version__
+from . import REPORT_SCHEMA_VERSION, __version__
+from .capabilities import capability_keys
 from .conversion_service import (
     ConversionEvent,
     ConversionEventKind,
     ConversionOptions,
     ConversionService,
     ConversionSummary,
+    resolve_watch_backend,
 )
 from .converter import Converter
 from .diagnostics import ConversionReport
+from .quality_gates import QualityGateOptions, evaluate_quality_gates, validate_required_capabilities
 from .rendering_options import (
     RenderingOptions,
     as_filter_policy,
@@ -44,7 +48,7 @@ def _print_compatibility(report: ConversionReport, *, show_all_rows: bool) -> No
 
 
 def run(
-    input_path: str | PathLike[str] | None,
+    input_path: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     output_dir: str | PathLike[str] | None = None,
     recursive: bool = False,
     overwrite: bool = False,
@@ -58,17 +62,33 @@ def run(
     gradient_policy: str = "auto",
     filter_policy: str = "auto",
     text_metrics_policy: str = "auto",
+    fail_on_warning: bool = False,
+    fail_on_fallback: bool = False,
+    min_score: int | None = None,
+    require_native: Sequence[str] = (),
+    workers: int = 1,
+    watch_backend: str = "auto",
 ) -> int:
     """Run the conversion CLI logic and return an exit code (0 = success, 1 = error)."""
-    if not input_path:
+    if input_path is None:
         print("Error: no input path provided.")
         return 1
 
-    resolved_input = path.abspath(os.fspath(input_path))
+    if isinstance(input_path, (str, os.PathLike)):
+        raw_inputs = [input_path]
+    else:
+        raw_inputs = list(input_path)
+
+    if not raw_inputs:
+        print("Error: no input path provided.")
+        return 1
+
+    resolved_inputs = [path.abspath(os.fspath(item)) for item in raw_inputs]
     resolved_output_dir = path.abspath(os.fspath(output_dir)) if output_dir is not None else None
 
-    if not path.exists(resolved_input):
-        print(f'Error: "{resolved_input}" does not exist.')
+    missing = [item for item in resolved_inputs if not path.exists(item)]
+    if missing:
+        print(f'Error: "{missing[0]}" does not exist.')
         return 1
 
     rendering_options = RenderingOptions(
@@ -76,14 +96,26 @@ def run(
         filter_policy=as_filter_policy(filter_policy),
         text_metrics_policy=as_text_metrics_policy(text_metrics_policy),
     )
+    try:
+        required_native = validate_required_capabilities(list(require_native))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    quality_options = QualityGateOptions(
+        fail_on_warning=fail_on_warning,
+        fail_on_fallback=fail_on_fallback,
+        min_score=min_score,
+        require_native=required_native,
+    )
 
     if stdout:
-        if path.isdir(resolved_input):
-            print("Error: --stdout requires a single SVG file, not a directory.", file=sys.stderr)
+        if len(resolved_inputs) != 1 or path.isdir(resolved_inputs[0]):
+            print("Error: --stdout requires exactly one SVG file, not multiple inputs or a directory.", file=sys.stderr)
             return 1
 
         xml = Converter().convert_to_string(
-            resolved_input,
+            resolved_inputs[0],
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
@@ -107,6 +139,7 @@ def run(
         summary: ConversionSummary | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {
+            "report_schema_version": REPORT_SCHEMA_VERSION,
             "mode": mode,
             "reports": [report.to_dict() for report in reports],
         }
@@ -129,7 +162,7 @@ def run(
 
     if analyze:
         service = ConversionService()
-        jobs = service.plan([resolved_input], options)
+        jobs = service.plan(resolved_inputs, options)
         reports: list[ConversionReport] = []
         failures = 0
 
@@ -163,8 +196,11 @@ def run(
                 print(f"  - {issue.severity.upper()}: {issue.message}")
 
         print(f"Analysis summary: {len(reports) - failures} analyzed, {failures} failed.")
+        violations = evaluate_quality_gates(reports, quality_options)
+        for violation in violations:
+            print(f"QUALITY GATE: {violation.message}")
         write_report(batch_payload("analyze", reports))
-        return 1 if failures else 0
+        return 1 if failures or violations else 0
 
     def emit_progress(event: ConversionEvent) -> None:
         if event.kind in {
@@ -182,29 +218,38 @@ def run(
     if watch:
         from .conversion_service import watch_svg_files
 
-        print(f'Watching "{resolved_input}" for changes... (Ctrl+C to stop)')
+        resolved_watch_backend = cast(Literal["auto", "poll", "event"], watch_backend)
+        backend_name = resolve_watch_backend(resolved_watch_backend)
+        watched_label = resolved_inputs[0] if len(resolved_inputs) == 1 else f"{len(resolved_inputs)} input path(s)"
+        print(f'Watching "{watched_label}" for changes using the {backend_name} backend... (Ctrl+C to stop)')
         try:
-            watch_svg_files([resolved_input], options, reporter=emit_progress)
+            watch_svg_files(resolved_inputs, options, reporter=emit_progress, backend=resolved_watch_backend)
         except KeyboardInterrupt:
             print("\nWatch mode stopped.")
         return 0
 
     service = ConversionService()
-    summary = service.convert([resolved_input], options, reporter=emit_progress)
+    if workers > 1:
+        summary = service.convert_parallel(resolved_inputs, options, reporter=emit_progress, max_workers=workers)
+    else:
+        summary = service.convert(resolved_inputs, options, reporter=emit_progress)
     write_report(batch_payload("convert", summary.reports, summary))
     if summary.total == 0:
         print("No SVG files found.")
         return 0
 
     print(summary.to_status_line())
-    return summary.exit_code
+    violations = evaluate_quality_gates(summary.reports, quality_options)
+    for violation in violations:
+        print(f"QUALITY GATE: {violation.message}")
+    return 1 if summary.failed or violations else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Create and configure the command-line argument parser."""
     parser = argparse.ArgumentParser(description="Convert SVG files into editable draw.io diagrams.")
     parser.add_argument("--version", action="version", version=f"svg-to-drawio {__version__}")
-    parser.add_argument("input_path", nargs="?", help="SVG file or folder to convert")
+    parser.add_argument("input_path", nargs="*", help="One or more SVG files or folders to convert")
     parser.add_argument("--output-dir", help="Write .drawio files to this directory")
     parser.add_argument("--recursive", action="store_true", help="Recursively search for SVG files in folders")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing .drawio outputs")
@@ -248,6 +293,39 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Choose how text bounds are measured when sizing draw.io text cells",
     )
+    parser.add_argument("--workers", type=int, default=1, metavar="N", help="Convert files in parallel with N workers")
+    parser.add_argument(
+        "--watch-backend",
+        choices=("auto", "poll", "event"),
+        default="auto",
+        help="Choose the filesystem watch backend when --watch is enabled",
+    )
+    parser.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Exit with code 1 if any converted file reports at least one warning",
+    )
+    parser.add_argument(
+        "--fail-on-fallback",
+        action="store_true",
+        help="Exit with code 1 if any converted file uses embedded SVG fallback",
+    )
+    parser.add_argument(
+        "--min-score",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Exit with code 1 if any converted file scores below N compatibility points",
+    )
+    parser.add_argument(
+        "--require-native",
+        nargs="*",
+        default=(),
+        metavar="CAPABILITY",
+        help=(
+            f"Require selected capability families to remain fully native. Valid keys: {', '.join(capability_keys())}"
+        ),
+    )
     parser.set_defaults(use_cache=True)
     return parser
 
@@ -256,7 +334,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point used by the console script and local wrappers."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    input_path = args.input_path or input("Enter SVG file or folder path: ").strip()
+    input_path = args.input_path or [input("Enter SVG file or folder path: ").strip()]
     return run(
         input_path,
         output_dir=args.output_dir,
@@ -272,6 +350,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         gradient_policy=args.gradient_policy,
         filter_policy=args.filter_policy,
         text_metrics_policy=args.text_metrics_policy,
+        fail_on_warning=args.fail_on_warning,
+        fail_on_fallback=args.fail_on_fallback,
+        min_score=args.min_score,
+        require_native=args.require_native,
+        workers=max(1, int(args.workers)),
+        watch_backend=args.watch_backend,
     )
 
 

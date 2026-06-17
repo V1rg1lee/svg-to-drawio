@@ -248,6 +248,16 @@ _FEATURES: dict[str, FeatureDefinition] = {
 }
 
 _ISSUE_MAP: dict[str, tuple[str, CompatibilityStatus, str | None]] = {
+    "clip-path-simplified-native": (
+        "clipping",
+        "approximate",
+        "Simple clip paths were rewritten into editable replacement shapes.",
+    ),
+    "mask-simplified-native": (
+        "clipping",
+        "approximate",
+        "Simple masks were rewritten into editable replacement shapes.",
+    ),
     "clip-path-fallback": ("clipping", "fallback", "Clip paths were preserved as embedded SVG."),
     "mask-fallback": ("clipping", "fallback", "Masks were preserved as embedded SVG."),
     "pattern-fallback": ("patterns", "fallback", "Pattern fills were preserved as embedded SVG."),

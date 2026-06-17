@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-import concurrent.futures
-from os import makedirs
-from os import path as osp
-from threading import Event, Lock
+from threading import Event
 
 from PySide6.QtCore import QObject, Signal, Slot
 from svg_to_drawio.conversion_service import (
     CancellationToken,
     ConversionEvent,
     ConversionEventKind,
-    ConversionJob,
     ConversionOptions,
     ConversionService,
     ConversionSummary,
+    event_watch_available,
     watch_svg_files,
 )
-from svg_to_drawio.converter import Converter
 from svg_to_drawio.diagnostics import ConversionReport
 
 
@@ -82,179 +78,26 @@ class ParallelConversionWorker(QObject):
     @Slot()
     def run(self) -> None:
         """Plan jobs then convert them in parallel, emitting progress signals."""
-        service = ConversionService()
-        options_signature = service._options_signature(self._options)
         try:
-            jobs = service.plan(self._input_paths, self._options)
+            summary = ConversionService().convert_parallel(
+                self._input_paths,
+                self._options,
+                max_workers=self._max_workers,
+                reporter=self._emit_event,
+                cancellation_token=self._token,
+            )
         except Exception as exc:
             self.failed.emit(str(exc))
             return
-
-        total = len(jobs)
-        self.event_emitted.emit(
-            ConversionEvent(
-                kind=ConversionEventKind.DISCOVERED,
-                message="No SVG files found." if total == 0 else f"Found {total} SVG file(s) to convert.",
-                completed=0,
-                total=total,
-            )
-        )
-
-        if total == 0:
-            summary = ConversionSummary(total=0, converted=0, skipped=0, failed=0, reports=[])
-            self.finished.emit(summary)
-            return
-
-        lock = Lock()
-        counts: dict[str, int] = {"done": 0, "converted": 0, "skipped": 0, "failed": 0}
-        reports: list[ConversionReport] = []
-
-        def run_one(job: ConversionJob) -> None:
-            if self._token.is_cancelled():
-                return
-
-            with lock:
-                prog = counts["done"]
-            self.event_emitted.emit(
-                ConversionEvent(
-                    kind=ConversionEventKind.STARTED,
-                    message=f"Converting: {osp.basename(job.source_path)}",
-                    completed=prog,
-                    total=total,
-                    source_path=job.source_path,
-                    output_path=job.output_path,
-                )
-            )
-
-            out_dir = osp.dirname(job.output_path)
-            if out_dir and not osp.isdir(out_dir):
-                makedirs(out_dir, exist_ok=True)
-
-            if self._options.use_cache:
-                cached_report = service._cache_for(job.output_path, self._options).get_cached_report(
-                    job.source_path,
-                    job.output_path,
-                    options_signature=options_signature,
-                )
-                if cached_report is not None:
-                    with lock:
-                        counts["done"] += 1
-                        counts["skipped"] += 1
-                        prog = counts["done"]
-                        reports.append(cached_report)
-                    self.event_emitted.emit(
-                        ConversionEvent(
-                            kind=ConversionEventKind.SKIPPED,
-                            message=(
-                                f"Skipped unchanged (cache): {osp.basename(job.source_path)}  ->  {job.output_path}"
-                            ),
-                            completed=prog,
-                            total=total,
-                            source_path=job.source_path,
-                            output_path=job.output_path,
-                            report=cached_report,
-                        )
-                    )
-                    return
-
-            if osp.exists(job.output_path) and not self._options.overwrite:
-                with lock:
-                    counts["done"] += 1
-                    counts["skipped"] += 1
-                    prog = counts["done"]
-                self.event_emitted.emit(
-                    ConversionEvent(
-                        kind=ConversionEventKind.SKIPPED,
-                        message=f"Skipped existing: {osp.basename(job.source_path)}  ->  {job.output_path}",
-                        completed=prog,
-                        total=total,
-                        source_path=job.source_path,
-                        output_path=job.output_path,
-                    )
-                )
-                return
-
-            try:
-                converter = Converter()
-                written = converter.convert_file(
-                    job.source_path,
-                    out_path=job.output_path,
-                    flatten=self._options.flatten,
-                    max_elements=self._options.max_elements,
-                    rendering_options=self._options.rendering,
-                )
-                report = converter.get_report()
-                if self._options.use_cache:
-                    service._cache_for(job.output_path, self._options).update(
-                        job.source_path,
-                        written,
-                        options_signature=options_signature,
-                        report=report,
-                    )
-                with lock:
-                    counts["done"] += 1
-                    counts["converted"] += 1
-                    prog = counts["done"]
-                    reports.append(report)
-                self.event_emitted.emit(
-                    ConversionEvent(
-                        kind=ConversionEventKind.CONVERTED,
-                        message=f"Converted: {osp.basename(job.source_path)}  ->  {written}",
-                        completed=prog,
-                        total=total,
-                        source_path=job.source_path,
-                        output_path=written,
-                        report=report,
-                    )
-                )
-            except Exception as exc:
-                report = ConversionReport(source_path=job.source_path, output_path=job.output_path)
-                report.add_issue("conversion-failed", "error", f"Conversion failed: {exc}")
-                with lock:
-                    counts["done"] += 1
-                    counts["failed"] += 1
-                    prog = counts["done"]
-                    reports.append(report)
-                self.event_emitted.emit(
-                    ConversionEvent(
-                        kind=ConversionEventKind.FAILED,
-                        message=f"Failed: {osp.basename(job.source_path)}  ({exc})",
-                        completed=prog,
-                        total=total,
-                        source_path=job.source_path,
-                        error=str(exc),
-                        report=report,
-                    )
-                )
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = [pool.submit(run_one, job) for job in jobs]
-            concurrent.futures.wait(futures)
-
-        cancelled = self._token.is_cancelled()
-        if cancelled:
-            self.event_emitted.emit(
-                ConversionEvent(
-                    kind=ConversionEventKind.CANCELLED,
-                    message=f"Cancelled after {counts['done']} file(s).",
-                    completed=counts["done"],
-                    total=total,
-                )
-            )
-
-        summary = ConversionSummary(
-            total=total,
-            converted=counts["converted"],
-            skipped=counts["skipped"],
-            failed=counts["failed"],
-            cancelled=cancelled,
-            reports=reports,
-        )
         self.finished.emit(summary)
 
     def request_cancel(self) -> None:
         """Signal all in-flight jobs to stop after their current file."""
         self._token.cancel()
+
+    def _emit_event(self, event: ConversionEvent) -> None:
+        """Forward service events through a Qt signal."""
+        self.event_emitted.emit(event)
 
 
 class WatchConversionWorker(QObject):
@@ -283,6 +126,7 @@ class WatchConversionWorker(QObject):
                 self._options,
                 reporter=self._emit_event,
                 stop_event=self._stop_event,
+                backend="event" if event_watch_available() else "poll",
             )
         except Exception as exc:  # pragma: no cover - driven by GUI/runtime behavior
             self.failed.emit(str(exc))

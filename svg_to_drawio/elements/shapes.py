@@ -21,7 +21,13 @@ from .gradient_approx import (
 )
 from .shape_paths import ellipse_path_d, rounded_rect_path_d
 from .shape_support import emit_polygon_stencil, emit_transformed_path_stencil
-from .style_support import add_filter_styles, add_gradient_styles, add_metadata_styles
+from .style_support import (
+    add_filter_styles,
+    add_gradient_styles,
+    add_metadata_styles,
+    emit_endpoint_marker,
+    segment_angle_degrees,
+)
 
 
 def _multi_stop_filter_refs(ctx: EmitterContext, filter_ref: str | None) -> tuple[str | None, str | None]:
@@ -50,8 +56,14 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
+    start_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_start"])
+    end_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_end"])
+    if start_shape is not None:
+        start_arrow = "none"
+    if end_shape is not None:
+        end_arrow = "none"
     linecap = visual["linecap"]
-    if start_arrow != "none" or end_arrow != "none":
+    if start_arrow != "none" or end_arrow != "none" or start_shape is not None or end_shape is not None:
         ctx.report.record_feature_observation(note_marker_usage())
 
     # Non-flat linecap without markers: emit as a stencil vertex so draw.io's
@@ -87,6 +99,27 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     add_metadata_styles(style, elem, ctx)
     add_filter_styles(style, ctx, visual["filter"])
     ctx.add(make_edge(ctx, style.build(), (x1, y1), (x2, y2)))
+    marker_size = max(stroke_width * 4.0, 8.0)
+    if start_shape is not None:
+        emit_endpoint_marker(
+            ctx,
+            (x1, y1),
+            start_shape,
+            stroke_color,
+            opacity,
+            size=marker_size,
+            rotation=segment_angle_degrees((x1, y1), (x2, y2)) + 180.0,
+        )
+    if end_shape is not None:
+        emit_endpoint_marker(
+            ctx,
+            (x2, y2),
+            end_shape,
+            stroke_color,
+            opacity,
+            size=marker_size,
+            rotation=segment_angle_degrees((x1, y1), (x2, y2)),
+        )
 
 
 def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str, str] | None = None) -> None:

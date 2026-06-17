@@ -11,7 +11,7 @@ from datetime import datetime
 from os import path
 from typing import cast
 
-from PySide6.QtCore import QSettings, Qt, QThread, QUrl
+from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QThread, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,8 +29,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from svg_to_drawio import RenderingOptions, __version__
-from svg_to_drawio.compatibility import CompatibilityRow, build_compatibility_overview, build_compatibility_rows
+from svg_to_drawio import REPORT_SCHEMA_VERSION, RenderingOptions, __version__
+from svg_to_drawio.capabilities import capability_descriptor, rendering_preflight_lines
+from svg_to_drawio.compatibility import (
+    CompatibilityRow,
+    build_compatibility_overview,
+    build_compatibility_rows,
+    observation_from_issue,
+)
 from svg_to_drawio.conversion_service import (
     ConversionEvent,
     ConversionEventKind,
@@ -38,7 +44,14 @@ from svg_to_drawio.conversion_service import (
     ConversionSummary,
 )
 from svg_to_drawio.diagnostics import ConversionReport
-from svg_to_drawio.rendering_options import as_filter_policy, as_gradient_policy, as_text_metrics_policy
+from svg_to_drawio.rendering_options import (
+    as_filter_policy,
+    as_gradient_policy,
+    as_text_metrics_policy,
+    detect_rendering_preset,
+    rendering_preset_label,
+    rendering_preset_options,
+)
 
 from .pages import ConvertPage, ResultsPage, SettingsPage
 from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon
@@ -80,6 +93,7 @@ class MainWindow(QMainWindow):
         self._warning_count = 0
         self._watch_mode_active = False
         self._tray: QSystemTrayIcon | None = None
+        self._last_compatibility_rows: list[CompatibilityRow] = []
         self._settings = QSettings()
         self._is_dark = detect_system_dark()
 
@@ -141,11 +155,20 @@ class MainWindow(QMainWindow):
         self.convert_page.source_list.paths_dropped.connect(self._add_paths)
         self.convert_page.browse_output_button.clicked.connect(self._choose_output_dir)
         self.convert_page.start_button.clicked.connect(self._start_conversion)
+        self.convert_page.copy_cli_button.clicked.connect(self._copy_equivalent_cli_command)
+        self.convert_page.watch_checkbox.toggled.connect(self._sync_runtime_option_state)
 
         self.results_page.cancel_button.clicked.connect(self._request_cancel)
         self.results_page.open_output_button.clicked.connect(self._open_output_directory)
         self.results_page.export_report_button.clicked.connect(self._export_last_report)
         self.results_page.log_output.anchorClicked.connect(self._on_log_link_clicked)
+        self.results_page.compatibility_output.anchorClicked.connect(self._on_compatibility_link_clicked)
+
+        self.settings_page.preset_combo.currentIndexChanged.connect(self._apply_selected_rendering_preset)
+        self.settings_page.gradient_combo.currentIndexChanged.connect(self._mark_rendering_preset_custom)
+        self.settings_page.filter_combo.currentIndexChanged.connect(self._mark_rendering_preset_custom)
+        self.settings_page.text_metrics_combo.currentIndexChanged.connect(self._mark_rendering_preset_custom)
+        self._sync_runtime_option_state()
 
     def _build_overflow_menu(self) -> QMenu:
         """Build the compact menu replacing the classic File/Run/Help menu bar."""
@@ -287,9 +310,20 @@ class MainWindow(QMainWindow):
         cp.max_elements_spinbox.setValue(self._setting_int("options/max_value", default=1000))
 
         sp = self.settings_page
-        self._set_combo_value(sp.gradient_combo, str(self._settings.value("rendering/gradient_policy", "auto")))
-        self._set_combo_value(sp.filter_combo, str(self._settings.value("rendering/filter_policy", "auto")))
-        self._set_combo_value(sp.text_metrics_combo, str(self._settings.value("rendering/text_metrics_policy", "auto")))
+        preset_value = str(self._settings.value("rendering/preset", "balanced"))
+        if preset_value != "custom":
+            self._set_combo_value(sp.preset_combo, preset_value)
+            self._apply_rendering_preset(preset_value, persist=False)
+        else:
+            self._set_combo_value(sp.gradient_combo, str(self._settings.value("rendering/gradient_policy", "auto")))
+            self._set_combo_value(sp.filter_combo, str(self._settings.value("rendering/filter_policy", "auto")))
+            self._set_combo_value(
+                sp.text_metrics_combo, str(self._settings.value("rendering/text_metrics_policy", "auto"))
+            )
+            self._set_combo_value(sp.preset_combo, "custom")
+        self._sync_rendering_preset_label()
+        self._sync_runtime_option_state()
+        self._update_preflight_summary()
 
     def _save_settings(self) -> None:
         """Persist the current UI preferences for the next application launch."""
@@ -306,6 +340,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("options/workers", cp.workers_spinbox.value())
         self._settings.setValue("options/max_enabled", cp.max_elements_checkbox.isChecked())
         self._settings.setValue("options/max_value", cp.max_elements_spinbox.value())
+        self._settings.setValue("rendering/preset", sp.preset_combo.currentData())
         self._settings.setValue("rendering/gradient_policy", sp.gradient_combo.currentData())
         self._settings.setValue("rendering/filter_policy", sp.filter_combo.currentData())
         self._settings.setValue("rendering/text_metrics_policy", sp.text_metrics_combo.currentData())
@@ -329,6 +364,90 @@ class MainWindow(QMainWindow):
         """Select the combo-box row matching the persisted option value."""
         index = combo.findData(value)
         combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def _current_rendering_options(self) -> RenderingOptions:
+        """Read the rendering policies currently selected in the settings page."""
+        sp = self.settings_page
+        return RenderingOptions(
+            gradient_policy=as_gradient_policy(str(sp.gradient_combo.currentData())),
+            filter_policy=as_filter_policy(str(sp.filter_combo.currentData())),
+            text_metrics_policy=as_text_metrics_policy(str(sp.text_metrics_combo.currentData())),
+        )
+
+    def _apply_selected_rendering_preset(self, *_: object) -> None:
+        """Apply the preset currently selected by the user."""
+        preset = str(self.settings_page.preset_combo.currentData())
+        if preset == "custom":
+            self._update_preflight_summary()
+            return
+        self._apply_rendering_preset(preset, persist=False)
+
+    def _apply_rendering_preset(self, preset: str, *, persist: bool) -> None:
+        """Apply one named preset to the rendering-policy combo boxes."""
+        options = rendering_preset_options(preset)
+        blockers = [
+            QSignalBlocker(self.settings_page.preset_combo),
+            QSignalBlocker(self.settings_page.gradient_combo),
+            QSignalBlocker(self.settings_page.filter_combo),
+            QSignalBlocker(self.settings_page.text_metrics_combo),
+        ]
+        self._set_combo_value(self.settings_page.gradient_combo, options.gradient_policy)
+        self._set_combo_value(self.settings_page.filter_combo, options.filter_policy)
+        self._set_combo_value(self.settings_page.text_metrics_combo, options.text_metrics_policy)
+        self._set_combo_value(self.settings_page.preset_combo, preset)
+        del blockers
+        if persist:
+            self._save_settings()
+        self._sync_rendering_preset_label()
+        self._update_preflight_summary()
+
+    def _mark_rendering_preset_custom(self, *_: object) -> None:
+        """Switch the preset selector to a named preset or to Custom after manual tweaks."""
+        preset = detect_rendering_preset(self._current_rendering_options())
+        blocker = QSignalBlocker(self.settings_page.preset_combo)
+        self._set_combo_value(self.settings_page.preset_combo, preset or "custom")
+        del blocker
+        self._sync_rendering_preset_label()
+        self._update_preflight_summary()
+
+    def _sync_rendering_preset_label(self) -> None:
+        """Refresh the preset combo tooltip so the current choice reads clearly."""
+        preset = str(self.settings_page.preset_combo.currentData())
+        if preset == "custom":
+            self.settings_page.preset_combo.setToolTip("You are using a custom mix of advanced rendering policies.")
+            return
+        self.settings_page.preset_combo.setToolTip(f"Current preset: {rendering_preset_label(preset)}.")
+
+    def _update_preflight_summary(self) -> None:
+        """Explain the current conversion tradeoffs before the user starts a run."""
+        cp = self.convert_page
+        preset = str(self.settings_page.preset_combo.currentData())
+        if preset == "custom":
+            headline = "<b>Rendering preset:</b> Custom"
+        else:
+            headline = f"<b>Rendering preset:</b> {html.escape(rendering_preset_label(preset))}"
+        details = "".join(
+            f"<li>{html.escape(line)}</li>" for line in rendering_preflight_lines(self._current_rendering_options())
+        )
+        cp.preflight_summary_label.setText(f"{headline}<br><ul>{details}</ul>")
+
+    def _sync_runtime_option_state(self) -> None:
+        """Keep runtime-only options visually aligned with the selected mode."""
+        cp = self.convert_page
+        watch_enabled = cp.watch_checkbox.isChecked()
+        tooltip = (
+            "Watch mode processes changes sequentially as they arrive, so parallel workers are not used. "
+            "Turn off Watch to enable multi-worker batch conversion."
+            if watch_enabled
+            else "Use multiple workers for one-shot batch conversions. "
+            "Watch mode processes changes sequentially as they arrive."
+        )
+        cp.workers_spinbox.setEnabled(not watch_enabled)
+        cp.workers_spinbox.setToolTip(tooltip)
+        cp.workers_label.setToolTip(tooltip)
+        cp.workers_label.setText(
+            "parallel workers  (disabled in watch mode)" if watch_enabled else "parallel workers  (1 = sequential)"
+        )
 
     # --------------------------------------------------------------- theme
 
@@ -429,6 +548,58 @@ class MainWindow(QMainWindow):
         if directory:
             self.convert_page.output_dir_edit.setText(directory)
 
+    @staticmethod
+    def _quote_cli_arg(value: str) -> str:
+        """Quote one CLI argument conservatively for copy-paste use."""
+        escaped = value.replace('"', '\\"')
+        return f'"{escaped}"'
+
+    def _build_equivalent_cli_command(self) -> str:
+        """Build a copy-paste-friendly CLI command matching the current desktop settings."""
+        cp = self.convert_page
+        args = ["svg-to-drawio"]
+        args.extend(self._quote_cli_arg(source) for source in self._sources())
+        output_dir = cp.output_dir_edit.text().strip()
+        if output_dir:
+            args.extend(["--output-dir", self._quote_cli_arg(path.abspath(output_dir))])
+        if cp.recursive_checkbox.isChecked():
+            args.append("--recursive")
+        if cp.overwrite_checkbox.isChecked():
+            args.append("--overwrite")
+        if cp.flatten_checkbox.isChecked():
+            args.append("--flatten")
+        if cp.watch_checkbox.isChecked():
+            args.append("--watch")
+        if not cp.cache_checkbox.isChecked():
+            args.append("--no-cache")
+        if cp.max_elements_checkbox.isChecked():
+            args.extend(["--max-elements", str(cp.max_elements_spinbox.value())])
+        if cp.workers_spinbox.value() > 1 and not cp.watch_checkbox.isChecked():
+            args.extend(["--workers", str(cp.workers_spinbox.value())])
+
+        rendering_options = self._current_rendering_options()
+        if rendering_options.gradient_policy != "auto":
+            args.extend(["--gradient-policy", rendering_options.gradient_policy])
+        if rendering_options.filter_policy != "auto":
+            args.extend(["--filter-policy", rendering_options.filter_policy])
+        if rendering_options.text_metrics_policy != "auto":
+            args.extend(["--text-metrics-policy", rendering_options.text_metrics_policy])
+        return " ".join(args)
+
+    def _copy_equivalent_cli_command(self) -> None:
+        """Copy the matching CLI command for the current desktop configuration."""
+        cp = self.convert_page
+        command = self._build_equivalent_cli_command()
+        QGuiApplication.clipboard().setText(command)
+        self._append_log("Copied the equivalent CLI command to the clipboard.", "info")
+        message = command
+        if cp.watch_checkbox.isChecked() and cp.workers_spinbox.value() > 1:
+            message += (
+                "\n\nNote: watch mode does not use parallel workers, "
+                "so the copied command intentionally omits --workers."
+            )
+        QMessageBox.information(self, "CLI command copied", message)
+
     # ----------------------------------------------------------- workflow
 
     def _start_conversion(self) -> None:
@@ -439,13 +610,8 @@ class MainWindow(QMainWindow):
             return
 
         cp = self.convert_page
-        sp = self.settings_page
         output_dir = cp.output_dir_edit.text().strip() or None
-        rendering_options = RenderingOptions(
-            gradient_policy=as_gradient_policy(str(sp.gradient_combo.currentData())),
-            filter_policy=as_filter_policy(str(sp.filter_combo.currentData())),
-            text_metrics_policy=as_text_metrics_policy(str(sp.text_metrics_combo.currentData())),
-        )
+        rendering_options = self._current_rendering_options()
         options = ConversionOptions(
             output_dir=path.abspath(output_dir) if output_dir else None,
             recursive=cp.recursive_checkbox.isChecked(),
@@ -465,6 +631,8 @@ class MainWindow(QMainWindow):
             f"Starting {'watch session' if live_watch else 'batch'} with {len(source_paths)} source path(s).",
             "info",
         )
+        for line in rendering_preflight_lines(rendering_options):
+            self._append_log(f"Rendering: {line}", "info")
 
         self._thread = QThread(self)
         workers = cp.workers_spinbox.value()
@@ -659,6 +827,7 @@ class MainWindow(QMainWindow):
         """Refresh the beginner-friendly compatibility summary for the latest run."""
         rp = self.results_page
         if not self._last_reports:
+            self._last_compatibility_rows = []
             rp.compatibility_summary_label.setText(
                 "Run a conversion to see what stayed editable, what was simplified, "
                 "and what had to fall back to embedded SVG."
@@ -675,6 +844,7 @@ class MainWindow(QMainWindow):
             observations.extend(report.feature_observations)
 
         rows = build_compatibility_rows(observations)
+        self._last_compatibility_rows = rows
         overview = build_compatibility_overview(rows)
         file_count = len(self._last_reports)
         scope_text = "last file" if file_count == 1 else f"last {file_count} files"
@@ -713,13 +883,51 @@ class MainWindow(QMainWindow):
             blocks.append(
                 '<div style="margin-bottom:10px; padding-bottom:10px; '
                 f'border-bottom:1px solid {t["card_border"]};">'
-                f'<div><span style="font-weight:700; color:{t["text"]};">{html.escape(row.label)}</span> '
+                f'<div><a href="capability:{html.escape(row.feature_key)}" '
+                f'style="font-weight:700; color:{t["text"]}; text-decoration:none;">{html.escape(row.label)}</a> '
                 f'<span style="color:{status_color}; font-weight:700;">{html.escape(row.status_label)}</span></div>'
-                f'<div style="margin-top:2px; color:{t["text"]};">{html.escape(row.message)}</div>'
+                f'<div style="margin-top:2px; color:{t["text"]};">{html.escape(row.message)} '
+                f'<span style="color:{t["text_muted"]};">({row.count})</span></div>'
                 f"{detail_html}"
                 "</div>"
             )
         return "".join(blocks)
+
+    def _on_compatibility_link_clicked(self, url: QUrl) -> None:
+        """Show a detailed explanation for one clicked compatibility capability."""
+        if url.scheme() != "capability":
+            return
+        feature_key = url.path().lstrip("/") or url.toString().split(":", 1)[-1]
+        row = next((item for item in self._last_compatibility_rows if item.feature_key == feature_key), None)
+        if row is None:
+            return
+
+        descriptor = capability_descriptor(feature_key)
+        lines: list[str] = [f"<b>{html.escape(row.label)}</b>", html.escape(row.message)]
+        if descriptor is not None:
+            lines.append("")
+            lines.append(html.escape(descriptor.description))
+            lines.append(f"Default engine behavior: {html.escape(descriptor.default_behavior)}")
+        if row.details:
+            lines.append("")
+            lines.append("Observed details:")
+            lines.extend(f"• {detail}" for detail in row.details)
+
+        related_issue_lines: list[str] = []
+        for report in self._last_reports:
+            file_label = path.basename(report.source_path) or report.source_path or "<memory>"
+            for issue in report.issues:
+                observation = observation_from_issue(issue.code, issue.message, element_tag=issue.element_tag)
+                if observation is None or observation.feature_key != feature_key:
+                    continue
+                element_hint = f" [{issue.element_tag}#{issue.element_id}]" if issue.element_id else ""
+                related_issue_lines.append(f"{file_label}{element_hint}: {issue.message}")
+        if related_issue_lines:
+            lines.append("")
+            lines.append("Affected elements:")
+            lines.extend(f"• {entry}" for entry in related_issue_lines[:12])
+
+        QMessageBox.information(self, row.label, "\n".join(lines))
 
     def _append_report_diagnostics(self, report: ConversionReport) -> None:
         """Append one compact diagnostics block for a finished file conversion."""
@@ -772,6 +980,7 @@ class MainWindow(QMainWindow):
         if not target_path:
             return
         payload = {
+            "report_schema_version": REPORT_SCHEMA_VERSION,
             "mode": "desktop",
             "converted": self._converted,
             "skipped": self._skipped,

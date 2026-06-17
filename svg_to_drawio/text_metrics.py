@@ -53,13 +53,14 @@ def _weight_factor(character: str) -> float:
 
 def _heuristic_metrics(text: str, font_size: float, *, bold: bool, italic: bool) -> tuple[float, float]:
     """Estimate text metrics when no real font backend is available."""
-    width_factor = sum(_weight_factor(character) for character in text) or 1.0
+    lines = text.splitlines() or [text]
+    width_factor = max(sum(_weight_factor(character) for character in line) or 1.0 for line in lines)
     width = max(width_factor * font_size, font_size * 0.9)
     if bold:
         width *= 1.04
     if italic:
         width *= 1.02
-    height = max(font_size * 1.45, 10.0)
+    height = max(font_size * 1.45 * max(1, len(lines)), 10.0)
     return width, height
 
 
@@ -115,6 +116,10 @@ def _candidate_font_names(family: str, *, bold: bool, italic: bool) -> list[str]
             "DejaVuSans-Bold.ttf" if bold else "",
             "DejaVuSans-Oblique.ttf" if italic else "",
             "DejaVuSans.ttf",
+            "NotoSans-BoldItalic.ttf" if bold and italic else "",
+            "NotoSans-Bold.ttf" if bold else "",
+            "NotoSans-Italic.ttf" if italic else "",
+            "NotoSans-Regular.ttf",
         ]
     if normalized in {"times", "timesnewroman", "serif"}:
         return [
@@ -130,6 +135,10 @@ def _candidate_font_names(family: str, *, bold: bool, italic: bool) -> list[str]
             "DejaVuSerif-Bold.ttf" if bold else "",
             "DejaVuSerif-Italic.ttf" if italic else "",
             "DejaVuSerif.ttf",
+            "NotoSerif-BoldItalic.ttf" if bold and italic else "",
+            "NotoSerif-Bold.ttf" if bold else "",
+            "NotoSerif-Italic.ttf" if italic else "",
+            "NotoSerif-Regular.ttf",
         ]
     if normalized in {"courier", "couriernew", "monospace"}:
         return [
@@ -145,6 +154,8 @@ def _candidate_font_names(family: str, *, bold: bool, italic: bool) -> list[str]
             "DejaVuSansMono-Bold.ttf" if bold else "",
             "DejaVuSansMono-Oblique.ttf" if italic else "",
             "DejaVuSansMono.ttf",
+            "NotoSansMono-Bold.ttf" if bold else "",
+            "NotoSansMono-Regular.ttf",
         ]
     return [
         normalized,
@@ -195,12 +206,23 @@ def _measure_with_pillow(
 
     try:  # pragma: no cover - depends on optional Pillow and platform fonts
         font = _PIL_IMAGE_FONT.truetype(font_path, size=max(1, int(round(font_size))))
-        left, top, right, bottom = font.getbbox(text)
+        lines = text.splitlines() or [text]
+        widths: list[float] = []
+        heights: list[float] = []
+        for line in lines:
+            sample = line or " "
+            if hasattr(font, "getlength"):
+                widths.append(float(font.getlength(sample)))
+            else:
+                left, _, right, _ = font.getbbox(sample)
+                widths.append(float(max(right - left, font_size * 0.9)))
+            _, top, _, bottom = font.getbbox(sample)
+            heights.append(float(max(bottom - top, font_size * 1.2)))
     except Exception:
         return None
 
-    width = float(max(right - left, font_size * 0.9))
-    height = float(max(bottom - top, font_size * 1.2))
+    width = max(max(widths, default=0.0), font_size * 0.9)
+    height = max(sum(heights) or 0.0, font_size * 1.2)
     return width, height
 
 
@@ -224,14 +246,8 @@ def measure_text_detailed(
         width, height = _heuristic_metrics(normalized_text, font_size, bold=bold, italic=italic)
         return width, height, "heuristic"
 
-    if policy == "system":
-        pillow_metrics = _measure_with_pillow(
-            normalized_text,
-            font_size,
-            normalized_family,
-            bold=bold,
-            italic=italic,
-        )
+    if policy in {"auto", "system"}:
+        pillow_metrics = _measure_with_pillow(normalized_text, font_size, normalized_family, bold=bold, italic=italic)
         if pillow_metrics is not None:
             return pillow_metrics[0], pillow_metrics[1], "pillow"
 

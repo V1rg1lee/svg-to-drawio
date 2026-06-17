@@ -13,7 +13,13 @@ from ..path_utils import make_stencil_style_from_xml
 from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix, apply_pt, stroke_scale
-from .style_support import add_filter_styles, add_metadata_styles, emit_midpoint_markers
+from .style_support import (
+    add_filter_styles,
+    add_metadata_styles,
+    emit_endpoint_marker,
+    emit_midpoint_markers,
+    segment_angle_degrees,
+)
 
 _POINT_RE = re.compile(r"[-\d.eE+]+")
 
@@ -67,7 +73,13 @@ def emit_polyline(
 
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
-    if start_arrow != "none" or end_arrow != "none" or visual.get("marker_mid"):
+    start_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_start"])
+    end_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_end"])
+    if start_shape is not None:
+        start_arrow = "none"
+    if end_shape is not None:
+        end_arrow = "none"
+    if start_arrow != "none" or end_arrow != "none" or visual.get("marker_mid") or start_shape or end_shape:
         ctx.report.record_feature_observation(note_marker_usage())
     src, *mid, tgt = points
     style = StyleBuilder()
@@ -82,5 +94,26 @@ def emit_polyline(
     add_filter_styles(style, ctx, visual["filter"])
     ctx.add(make_edge(ctx, style.build(), src, tgt, waypoints=mid))
 
+    marker_size = max(stroke_width * 4.0, 8.0)
+    if start_shape is not None:
+        emit_endpoint_marker(
+            ctx,
+            src,
+            start_shape,
+            stroke_color,
+            opacity,
+            size=marker_size,
+            rotation=segment_angle_degrees(src, mid[0] if mid else tgt) + 180.0,
+        )
+    if end_shape is not None:
+        emit_endpoint_marker(
+            ctx,
+            tgt,
+            end_shape,
+            stroke_color,
+            opacity,
+            size=marker_size,
+            rotation=segment_angle_degrees(mid[-1] if mid else src, tgt),
+        )
     if visual.get("marker_mid") and mid:
         emit_midpoint_markers(ctx, mid, stroke_color, opacity)

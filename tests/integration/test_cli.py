@@ -78,7 +78,8 @@ class CliTests(SvgTestCase):
                 handle.write(
                     '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">'
                     '<defs><clipPath id="cut"><circle cx="40" cy="40" r="20" /></clipPath></defs>'
-                    '<rect x="10" y="10" width="60" height="60" fill="red" clip-path="url(#cut)" />'
+                    '<rect x="10" y="10" width="60" height="60" fill="red" stroke="black" stroke-width="2" '
+                    'clip-path="url(#cut)" />'
                     "</svg>"
                 )
 

@@ -72,6 +72,43 @@ class StructureAndTransformTests(SvgTestCase):
             self.assertIsNotNone(edge.find("./mxGeometry/Array"))
             self.assertTrue(marker.get("style", "").startswith("ellipse;fillColor=#000000;"))
 
+    def test_simple_custom_markers_emit_endpoint_shapes(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+          <defs>
+            <marker id="custom-start">
+              <polygon points="0,4 8,0 8,8" />
+            </marker>
+            <marker id="custom-end">
+              <rect x="0" y="0" width="8" height="8" />
+            </marker>
+          </defs>
+          <line
+            x1="10"
+            y1="20"
+            x2="90"
+            y2="20"
+            stroke="#000000"
+            stroke-width="2"
+            marker-start="url(#custom-start)"
+            marker-end="url(#custom-end)"
+          />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertEqual(len(cells), 3)
+
+            edge = next(cell for cell in cells if cell.get("edge") == "1")
+            endpoint_shapes = [cell for cell in cells if cell.get("vertex") == "1"]
+            self.assertEqual(self._style_map(edge).get("startArrow"), "none")
+            self.assertEqual(self._style_map(edge).get("endArrow"), "none")
+            self.assertEqual(len(endpoint_shapes), 2)
+            styles = [self._style_map(cell) for cell in endpoint_shapes]
+            self.assertTrue(any(style.get("shape") == "triangle" for style in styles))
+            self.assertTrue(any(style.get("rounded") == "0" for style in styles))
+
     def test_use_and_symbol_elements_are_resolved(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">

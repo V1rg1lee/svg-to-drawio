@@ -11,6 +11,7 @@ from xml.etree.ElementTree import Element
 
 from .cell_factory import make_bounds_vertex, make_layer_cell
 from .compatibility import note_reference_usage
+from .conversion_result import ConversionResult
 from .css import AncestorInfo, CssRule, apply_css, collect_css, extract_custom_props
 from .defs import DefsIndex
 from .diagnostics import ConversionReport
@@ -87,6 +88,7 @@ _DISPATCH: dict[str, ElementEmitter] = {
 }
 
 _FALLBACK_PAINT_PROPS: tuple[str, str] = ("fill", "stroke")
+_SIMPLE_CLIP_TAGS: frozenset[str] = frozenset({"rect", "circle", "ellipse", "polygon"})
 
 
 def _inkscape_layer_label(elem: Element) -> str | None:
@@ -141,24 +143,46 @@ class Converter:
             next_id_callback=self.next_id,
         )
 
-    def _parse_and_convert(self, svg_path_str: str, title: str) -> str:
-        """Parse an SVG file and return the draw.io XML as a string."""
-        tree = ET.parse(svg_path_str)
-        root = tree.getroot()
+    def _prepare_root(
+        self,
+        root: Element,
+        *,
+        source_path: str | None,
+        base_dir: str | None = None,
+    ) -> None:
+        """Prepare converter state from a parsed SVG root element."""
         self._root = root
-        self.report.source_path = path.abspath(svg_path_str)
-        self.source_dir = path.dirname(path.abspath(svg_path_str))
+        self.report.source_path = source_path or ""
+        if base_dir:
+            self.source_dir = path.abspath(base_dir)
+        elif source_path:
+            self.source_dir = path.dirname(path.abspath(source_path))
+        else:
+            self.source_dir = ""
         self.defs.index(root)
         self.css_rules = collect_css(root)
         self._custom_props = extract_custom_props(self.css_rules)
-        root_matrix = viewbox_transform(root)
-        self._root_matrix = root_matrix
+        self._root_matrix = viewbox_transform(root)
+
+    def _convert_root(self, root: Element, title: str, *, source_path: str | None, base_dir: str | None = None) -> str:
+        """Convert a parsed SVG root element into draw.io XML."""
+        self._prepare_root(root, source_path=source_path, base_dir=base_dir)
         context = self._make_context()
         for child in root:
-            self._convert(child, context, root_matrix, {}, ancestors=[])
+            self._convert(child, context, self._root_matrix, {}, ancestors=[])
         xml = make_xml(self.cells, title)
         self.report.emitted_cells = len(self.cells)
         return xml
+
+    def _parse_and_convert(self, svg_path_str: str, title: str) -> str:
+        """Parse an SVG file and return the draw.io XML as a string."""
+        tree = ET.parse(svg_path_str)
+        return self._convert_root(tree.getroot(), title, source_path=path.abspath(svg_path_str))
+
+    def _build_result(self, xml: str, *, source_path: str | None, output_path: str | None) -> ConversionResult:
+        """Build a detached rich conversion result object for the latest run."""
+        report = self.get_report()
+        return ConversionResult(xml=xml, report=report, source_path=source_path, output_path=output_path)
 
     def convert_file(
         self,
@@ -170,6 +194,27 @@ class Converter:
         rendering_options: RenderingOptions | None = None,
     ) -> str:
         """Convert one SVG file into a `.drawio` file and return the output path."""
+        return (
+            self.convert_file_result(
+                svg_path,
+                out_path,
+                flatten=flatten,
+                max_elements=max_elements,
+                rendering_options=rendering_options,
+            ).output_path
+            or ""
+        )
+
+    def convert_file_result(
+        self,
+        svg_path: str | PathLike[str],
+        out_path: str | PathLike[str] | None = None,
+        *,
+        flatten: bool = False,
+        max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
+    ) -> ConversionResult:
+        """Convert one SVG file, write it to disk, and return a rich conversion result."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -182,7 +227,7 @@ class Converter:
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(xml)
         self.report.output_path = output_path
-        return output_path
+        return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=output_path)
 
     def convert_to_string(
         self,
@@ -193,6 +238,22 @@ class Converter:
         rendering_options: RenderingOptions | None = None,
     ) -> str:
         """Convert one SVG file and return the draw.io XML as a string."""
+        return self.convert_to_string_result(
+            svg_path,
+            flatten=flatten,
+            max_elements=max_elements,
+            rendering_options=rendering_options,
+        ).xml
+
+    def convert_to_string_result(
+        self,
+        svg_path: str | PathLike[str],
+        *,
+        flatten: bool = False,
+        max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
+    ) -> ConversionResult:
+        """Convert one SVG file and return a rich in-memory conversion result."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -200,7 +261,53 @@ class Converter:
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
-        return self._parse_and_convert(svg_path_str, title)
+        xml = self._parse_and_convert(svg_path_str, title)
+        return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=None)
+
+    def convert_svg_string_result(
+        self,
+        svg_text: str,
+        *,
+        base_dir: str | PathLike[str] | None = None,
+        title: str = "diagram",
+        source_label: str | None = None,
+        flatten: bool = False,
+        max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
+    ) -> ConversionResult:
+        """Convert SVG markup already loaded in memory and return a rich conversion result."""
+        self.reset()
+        self._flatten = flatten
+        self._max_elements = max_elements
+        self.rendering_options = rendering_options or RenderingOptions()
+        root = ET.fromstring(svg_text)
+        memory_source = source_label or f"memory:{title}.svg"
+        xml = self._convert_root(
+            root, title, source_path=memory_source, base_dir=fspath(base_dir) if base_dir else None
+        )
+        return self._build_result(xml, source_path=memory_source, output_path=None)
+
+    def convert_svg_bytes_result(
+        self,
+        svg_bytes: bytes,
+        *,
+        base_dir: str | PathLike[str] | None = None,
+        title: str = "diagram",
+        source_label: str | None = None,
+        flatten: bool = False,
+        max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
+    ) -> ConversionResult:
+        """Convert SVG bytes already loaded in memory and return a rich conversion result."""
+        return self.convert_svg_string_result(
+            svg_bytes.decode("utf-8"),
+            base_dir=base_dir,
+            title=title,
+            source_label=source_label,
+            flatten=flatten,
+            max_elements=max_elements,
+            rendering_options=rendering_options,
+        )
 
     def analyze_file(
         self,
@@ -244,6 +351,157 @@ class Converter:
             element_id=elem.get("id") if elem is not None else None,
             fallback_used=fallback_used,
         )
+
+    @staticmethod
+    def _local_shape_bounds(elem: Element) -> tuple[float, float, float, float] | None:
+        """Return local untransformed bounds for a simple SVG geometry element."""
+        tag = strip_ns(elem.tag)
+        if tag == "rect":
+            x = parse_length(elem.get("x"))
+            y = parse_length(elem.get("y"))
+            width = parse_length(elem.get("width"))
+            height = parse_length(elem.get("height"))
+            return x, y, width, height
+        if tag == "circle":
+            cx = parse_length(elem.get("cx"))
+            cy = parse_length(elem.get("cy"))
+            radius = parse_length(elem.get("r"))
+            return cx - radius, cy - radius, radius * 2.0, radius * 2.0
+        if tag == "ellipse":
+            cx = parse_length(elem.get("cx"))
+            cy = parse_length(elem.get("cy"))
+            rx = parse_length(elem.get("rx"))
+            ry = parse_length(elem.get("ry"))
+            return cx - rx, cy - ry, rx * 2.0, ry * 2.0
+        if tag == "polygon":
+            coords = [float(item) for item in re.findall(r"[-\d.eE+]+", elem.get("points", ""))]
+            if len(coords) < 6:
+                return None
+            xs = coords[0::2]
+            ys = coords[1::2]
+            x = min(xs)
+            y = min(ys)
+            return x, y, max(xs) - x, max(ys) - y
+        return None
+
+    @staticmethod
+    def _bounds_contains(outer: tuple[float, float, float, float], inner: tuple[float, float, float, float]) -> bool:
+        """Return whether one bounds tuple fully contains another."""
+        ox, oy, ow, oh = outer
+        ix, iy, iw, ih = inner
+        epsilon = 1e-6
+        return (
+            ix >= ox - epsilon and iy >= oy - epsilon and ix + iw <= ox + ow + epsilon and iy + ih <= oy + oh + epsilon
+        )
+
+    def _simple_clip_candidate(self, clip_ref: str) -> Element | None:
+        """Return a single simple clip geometry eligible for editable replacement."""
+        match = re.match(r"url\(#([^)]+)\)", clip_ref)
+        if not match:
+            return None
+        clip_elem = self.defs.get_element(match.group(1))
+        if clip_elem is None or strip_ns(clip_elem.tag) != "clipPath":
+            return None
+        units = (clip_elem.get("clipPathUnits") or "userSpaceOnUse").strip()
+        if units != "userSpaceOnUse":
+            return None
+        drawable_children = [child for child in clip_elem if strip_ns(child.tag) in _SIMPLE_CLIP_TAGS]
+        if len(drawable_children) != 1:
+            return None
+        return drawable_children[0]
+
+    def _simple_mask_candidate(self, mask_ref: str) -> Element | None:
+        """Return a single simple mask geometry eligible for editable replacement."""
+        match = re.match(r"url\(#([^)]+)\)", mask_ref)
+        if not match:
+            return None
+        mask_elem = self.defs.get_element(match.group(1))
+        if mask_elem is None or strip_ns(mask_elem.tag) != "mask":
+            return None
+        units = (mask_elem.get("maskUnits") or "userSpaceOnUse").strip()
+        if units != "userSpaceOnUse":
+            return None
+        drawable_children = [child for child in mask_elem if strip_ns(child.tag) in _SIMPLE_CLIP_TAGS]
+        if len(drawable_children) != 1:
+            return None
+        candidate = drawable_children[0]
+        fill = ((candidate.get("fill") or "") or "").strip().lower()
+        if fill and fill not in {"#fff", "#ffffff", "white"}:
+            return None
+        return candidate
+
+    def _can_replace_clipped_shape(self, elem: Element, css: dict[str, str], replacement: Element) -> bool:
+        """Return whether a simple clipped/masked shape can stay editable through replacement geometry."""
+        if strip_ns(elem.tag) not in {"rect", "circle", "ellipse"}:
+            return False
+        fill_value = (css.get("fill") or elem.get("fill") or "").strip().lower()
+        if not fill_value or fill_value == "none" or fill_value.startswith("url("):
+            return False
+        stroke_value = (css.get("stroke") or elem.get("stroke") or "").strip().lower()
+        if stroke_value and stroke_value != "none":
+            return False
+        if normalize_filter_ref(css.get("filter") or elem.get("filter")) is not None:
+            return False
+        element_bounds = self._local_shape_bounds(elem)
+        replacement_bounds = self._local_shape_bounds(replacement)
+        if element_bounds is None or replacement_bounds is None:
+            return False
+        return self._bounds_contains(element_bounds, replacement_bounds)
+
+    def _emit_replacement_geometry(
+        self,
+        replacement: Element,
+        ctx: EmitterContext,
+        matrix: Matrix,
+        css: dict[str, str],
+    ) -> bool:
+        """Emit one synthetic replacement shape using the original element's resolved style."""
+        tag = strip_ns(replacement.tag)
+        if tag in _DISPATCH:
+            _DISPATCH[tag](ctx, replacement, matrix, css)
+            return True
+        if tag == "polygon":
+            _emit_closed_polygon(ctx, replacement, matrix, css)
+            return True
+        return False
+
+    def _emit_simple_clip_or_mask_replacement(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        matrix: Matrix,
+        css: dict[str, str],
+        *,
+        record_issues: bool,
+    ) -> bool:
+        """Try to keep a very simple clip path or mask editable by rewriting the geometry."""
+        clip_path = css.get("clip-path") or elem.get("clip-path") or ""
+        if clip_path and clip_path.lower() != "none":
+            candidate = self._simple_clip_candidate(clip_path)
+            if candidate is not None and self._can_replace_clipped_shape(elem, css, candidate):
+                emitted = self._emit_replacement_geometry(candidate, ctx, matrix, css)
+                if emitted and record_issues:
+                    self._record_issue(
+                        "clip-path-simplified-native",
+                        "A simple clip path was rewritten into an editable replacement shape.",
+                        elem=elem,
+                    )
+                return emitted
+
+        mask = css.get("mask") or elem.get("mask") or ""
+        if mask and mask.lower() != "none":
+            candidate = self._simple_mask_candidate(mask)
+            if candidate is not None and self._can_replace_clipped_shape(elem, css, candidate):
+                emitted = self._emit_replacement_geometry(candidate, ctx, matrix, css)
+                if emitted and record_issues:
+                    self._record_issue(
+                        "mask-simplified-native",
+                        "A simple mask was rewritten into an editable replacement shape.",
+                        elem=elem,
+                    )
+                return emitted
+
+        return False
 
     def _fallback_reason(self, elem: Element, css: dict[str, str]) -> tuple[str, str] | None:
         """Return the first unsupported visual feature that should trigger SVG fallback."""
@@ -555,6 +813,8 @@ class Converter:
             return
 
         if allow_fallback:
+            if self._emit_simple_clip_or_mask_replacement(elem, ctx, matrix, css, record_issues=record_issues):
+                return
             fallback_reason = self._fallback_reason(elem, css)
             if fallback_reason is None:
                 fallback_reason = self._multi_stop_gradient_fallback_reason(elem, css, matrix)
