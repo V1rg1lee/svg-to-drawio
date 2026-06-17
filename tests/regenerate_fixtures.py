@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import sys
 from os import path
 
-from svg_to_drawio import RenderingOptions, convert_file
+ROOT_DIR = path.dirname(path.dirname(path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-from tests.helpers import FIXTURES_DIR
+from svg_to_drawio import RenderingOptions, convert_file  # noqa: E402
+
+from tests.helpers import FIXTURES_DIR  # noqa: E402
 
 
 def main() -> None:

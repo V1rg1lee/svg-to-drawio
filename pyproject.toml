@@ -1,3 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "svg-to-drawio"
+dynamic = ["version"]
+description = "Convert SVG files into editable draw.io diagrams."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [
+  { name = "V1rg1lee" },
+]
+keywords = ["svg", "drawio", "diagrams", "converter"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/V1rg1lee/svg-to-drawio"
+Repository = "https://github.com/V1rg1lee/svg-to-drawio"
+Issues = "https://github.com/V1rg1lee/svg-to-drawio/issues"
+
+[project.scripts]
+svg-to-drawio = "svg_to_drawio.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "hatchling>=1.27",
+  "mypy>=1.18",
+  "pre-commit>=4.0",
+  "ruff>=0.12",
+  "twine>=6.1",
+]
+
+[tool.hatch.version]
+path = "svg_to_drawio/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["svg_to_drawio"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120

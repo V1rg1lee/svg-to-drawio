@@ -6,8 +6,21 @@ Convert SVG files into editable [draw.io](https://app.diagrams.net/) diagrams wh
 
 **Requirements:** Python 3.11+, no external runtime dependency for the CLI.
 
+Install locally as a package from the repository root:
+
 ```bash
-# Convert one file
+python -m pip install .
+```
+
+Once installed, you can use either the console script or the module entry point:
+
+```bash
+svg-to-drawio diagram.svg
+python -m svg_to_drawio diagram.svg
+```
+
+```bash
+# Convert one file directly from the repository checkout
 python main.py diagram.svg
 
 # Convert a folder recursively and overwrite existing outputs
@@ -123,7 +136,7 @@ The plain `.zip` / `.tar.gz` archives remain available for advanced users who pr
 ## CLI reference
 
 ```text
-python main.py [INPUT] [OPTIONS]
+svg-to-drawio [INPUT] [OPTIONS]
 ```
 
 | Option | Description |
@@ -146,22 +159,22 @@ python main.py [INPUT] [OPTIONS]
 
 ```bash
 # Write output to a separate folder
-python main.py src/icons/ --recursive --output-dir dist/diagrams --overwrite
+svg-to-drawio src/icons/ --recursive --output-dir dist/diagrams --overwrite
 
 # Watch a folder and reconvert on every save
-python main.py src/ --watch --overwrite
+svg-to-drawio src/ --watch --overwrite
 
 # Analyze a file and emit a JSON report without generating a .drawio file
-python main.py diagram.svg --analyze --report-json report.json
+svg-to-drawio diagram.svg --analyze --report-json report.json
 
 # Prefer editable native output over exact SVG filters and complex gradients
-python main.py diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
+svg-to-drawio diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
 
 # Pipe draw.io XML directly into another tool
-python main.py diagram.svg --stdout > diagram.drawio
+svg-to-drawio diagram.svg --stdout > diagram.drawio
 
 # Flatten all groups into a single layer
-python main.py diagram.svg --flatten --overwrite
+svg-to-drawio diagram.svg --flatten --overwrite
 ```
 
 During a normal conversion run, the CLI prints a short compatibility summary and mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling.
@@ -359,6 +372,8 @@ build_desktop.py             # PyInstaller bundle builder
 packaging/                   # Windows and Linux packaging assets
 svg_to_drawio/
   __init__.py                # Public package exports
+  __main__.py                # python -m svg_to_drawio entry point
+  cli.py                     # Installed console CLI
   compatibility.py           # User-facing compatibility matrix + overview builders
   conversion_cache.py        # Persistent cache for unchanged inputs
   conversion_service.py      # Shared batch service (CLI + desktop)

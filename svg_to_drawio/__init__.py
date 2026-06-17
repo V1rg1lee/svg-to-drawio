@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from os import PathLike
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
 from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
 from .conversion_service import CancellationToken, ConversionOptions, ConversionService, ConversionSummary
@@ -64,6 +64,7 @@ def analyze_file(
 
 
 __all__ = [
+    "__version__",
     "CancellationToken",
     "CompatibilityOverview",
     "CompatibilityRow",

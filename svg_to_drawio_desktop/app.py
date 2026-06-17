@@ -363,7 +363,7 @@ class MainWindow(QMainWindow):
         """
         if sys.platform != "win32":
             return
-        try:
+        try:  # type: ignore[unreachable]  # reachable at runtime on Windows; mypy's host platform may differ
             hwnd = int(self.winId())
             value = ctypes.c_int(1 if self._is_dark else 0)
             dwmapi = ctypes.windll.dwmapi
