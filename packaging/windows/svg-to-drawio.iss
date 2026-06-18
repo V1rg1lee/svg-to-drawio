@@ -21,6 +21,18 @@
   #error MyOutputDir define is required.
 #endif
 
+#ifndef MyPackageArchitecture
+  #define MyPackageArchitecture "x64"
+#endif
+
+#ifndef MyArchitecturesAllowed
+  #define MyArchitecturesAllowed "x64compatible"
+#endif
+
+#ifndef MyArchitecturesInstallIn64BitMode
+  #define MyArchitecturesInstallIn64BitMode "x64compatible"
+#endif
+
 #if MyAppSourceExe == "" && MyAppSourceDir == ""
   #error One of MyAppSourceExe or MyAppSourceDir must be defined.
 #endif
@@ -50,13 +62,13 @@ DefaultDirName={autopf}\SVG to draw.io
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#MyArchitecturesAllowed}
+ArchitecturesInstallIn64BitMode={#MyArchitecturesInstallIn64BitMode}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 OutputDir={#MyOutputDir}
-OutputBaseFilename=svg-to-drawio-{#MyAppVersion}-windows-setup
+OutputBaseFilename=svg-to-drawio-{#MyAppVersion}-windows-{#MyPackageArchitecture}-setup
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no

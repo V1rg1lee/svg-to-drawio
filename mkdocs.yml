@@ -27,6 +27,7 @@ theme:
 nav:
   - Home: index.md
   - Quick start: quickstart.md
+  - Desktop downloads: release-downloads.md
   - CLI reference: cli.md
   - Python API: python-api.md
   - Advanced rendering: advanced-rendering.md

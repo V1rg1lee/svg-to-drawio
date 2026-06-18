@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.v1rg1lee.svg-to-drawio</id>
+  <name>SVG to draw.io</name>
+  <summary>Convert SVG files into editable draw.io diagrams</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>V1rg1lee</developer_name>
+  <launchable type="desktop-id">io.github.v1rg1lee.svg-to-drawio.desktop</launchable>
+  <url type="homepage">https://github.com/V1rg1lee/svg-to-drawio</url>
+  <url type="bugtracker">https://github.com/V1rg1lee/svg-to-drawio/issues</url>
+  <description>
+    <p>
+      SVG to draw.io converts SVG artwork into editable draw.io diagrams using a shared
+      engine exposed through the desktop app, CLI, and Python API.
+    </p>
+    <p>
+      When draw.io cannot represent a feature natively, the converter records diagnostics
+      and falls back to embedded SVG only where needed so the rest of the document stays editable.
+    </p>
+  </description>
+  <categories>
+    <category>Graphics</category>
+    <category>VectorGraphics</category>
+  </categories>
+  <provides>
+    <binary>svg-to-drawio</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

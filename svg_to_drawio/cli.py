@@ -114,12 +114,16 @@ def run(
             print("Error: --stdout requires exactly one SVG file, not multiple inputs or a directory.", file=sys.stderr)
             return 1
 
-        xml = Converter().convert_to_string(
-            resolved_inputs[0],
-            flatten=flatten,
-            max_elements=max_elements,
-            rendering_options=rendering_options,
-        )
+        try:
+            xml = Converter().convert_to_string(
+                resolved_inputs[0],
+                flatten=flatten,
+                max_elements=max_elements,
+                rendering_options=rendering_options,
+            )
+        except Exception as exc:
+            print(f'Error: failed to convert "{resolved_inputs[0]}": {exc}', file=sys.stderr)
+            return 1
         sys.stdout.write(xml)
         return 0
 

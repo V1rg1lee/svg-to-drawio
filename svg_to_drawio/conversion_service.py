@@ -141,10 +141,15 @@ def iter_svg_files(input_path: str, recursive: bool = False) -> list[str]:
 
 def event_watch_available() -> bool:
     """Return whether the optional watchdog backend is available."""
-    return (
-        importlib.util.find_spec("watchdog.events") is not None
-        and importlib.util.find_spec("watchdog.observers") is not None
-    )
+    try:
+        return (
+            importlib.util.find_spec("watchdog.events") is not None
+            and importlib.util.find_spec("watchdog.observers") is not None
+        )
+    except ModuleNotFoundError:
+        # find_spec("pkg.submodule") raises instead of returning None when the
+        # parent package itself ("watchdog") isn't installed at all.
+        return False
 
 
 def resolve_watch_backend(backend: WatchBackend) -> Literal["poll", "event"]:

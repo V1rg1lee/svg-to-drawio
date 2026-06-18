@@ -277,11 +277,6 @@ _ISSUE_MAP: dict[str, tuple[str, CompatibilityStatus, str | None]] = {
         "approximate",
         "Complex gradients were simplified to stay editable.",
     ),
-    "marker-approximated": (
-        "markers",
-        "approximate",
-        "SVG markers were matched to the closest draw.io arrows.",
-    ),
     "text-backend-heuristic": (
         "text",
         "approximate",

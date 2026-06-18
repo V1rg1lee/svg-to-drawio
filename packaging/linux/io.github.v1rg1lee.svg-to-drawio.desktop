@@ -5,6 +5,6 @@ Comment=Convert SVG files into editable draw.io diagrams
 Exec=svg-to-drawio %F
 Icon=io.github.v1rg1lee.svg-to-drawio
 Terminal=false
-Categories=Graphics;Utility;
+Categories=Graphics;VectorGraphics;
 MimeType=image/svg+xml;
 StartupWMClass=svg-to-drawio

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="832" height="832" viewBox="0 0 832 832">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F3F4"/>
+    </linearGradient>
+    <linearGradient id="orange-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFB02E"/>
+      <stop offset="100%" stop-color="#F05A00"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fond blanc arrondi (carre complet) -->
+  <rect x="0" y="0" width="832" height="832" rx="149.76" ry="149.76" fill="url(#bg-gradient)"/>
+
+  <!-- Panneau orange a droite, colle exactement au contour arrondi -->
+  <path d="M 432.07 0
+           L 682.24 0
+           C 765.94 0 832 66.06 832 149.76
+           L 832 682.24
+           C 832 765.94 765.94 832 682.24 832
+           L 432.07 832
+           C 367.99 638.36 367.99 193.64 432.07 0
+           Z" fill="url(#orange-gradient)"/>
+
+  <!-- ===== Document source (gauche) ===== -->
+  <g filter="drop-shadow(2px 3px 2px rgba(0,0,0,0.25))">
+    <path d="M 24 190
+             C 24 163.48 45.48 142 71.99 142
+             L 249.99 142
+             L 352 243.98
+             L 352 642
+             C 352 668.52 330.52 690 304.01 690
+             L 71.99 690
+             C 45.48 690 24 668.52 24 642
+             Z"
+          fill="#fafafa" stroke="#20292e" stroke-width="16"/>
+    <path d="M 250 142 L 250 224 C 250 235.04 258.96 244 270 244 L 352 244"
+          fill="none" stroke="#20292e" stroke-width="16"/>
+  </g>
+
+  <!-- Lignes de texte generiques (au lieu du mot "SVG") -->
+  <g stroke="#20292e" stroke-width="16" stroke-linecap="round">
+    <line x1="78" y1="306" x2="298" y2="306"/>
+    <line x1="78" y1="372" x2="298" y2="372"/>
+    <line x1="78" y1="438" x2="220" y2="438"/>
+  </g>
+
+  <!-- petite icone "format" abstraite (cercle + triangle + carre) en bas du doc source -->
+  <g fill="#20292e">
+    <circle cx="92" cy="560" r="24" fill="#fafafa" stroke="#20292e" stroke-width="14"/>
+    <rect x="170" y="536" width="48" height="48" rx="8" fill="#fafafa" stroke="#20292e" stroke-width="14"/>
+    <polygon points="290,536 314,584 266,584" fill="#fafafa" stroke="#20292e" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+
+  <!-- ===== Document cible (droite) ===== -->
+  <g filter="drop-shadow(2px 3px 2px rgba(0,0,0,0.25))">
+    <path d="M 484 190
+             C 484 163.48 505.48 142 531.99 142
+             L 709.99 142
+             L 812 243.98
+             L 812 642
+             C 812 668.52 790.52 690 764.01 690
+             L 531.99 690
+             C 505.48 690 484 668.52 484 642
+             Z"
+          fill="none" stroke="#ffffff" stroke-width="16"/>
+    <path d="M 710 142 L 710 224 C 710 235.04 718.96 244 730 244 L 812 244"
+          fill="none" stroke="#ffffff" stroke-width="16"/>
+  </g>
+
+  <!-- Icone abstraite de "structure" generique (au lieu du pictogramme drawio) -->
+  <g fill="none" stroke="#ffffff" stroke-width="14" stroke-linejoin="round">
+    <rect x="605" y="272" width="84" height="84" rx="17.64" fill="#ffffff" stroke="none"/>
+    <rect x="545" y="436" width="84" height="84" rx="17.64" fill="#ffffff" stroke="none"/>
+    <rect x="667" y="436" width="84" height="84" rx="17.64" fill="#ffffff" stroke="none"/>
+    <path d="M 647 356 L 647 388 C 647 408 587 408 587 436"/>
+    <path d="M 647 356 L 647 388 C 647 408 709 408 709 436"/>
+  </g>
+
+  <!-- Lignes generiques (au lieu du mot "DRAWIO") -->
+  <g stroke="#ffffff" stroke-width="16" stroke-linecap="round">
+    <line x1="535" y1="592" x2="765" y2="592"/>
+    <line x1="535" y1="628" x2="700" y2="628"/>
+  </g>
+
+  <!-- ===== Fleche centrale (dessinee en dernier pour rester au-dessus) ===== -->
+  <g filter="drop-shadow(3px 4px 4px rgba(0,0,0,0.35))">
+    <path d="M 304 392.94
+             C 304 385.47 315.69 379.43 330.12 379.43
+             L 368.44 379.43
+             L 368.44 360.52
+             C 368.44 348.5 396.6 342.47 413.04 350.99
+             L 480.36 391
+             C 490.55 396.27 490.55 404.83 480.36 410.1
+             L 413.04 450.1
+             C 396.6 458.62 368.44 452.59 368.44 440.57
+             L 368.44 421.44
+             L 330.12 421.44
+             C 315.69 421.44 304 415.38 304 407.93
+             Z"
+          fill="#ffffff" stroke="#ff7a00" stroke-width="14"/>
+  </g>
+</svg>

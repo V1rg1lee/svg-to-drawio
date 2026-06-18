@@ -16,19 +16,50 @@ jobs:
     # Only this job needs write - to upload release assets.
     permissions:
       contents: write
+    env:
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            os-label: Linux
-            artifact-name: svg-to-drawio-linux
-          - os: windows-latest
-            os-label: Windows
-            artifact-name: svg-to-drawio-windows
+          - os: ubuntu-24.04
+            os-label: Linux x64
+            artifact-name: svg-to-drawio-linux-x64
+            platform-family: linux
+            package-arch: x64
+            appimage-arch: x86_64
+            build-linux-installers: true
+            build-windows-installer: false
+          - os: ubuntu-24.04-arm
+            os-label: Linux ARM64
+            artifact-name: svg-to-drawio-linux-arm64
+            platform-family: linux
+            package-arch: arm64
+            appimage-arch: aarch64
+            build-linux-installers: true
+            build-windows-installer: false
+          - os: windows-2025
+            os-label: Windows x64
+            artifact-name: svg-to-drawio-windows-x64
+            platform-family: windows
+            package-arch: x64
+            build-linux-installers: false
+            build-windows-installer: true
+          - os: windows-11-arm
+            os-label: Windows ARM64
+            artifact-name: svg-to-drawio-windows-arm64
+            platform-family: windows
+            package-arch: arm64
+            build-linux-installers: false
+            build-windows-installer: true
           - os: macos-latest
             os-label: macOS
             artifact-name: svg-to-drawio-macos
+            platform-family: macos
+            package-arch: x64
+            build-linux-installers: false
+            build-windows-installer: false
 
     steps:
       # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
@@ -49,12 +80,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-desktop.txt
 
+      - name: Install Linux packaging dependencies
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends elfutils flatpak flatpak-builder gnupg rpm
+
       - name: Read application version
         id: version
         shell: bash
         run: |
           VERSION="$(python -c "from svg_to_drawio import __version__; print(__version__)")"
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Read Linux package architecture
+        if: matrix.platform-family == 'linux'
+        id: linux-arch
+        shell: bash
+        run: |
+          echo "value=$(dpkg --print-architecture)" >> "$GITHUB_OUTPUT"
 
       - name: Verify release tag matches package version
         if: github.event_name == 'release'
@@ -70,66 +115,154 @@ jobs:
         run: python build_desktop.py
 
       - name: Build Windows installer bundle
-        if: runner.os == 'Windows'
+        if: matrix.build-windows-installer
         run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-installer
+
+      - name: Build Linux installer bundle
+        if: matrix.build-linux-installers
+        run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-linux-package
 
       - name: Prepare release directory
         shell: bash
         run: mkdir -p dist/release
 
       - name: Install Inno Setup
-        if: runner.os == 'Windows'
+        if: matrix.build-windows-installer
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
       - name: Build Windows installer
-        if: runner.os == 'Windows'
+        if: matrix.build-windows-installer
         shell: pwsh
         run: >
           .\packaging\windows\build_installer.ps1
           -Version "${{ steps.version.outputs.value }}"
           -InputDir "dist\desktop-installer\svg-to-drawio"
           -OutputDir "dist\release"
+          -PackageArchitecture "${{ matrix.package-arch }}"
 
       - name: Download appimagetool
-        if: runner.os == 'Linux'
+        if: matrix.platform-family == 'linux'
         shell: bash
         run: |
           curl -L \
-            -o appimagetool-x86_64.AppImage \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          chmod +x packaging/linux/AppRun packaging/linux/build_appimage.sh
+            -o "appimagetool-${{ matrix.appimage-arch }}.AppImage" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          chmod +x "appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          chmod +x \
+            packaging/linux/AppRun \
+            packaging/linux/build_appimage.sh \
+            packaging/linux/build_deb.sh \
+            packaging/linux/build_rpm.sh \
+            packaging/linux/build_flatpak.sh
 
-      - name: Build Linux AppImage
-        if: runner.os == 'Linux'
+      - name: Import release GPG key for AppImage signing
+        if: matrix.platform-family == 'linux' && env.RELEASE_GPG_PRIVATE_KEY != ''
+        id: appimage-gpg-import
         shell: bash
         run: |
+          mkdir -p "$HOME/.gnupg"
+          chmod 700 "$HOME/.gnupg"
+
+          cat > "$HOME/.gnupg/gpg-agent.conf" <<'EOF'
+          allow-preset-passphrase
+          default-cache-ttl 7200
+          max-cache-ttl 7200
+          EOF
+
+          gpgconf --kill gpg-agent || true
+
+          printf '%s' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+
+          FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+          if [[ -z "$FINGERPRINT" ]]; then
+            echo "Unable to determine imported AppImage signing key fingerprint." >&2
+            exit 1
+          fi
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "default-key $FINGERPRINT"
+            echo "pinentry-mode loopback"
+          } >> "$HOME/.gnupg/gpg.conf"
+
+          if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
+            touch .appimage-signing-warmup
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$RELEASE_GPG_PASSPHRASE" \
+              --local-user "$FINGERPRINT" \
+              --armor --detach-sign \
+              --output .appimage-signing-warmup.asc \
+              .appimage-signing-warmup
+            rm -f .appimage-signing-warmup .appimage-signing-warmup.asc
+          fi
+
+      - name: Build Linux AppImage
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.appimage-arch }}
+        run: |
+          if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
+            export APPIMAGE_SIGN=1
+          else
+            export APPIMAGE_SIGN=0
+          fi
+
           packaging/linux/build_appimage.sh \
             dist/desktop/svg-to-drawio \
             "${{ steps.version.outputs.value }}" \
-            ./appimagetool-x86_64.AppImage \
-            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-x86_64.AppImage"
+            "./appimagetool-${{ matrix.appimage-arch }}.AppImage" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ matrix.package-arch }}.AppImage"
+
+      - name: Build Linux Debian package
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          packaging/linux/build_deb.sh \
+            dist/desktop-linux-package/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ steps.linux-arch.outputs.value }}.deb"
+
+      - name: Build Linux RPM package
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          RPM_ARCH="$(rpmbuild --eval '%{_arch}' | tr -d '\r' | tail -n 1)"
+          packaging/linux/build_rpm.sh \
+            dist/desktop-linux-package/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${RPM_ARCH}.rpm"
+
+      - name: Build Linux Flatpak bundle
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          FLATPAK_ARCH="$(flatpak --default-arch | tr -d '\r')"
+          packaging/linux/build_flatpak.sh \
+            dist/desktop-linux-package/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${FLATPAK_ARCH}.flatpak"
 
       - name: Archive bundle (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.platform-family == 'windows'
         shell: pwsh
         run: >
           Compress-Archive
           -Path dist\desktop\svg-to-drawio.exe
-          -DestinationPath dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows.zip
+          -DestinationPath dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows-${{ matrix.package-arch }}.zip
 
       - name: Archive bundle (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.platform-family == 'linux'
         shell: bash
         run: |
           tar -czf \
-            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux.tar.gz" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ matrix.package-arch }}.tar.gz" \
             -C dist/desktop \
             svg-to-drawio
 
       - name: Archive bundle (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.platform-family == 'macos'
         shell: bash
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
@@ -148,3 +281,201 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" --clobber dist/release/*
+
+  sign:
+    name: Sign release artifacts
+    runs-on: ubuntu-24.04
+    needs: build
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+
+    steps:
+      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: svg-to-drawio-*
+          merge-multiple: true
+          path: dist/release
+
+      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22  # v4.1.0
+
+      - name: Install GnuPG
+        if: env.RELEASE_GPG_PRIVATE_KEY != ''
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnupg
+
+      - name: Import release GPG key
+        if: env.RELEASE_GPG_PRIVATE_KEY != ''
+        id: gpg-import
+        shell: bash
+        run: |
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+
+          printf '%s' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+
+          FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+          if [[ -z "$FINGERPRINT" ]]; then
+            echo "Unable to determine imported GPG key fingerprint." >&2
+            exit 1
+          fi
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Generate checksums and signatures
+        shell: bash
+        env:
+          RELEASE_GPG_FINGERPRINT: ${{ steps.gpg-import.outputs.fingerprint }}
+        run: |
+          shopt -s nullglob
+          cd dist/release
+
+          mapfile -t artifacts < <(
+            find . -maxdepth 1 -type f \
+              ! -name '*.asc' \
+              ! -name '*.sigstore.json' \
+              ! -name 'SHA256SUMS.txt' \
+              ! -name 'svg-to-drawio-release-signing-key.asc' \
+              -printf '%f\n' | sort
+          )
+
+          if [[ "${#artifacts[@]}" -eq 0 ]]; then
+            echo "No release artifacts found to sign." >&2
+            exit 1
+          fi
+
+          VERSION="$(
+            printf '%s\n' "${artifacts[@]}" |
+            sed -nE 's/^svg-to-drawio-([0-9][0-9A-Za-z.+~-]*)-(windows|linux|macos).*/\1/p' |
+            head -n 1
+          )"
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to infer release version from artifacts." >&2
+            exit 1
+          fi
+
+          for artifact in "${artifacts[@]}"; do
+            cosign sign-blob --yes "$artifact" --bundle "${artifact}.sigstore.json"
+          done
+
+          if [[ -n "${RELEASE_GPG_FINGERPRINT:-}" ]]; then
+            gpg --batch --yes --armor --export "$RELEASE_GPG_FINGERPRINT" > svg-to-drawio-release-signing-key.asc
+            for artifact in "${artifacts[@]}"; do
+              if [[ "$artifact" == *.AppImage ]]; then
+                gpg_args=(
+                  --batch
+                  --yes
+                  --armor
+                  --detach-sign
+                  --local-user "$RELEASE_GPG_FINGERPRINT"
+                  --pinentry-mode loopback
+                )
+                if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
+                  gpg_args+=(--passphrase "$RELEASE_GPG_PASSPHRASE")
+                fi
+                gpg "${gpg_args[@]}" --output "${artifact}.asc" "$artifact"
+              fi
+            done
+          fi
+
+          BUNDLE_DIR="$(mktemp -d)"
+          cat > "$BUNDLE_DIR/README.txt" <<EOF
+          Advanced verification bundles for svg-to-drawio $VERSION
+
+          Contents:
+          - One Sigstore bundle per release artifact (*.sigstore.json)
+          - Detached GPG signatures for AppImage artifacts (*.AppImage.asc), if GPG signing is enabled
+
+          Typical basic verification flow:
+          1. Verify SHA256SUMS.txt with Sigstore or GPG
+          2. Run sha256sum -c SHA256SUMS.txt
+
+          Use the detailed bundles in this archive only if you want artifact-by-artifact Sigstore verification.
+          EOF
+
+          for artifact in "${artifacts[@]}"; do
+            cp "${artifact}.sigstore.json" "$BUNDLE_DIR/"
+            if [[ -f "${artifact}.asc" ]]; then
+              cp "${artifact}.asc" "$BUNDLE_DIR/"
+            fi
+          done
+
+          VERIFICATION_ZIP="svg-to-drawio-${VERSION}-verification-bundles.zip"
+          (
+            cd "$BUNDLE_DIR"
+            zip -q -r "../$VERIFICATION_ZIP" .
+          )
+          mv "$BUNDLE_DIR/../$VERIFICATION_ZIP" .
+          rm -rf "$BUNDLE_DIR"
+
+          : > SHA256SUMS.txt
+          for artifact in "${artifacts[@]}" "$VERIFICATION_ZIP"; do
+            sha256sum "$artifact" >> SHA256SUMS.txt
+          done
+
+          cosign sign-blob --yes SHA256SUMS.txt --bundle SHA256SUMS.txt.sigstore.json
+
+          if [[ -n "${RELEASE_GPG_FINGERPRINT:-}" ]]; then
+            gpg_args=(
+              --batch
+              --yes
+              --armor
+              --detach-sign
+              --local-user "$RELEASE_GPG_FINGERPRINT"
+              --pinentry-mode loopback
+            )
+            if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
+              gpg_args+=(--passphrase "$RELEASE_GPG_PASSPHRASE")
+            fi
+            gpg "${gpg_args[@]}" --output SHA256SUMS.txt.asc SHA256SUMS.txt
+          fi
+
+      - name: Upload verification assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: svg-to-drawio-release-verification
+          path: |
+            dist/release/SHA256SUMS.txt
+            dist/release/SHA256SUMS.txt.sigstore.json
+            dist/release/*-verification-bundles.zip
+
+      - name: Upload top-level GPG verification assets
+        if: env.RELEASE_GPG_PRIVATE_KEY != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: svg-to-drawio-release-gpg-verification
+          path: |
+            dist/release/SHA256SUMS.txt.asc
+            dist/release/svg-to-drawio-release-signing-key.asc
+
+      - name: Attach signature assets
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          cd dist/release
+          assets=(
+            SHA256SUMS.txt
+            SHA256SUMS.txt.sigstore.json
+            *-verification-bundles.zip
+          )
+          if [[ -f SHA256SUMS.txt.asc ]]; then
+            assets+=(SHA256SUMS.txt.asc)
+          fi
+          if [[ -f svg-to-drawio-release-signing-key.asc ]]; then
+            assets+=(svg-to-drawio-release-signing-key.asc)
+          fi
+          gh release upload "${{ github.ref_name }}" --repo "$GH_REPO" --clobber "${assets[@]}"

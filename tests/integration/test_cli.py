@@ -6,7 +6,7 @@ import io
 import json
 import tempfile
 import xml.etree.ElementTree as ET
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from os import makedirs, path
 
 import main
@@ -41,6 +41,21 @@ class CliTests(SvgTestCase):
             self.assertFalse(path.exists(path.join(output_dir, "bad.drawio")))
             self.assertIn("Failed:", stdout.getvalue())
             self.assertIn("Summary: 1 converted, 0 skipped, 1 failed", stdout.getvalue())
+
+    def test_cli_stdout_reports_a_clean_error_for_malformed_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "bad.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write("<svg")
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = main.run(svg_path, stdout=True)
+
+            self.assertEqual(code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("Error:", stderr.getvalue())
 
     def test_cli_overwrite_flag_controls_existing_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -2,6 +2,10 @@
 
 Turn any SVG into a real, editable [draw.io](https://app.diagrams.net/) diagram. Every shape, line, and text label becomes its own selectable cell - not a single flattened picture pasted onto the canvas.
 
+<p align="center">
+  <img src="assets/svg-to-drawio-demo.gif" alt="svg-to-drawio demo" width="1000">
+</p>
+
 - **Truly editable output** - rectangles, circles, paths, text, and groups all stay as native, movable draw.io cells.
 - **One engine, three ways in** - the CLI, the Python API, and the desktop app all share the exact same conversion logic, so results are identical everywhere.
 - **Smart fallbacks, not silent failures** - gradients, filters, masks, and clip-paths render natively whenever draw.io supports them, and fall back to a faithful embedded SVG image when it can't, instead of dropping detail.
@@ -10,6 +14,7 @@ Turn any SVG into a real, editable [draw.io](https://app.diagrams.net/) diagram.
 ## Where to go next
 
 - [Quick start](quickstart.md) - install the package and convert your first file.
+- [Desktop downloads](release-downloads.md) - choose the right desktop package and verify release assets.
 - [CLI reference](cli.md) - every command-line option, with examples.
 - [Python API](python-api.md) - use the conversion engine directly from your own code.
 - [Advanced rendering](advanced-rendering.md) - trade fidelity against editability for gradients, filters, and text.

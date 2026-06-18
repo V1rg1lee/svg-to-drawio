@@ -13,7 +13,10 @@ param(
 
     [string]$LicenseFile = "LICENSE",
 
-    [string]$SetupIconFile = "svg_to_drawio_desktop\assets\app_logo.ico"
+    [string]$SetupIconFile = "svg_to_drawio_desktop\assets\app_logo.ico",
+
+    [ValidateSet("x64", "arm64")]
+    [string]$PackageArchitecture = "x64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,8 +54,17 @@ if (-not $isccPath) {
 
 $arguments = @(
     "/DMyAppVersion=$Version",
-    "/DMyOutputDir=$resolvedOutputDir"
+    "/DMyOutputDir=$resolvedOutputDir",
+    "/DMyPackageArchitecture=$PackageArchitecture"
 )
+
+if ($PackageArchitecture -eq "arm64") {
+    $arguments += "/DMyArchitecturesAllowed=arm64"
+    $arguments += "/DMyArchitecturesInstallIn64BitMode=arm64"
+} else {
+    $arguments += "/DMyArchitecturesAllowed=x64compatible"
+    $arguments += "/DMyArchitecturesInstallIn64BitMode=x64compatible"
+}
 
 if ($resolvedExe) {
     $arguments += "/DMyAppSourceExe=$resolvedExe"

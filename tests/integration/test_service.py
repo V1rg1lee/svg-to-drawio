@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
+import time
+import unittest
 from os import path
+from unittest import mock
 
 from svg_to_drawio.conversion_service import (
     CancellationToken,
@@ -12,9 +16,17 @@ from svg_to_drawio.conversion_service import (
     ConversionEventKind,
     ConversionOptions,
     ConversionService,
+    event_watch_available,
+    resolve_watch_backend,
+    watch_svg_files,
 )
 
 from tests.helpers import SvgTestCase
+
+_SVG_TEMPLATE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+    '<rect x="0" y="0" width="10" height="10" fill="{color}" /></svg>'
+)
 
 
 class ConversionServiceTests(SvgTestCase):
@@ -108,3 +120,79 @@ class ConversionServiceTests(SvgTestCase):
             self.assertTrue(path.isfile(out_path))
             self.assertTrue(second.reports)
             self.assertTrue(second.reports[0].cached)
+
+
+class WatchBackendResolutionTests(SvgTestCase):
+    """Exercise the auto/poll/event watch-backend resolution logic in isolation."""
+
+    def test_poll_is_always_available(self) -> None:
+        self.assertEqual(resolve_watch_backend("poll"), "poll")
+
+    def test_event_backend_raises_when_watchdog_is_unavailable(self) -> None:
+        with mock.patch("svg_to_drawio.conversion_service.event_watch_available", return_value=False):
+            with self.assertRaises(RuntimeError):
+                resolve_watch_backend("event")
+
+    def test_event_backend_resolves_when_watchdog_is_available(self) -> None:
+        with mock.patch("svg_to_drawio.conversion_service.event_watch_available", return_value=True):
+            self.assertEqual(resolve_watch_backend("event"), "event")
+
+    def test_auto_falls_back_to_poll_without_watchdog(self) -> None:
+        with mock.patch("svg_to_drawio.conversion_service.event_watch_available", return_value=False):
+            self.assertEqual(resolve_watch_backend("auto"), "poll")
+
+    def test_auto_prefers_event_when_watchdog_is_available(self) -> None:
+        with mock.patch("svg_to_drawio.conversion_service.event_watch_available", return_value=True):
+            self.assertEqual(resolve_watch_backend("auto"), "event")
+
+    def test_event_watch_available_reflects_real_watchdog_installation(self) -> None:
+        # Sanity-checks the real (unmocked) probe against this environment instead of
+        # only ever exercising the mocked branches above.
+        self.assertIsInstance(event_watch_available(), bool)
+
+
+@unittest.skipUnless(event_watch_available(), "watchdog is not installed in this environment")
+class EventDrivenWatchTests(SvgTestCase):
+    """End-to-end exercise of the real watchdog-backed watch loop, not just its resolution."""
+
+    def _wait_until(self, predicate: object, timeout: float = 10.0, interval: float = 0.1) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():  # type: ignore[operator]
+                return True
+            time.sleep(interval)
+        return False
+
+    def test_event_backend_reconverts_on_file_modification(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            out_path = path.join(tmpdir, "diagram.drawio")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+
+            stop_event = threading.Event()
+            thread = threading.Thread(
+                target=watch_svg_files,
+                args=([svg_path], ConversionOptions(overwrite=True)),
+                kwargs={"backend": "event", "stop_event": stop_event},
+                daemon=True,
+            )
+            thread.start()
+            try:
+                initial_ready = self._wait_until(lambda: path.isfile(out_path))
+                self.assertTrue(initial_ready, "initial conversion never produced an output file")
+                first_mtime = os.stat(out_path).st_mtime_ns
+
+                time.sleep(0.2)  # ensure the modification below lands after the initial pass
+                with open(svg_path, "w", encoding="utf-8") as handle:
+                    handle.write(_SVG_TEMPLATE.format(color="#00ff00"))
+
+                reconverted = self._wait_until(lambda: os.stat(out_path).st_mtime_ns != first_mtime)
+                self.assertTrue(reconverted, "file modification was not picked up by the event watcher")
+
+                with open(out_path, encoding="utf-8") as handle:
+                    self.assertIn("#00FF00".lower(), handle.read().lower())
+            finally:
+                stop_event.set()
+                thread.join(timeout=5.0)
+                self.assertFalse(thread.is_alive(), "watcher thread did not stop after stop_event was set")
