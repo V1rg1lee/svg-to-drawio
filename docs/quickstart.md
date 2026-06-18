@@ -13,6 +13,12 @@ If you want the optional event-driven watch mode instead of polling:
 pip install "svg-to-drawio[watch]"
 ```
 
+If you want the best available text sizing backend in library / CLI environments too:
+
+```bash
+pip install "svg-to-drawio[text-metrics]"
+```
+
 By default, output is written next to the source file (`diagram.svg` -> `diagram.drawio`).
 
 Running from a repository checkout instead of an installed package works the same way:
@@ -59,3 +65,4 @@ python desktop_app.py
 
 - [CLI reference](cli.md) for every command-line option.
 - [Python API](python-api.md) to call the engine from your own code.
+- [Advanced rendering](advanced-rendering.md) for the shared presets and policy tradeoffs used by the CLI, API, and desktop app.

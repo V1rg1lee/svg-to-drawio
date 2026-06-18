@@ -37,6 +37,8 @@ class VisualStyle(TypedDict):
     baseline_shift: str
     dominant_baseline: str
     letter_spacing: str
+    text_length: float | None
+    length_adjust: str
     stroke_miterlimit: str
 
 
@@ -231,6 +233,8 @@ def get_visual(element: Element, computed_css: dict[str, str] | None = None) -> 
         "baseline_shift": get_attr("baseline-shift", "0") or "0",
         "dominant_baseline": get_attr("dominant-baseline", "alphabetic") or "alphabetic",
         "letter_spacing": get_attr("letter-spacing", "normal") or "normal",
+        "text_length": parse_length(get_attr("textLength")) if get_attr("textLength") else None,
+        "length_adjust": get_attr("lengthAdjust", "spacing") or "spacing",
         "stroke_miterlimit": get_attr("stroke-miterlimit", "4") or "4",
     }
 

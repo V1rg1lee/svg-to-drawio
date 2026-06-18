@@ -123,6 +123,105 @@ class DiagnosticsAndFallbackTests(SvgTestCase):
         self.assertIn("pattern-fallback", {issue.code for issue in report.issues})
         self.assertTrue(any(asset.status == "embedded-svg-fallback" for asset in report.assets))
 
+    def test_simple_grid_pattern_stays_native_and_records_pattern_simplification(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="140" height="90">
+          <defs>
+            <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
+              <rect width="12" height="12" fill="#f8fafc" />
+              <line x1="0" y1="0" x2="12" y2="0" stroke="#2563eb" stroke-width="1.5" />
+              <line x1="0" y1="0" x2="0" y2="12" stroke="#2563eb" stroke-width="1.5" />
+            </pattern>
+          </defs>
+          <rect x="10" y="10" width="84" height="48" fill="url(#grid)" stroke="#1e3a8a" stroke-width="2" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "pattern-native.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertFalse(any(self._style_map(cell).get("shape") == "image" for cell in cells))
+        self.assertTrue(any((cell.get("style") or "").startswith("group;") for cell in cells))
+        self.assertEqual(report.fallback_count, 0)
+        self.assertIn("pattern-simplified-native", {issue.code for issue in report.issues})
+
+    def test_mixed_pattern_artwork_falls_back_instead_of_dropping_unsupported_children(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="100">
+          <defs>
+            <pattern id="mixed" width="16" height="16" patternUnits="userSpaceOnUse">
+              <rect width="16" height="16" fill="#fff8e1" />
+              <path d="M -4 16 L 8 4 M 4 20 L 20 4 M 12 20 L 20 12" fill="none" stroke="#fb8c00" stroke-width="4" />
+              <circle cx="4" cy="4" r="2" fill="#6d4c41" />
+            </pattern>
+          </defs>
+          <rect x="10" y="10" width="120" height="60" fill="url(#mixed)" stroke="#5d4037" stroke-width="2" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "pattern-mixed.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertTrue(any(self._style_map(cell).get("shape") == "image" for cell in cells))
+        self.assertEqual(report.fallback_count, 1)
+        self.assertIn("pattern-fallback", {issue.code for issue in report.issues})
+
+    def test_simple_grid_pattern_reaches_the_target_right_and_bottom_edges(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="140" height="90">
+          <defs>
+            <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
+              <rect width="12" height="12" fill="#f8fafc" />
+              <line x1="0" y1="0" x2="12" y2="0" stroke="#2563eb" stroke-width="1.5" />
+              <line x1="0" y1="0" x2="0" y2="12" stroke="#2563eb" stroke-width="1.5" />
+            </pattern>
+          </defs>
+          <rect x="10" y="10" width="84" height="50" fill="url(#grid)" stroke="#1e3a8a" stroke-width="2" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "pattern-coverage.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path)
+
+        root = ET.fromstring(xml)
+        group = next(cell for cell in self._user_cells(root) if cell.get("style") == "group;")
+        line_cells = [
+            cell for cell in self._user_cells(root) if cell.get("parent") == group.get("id") and cell.get("edge") == "1"
+        ]
+
+        max_x = 0.0
+        max_y = 0.0
+        for cell in line_cells:
+            geometry = cell.find("mxGeometry")
+            self.assertIsNotNone(geometry)
+            assert geometry is not None
+            points = geometry.findall("mxPoint")
+            self.assertEqual(len(points), 2)
+            for point in points:
+                max_x = max(max_x, float(point.get("x", "0")))
+                max_y = max(max_y, float(point.get("y", "0")))
+
+        self.assertEqual(max_x, 84.0)
+        self.assertEqual(max_y, 50.0)
+
     def test_multi_stop_gradient_on_complex_path_is_approximated_natively(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="180" height="120">

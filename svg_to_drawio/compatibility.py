@@ -3,45 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, cast
 
-CompatibilityStatus = Literal["native", "approximate", "fallback", "ignored"]
-
-_STATUS_ORDER: dict[CompatibilityStatus, int] = {
-    "native": 0,
-    "approximate": 1,
-    "fallback": 2,
-    "ignored": 3,
-}
-
-_STATUS_LABELS: dict[CompatibilityStatus, str] = {
-    "native": "Editable",
-    "approximate": "Editable with simplification",
-    "fallback": "Embedded SVG fallback",
-    "ignored": "Not fully carried over",
-}
-
-
-@dataclass(frozen=True)
-class FeatureDefinition:
-    """Human-readable description of one compatibility feature family."""
-
-    key: str
-    label: str
-    description: str
-    native_message: str
-    approximate_message: str
-    fallback_message: str
-    ignored_message: str
-
-    def message_for(self, status: CompatibilityStatus) -> str:
-        """Return the end-user explanation for one feature status."""
-        return {
-            "native": self.native_message,
-            "approximate": self.approximate_message,
-            "fallback": self.fallback_message,
-            "ignored": self.ignored_message,
-        }[status]
+from .capability_registry import (
+    CompatibilityStatus,
+    FeatureDefinition,
+    feature_definition,
+    issue_observation_payload,
+    merge_status,
+    normalize_status,
+    status_label,
+)
 
 
 @dataclass(frozen=True)
@@ -85,7 +56,7 @@ class FeatureObservation:
             normalized_count = 1
         return cls(
             feature_key=str(payload.get("feature_key", "")),
-            status=_normalize_status(str(payload.get("status", "native"))),
+            status=normalize_status(str(payload.get("status", "native"))),
             detail=str(payload.get("detail", "")),
             count=max(1, normalized_count),
         )
@@ -135,218 +106,6 @@ class CompatibilityOverview:
         }
 
 
-_DEFAULT_FEATURE = FeatureDefinition(
-    key="other",
-    label="Other SVG features",
-    description="Miscellaneous SVG features noticed during conversion.",
-    native_message="This content stayed editable in draw.io.",
-    approximate_message="This content stayed editable, but the engine simplified it a little.",
-    fallback_message="This content was preserved as embedded SVG for visual fidelity.",
-    ignored_message="This content could not be fully carried over.",
-)
-
-_FEATURES: dict[str, FeatureDefinition] = {
-    "shapes": FeatureDefinition(
-        key="shapes",
-        label="Shapes and paths",
-        description="Rectangles, circles, ellipses, polygons, lines, and general paths.",
-        native_message="These shapes stayed as editable draw.io vectors.",
-        approximate_message="These shapes stayed editable, but a few geometry details were simplified.",
-        fallback_message="Some shapes were preserved as embedded SVG instead of editable vectors.",
-        ignored_message="Some shapes could not be carried over correctly.",
-    ),
-    "text": FeatureDefinition(
-        key="text",
-        label="Text labels",
-        description="SVG text, tspans, and text positioning.",
-        native_message="Text stayed editable as draw.io text labels.",
-        approximate_message="Text stayed editable, but some text layout details were approximated.",
-        fallback_message="Some text was preserved as embedded SVG instead of editable text.",
-        ignored_message="Some text layout features could not be carried over.",
-    ),
-    "gradients": FeatureDefinition(
-        key="gradients",
-        label="Gradients",
-        description="Linear, radial, and multi-stop gradients.",
-        native_message="Gradients stayed editable using draw.io gradient styles.",
-        approximate_message="Gradients stayed editable, but complex gradients were simplified.",
-        fallback_message="Some gradients were preserved as embedded SVG for visual fidelity.",
-        ignored_message="Some gradient information could not be carried over.",
-    ),
-    "filters": FeatureDefinition(
-        key="filters",
-        label="Filters and shadows",
-        description="SVG filter effects such as shadows and blur.",
-        native_message="Supported filters stayed editable with native draw.io styling.",
-        approximate_message="Some filter effects were dropped to keep nearby shapes editable.",
-        fallback_message="Some filter effects were preserved as embedded SVG.",
-        ignored_message="Some filter effects could not be carried over.",
-    ),
-    "clipping": FeatureDefinition(
-        key="clipping",
-        label="Clip paths and masks",
-        description="SVG clip paths and masking effects.",
-        native_message="Clip and mask effects stayed editable.",
-        approximate_message="Clip or mask effects stayed editable, but were simplified.",
-        fallback_message="Clip or mask effects were preserved as embedded SVG.",
-        ignored_message="Clip or mask effects could not be carried over.",
-    ),
-    "patterns": FeatureDefinition(
-        key="patterns",
-        label="Pattern fills",
-        description="Repeated SVG fills defined through `<pattern>`.",
-        native_message="Pattern fills stayed editable.",
-        approximate_message="Pattern fills stayed editable, but were simplified.",
-        fallback_message="Pattern fills were preserved as embedded SVG.",
-        ignored_message="Pattern fills could not be carried over.",
-    ),
-    "markers": FeatureDefinition(
-        key="markers",
-        label="Arrowheads and markers",
-        description="SVG marker-start, marker-mid, and marker-end shapes.",
-        native_message="Markers stayed editable as draw.io arrows.",
-        approximate_message="Markers stayed editable, but were matched to the closest draw.io arrows.",
-        fallback_message="Markers were preserved visually through embedded SVG.",
-        ignored_message="Some markers could not be carried over.",
-    ),
-    "images": FeatureDefinition(
-        key="images",
-        label="Images",
-        description="Embedded, local, or linked SVG image content.",
-        native_message="Images were kept as draw.io image cells.",
-        approximate_message="Images were kept, but some transform or loading details were simplified.",
-        fallback_message="Images were wrapped through SVG fallback for visual fidelity.",
-        ignored_message="Some images could not be loaded or embedded safely.",
-    ),
-    "references": FeatureDefinition(
-        key="references",
-        label="Reused SVG content",
-        description="Nested SVGs, symbols, and internal `<use>` references.",
-        native_message="Reused SVG content stayed editable after expansion.",
-        approximate_message="Reused SVG content stayed editable, but some structure was simplified.",
-        fallback_message="Some reused SVG content was preserved as embedded SVG.",
-        ignored_message="Some reused SVG content could not be carried over.",
-    ),
-    "unsupported": FeatureDefinition(
-        key="unsupported",
-        label="Unsupported SVG features",
-        description="Features that are outside the current native engine coverage.",
-        native_message="All encountered features were supported.",
-        approximate_message="Some unsupported features were approximated.",
-        fallback_message="Some unsupported features were preserved as embedded SVG.",
-        ignored_message="Some unsupported features were skipped or only partially preserved.",
-    ),
-    "limits": FeatureDefinition(
-        key="limits",
-        label="Large-file limits",
-        description="Truncation or safety limits applied during conversion.",
-        native_message="No conversion limits were triggered.",
-        approximate_message="The file stayed editable with a few safety simplifications.",
-        fallback_message="Some large fragments were preserved through fallback rendering.",
-        ignored_message="The file hit a conversion limit, so some content was not emitted.",
-    ),
-}
-
-_ISSUE_MAP: dict[str, tuple[str, CompatibilityStatus, str | None]] = {
-    "clip-path-simplified-native": (
-        "clipping",
-        "approximate",
-        "Simple clip paths were rewritten into editable replacement shapes.",
-    ),
-    "mask-simplified-native": (
-        "clipping",
-        "approximate",
-        "Simple masks were rewritten into editable replacement shapes.",
-    ),
-    "clip-path-fallback": ("clipping", "fallback", "Clip paths were preserved as embedded SVG."),
-    "mask-fallback": ("clipping", "fallback", "Masks were preserved as embedded SVG."),
-    "pattern-fallback": ("patterns", "fallback", "Pattern fills were preserved as embedded SVG."),
-    "filter-fallback": ("filters", "fallback", "Filter effects were preserved as embedded SVG."),
-    "filter-ignored-for-editability": (
-        "filters",
-        "approximate",
-        "Unsupported filters were dropped to keep nearby shapes editable.",
-    ),
-    "multi-stop-gradient-fallback": (
-        "gradients",
-        "fallback",
-        "Complex gradients were preserved as embedded SVG.",
-    ),
-    "multi-stop-gradient-reduced": (
-        "gradients",
-        "approximate",
-        "Complex gradients were simplified to stay editable.",
-    ),
-    "text-backend-heuristic": (
-        "text",
-        "approximate",
-        "Text box sizes were estimated with the built-in heuristic.",
-    ),
-    "text-backend-system": (
-        "text",
-        "native",
-        "Text box sizes were measured with a real system font backend.",
-    ),
-    "text-path-approximated": (
-        "text",
-        "approximate",
-        "Text on a path was flattened into regular editable text.",
-    ),
-    "dominant-baseline-approximated": (
-        "text",
-        "approximate",
-        "Dominant-baseline alignment was approximated.",
-    ),
-    "letter-spacing-ignored": (
-        "text",
-        "ignored",
-        "Letter spacing is not preserved natively in draw.io text.",
-    ),
-    "image-shear-approximated": (
-        "images",
-        "approximate",
-        "Sheared images were placed using their transformed bounding box.",
-    ),
-    "image-remote-linked": (
-        "images",
-        "approximate",
-        "Remote images stay linked instead of being embedded locally.",
-    ),
-    "max-elements-truncated": (
-        "limits",
-        "ignored",
-        "The element limit was reached, so the output was truncated.",
-    ),
-    "fallback-bounds-missing": (
-        "limits",
-        "ignored",
-        "One SVG fallback fragment could not be positioned safely.",
-    ),
-}
-
-
-def _normalize_status(value: str) -> CompatibilityStatus:
-    """Clamp a raw status string into one of the supported compatibility statuses."""
-    if value in _STATUS_ORDER:
-        return cast(CompatibilityStatus, value)
-    return "native"
-
-
-def feature_definition(feature_key: str) -> FeatureDefinition:
-    """Return the registered user-facing definition for one feature family."""
-    return _FEATURES.get(feature_key, _DEFAULT_FEATURE)
-
-
-def status_label(status: CompatibilityStatus) -> str:
-    """Return the short user-facing label for one compatibility status."""
-    return _STATUS_LABELS[status]
-
-
-def merge_status(left: CompatibilityStatus, right: CompatibilityStatus) -> CompatibilityStatus:
-    """Return the visually riskier of two compatibility statuses."""
-    return left if _STATUS_ORDER[left] >= _STATUS_ORDER[right] else right
-
-
 def observation_from_issue(
     code: str,
     message: str,
@@ -354,16 +113,11 @@ def observation_from_issue(
     element_tag: str | None = None,
 ) -> FeatureObservation | None:
     """Return a user-facing feature observation for one diagnostic issue code."""
-    mapped = _ISSUE_MAP.get(code)
-    if mapped is not None:
-        feature_key, status, detail = mapped
-        return FeatureObservation(feature_key=feature_key, status=status, detail=detail or message)
-    if code == "ignored-unsupported-element":
-        detail = f"The SVG uses <{element_tag}> which is not supported natively." if element_tag else message
-        return FeatureObservation(feature_key="unsupported", status="ignored", detail=detail)
-    if code in {"conversion-failed", "analysis-failed"}:
-        return FeatureObservation(feature_key="unsupported", status="ignored", detail=message)
-    return None
+    payload = issue_observation_payload(code, message, element_tag=element_tag)
+    if payload is None:
+        return None
+    feature_key, status, detail = payload
+    return FeatureObservation(feature_key=feature_key, status=status, detail=detail)
 
 
 def observation_from_asset(
@@ -405,6 +159,24 @@ def note_text_backend(backend: str) -> FeatureObservation:
             status="approximate",
             detail="Text box sizes were estimated with the built-in heuristic.",
         )
+    if backend == "qt":
+        return FeatureObservation(
+            feature_key="text",
+            status="native",
+            detail="Text box sizes were measured with Qt text shaping and font metrics.",
+        )
+    if backend == "pillow":
+        return FeatureObservation(
+            feature_key="text",
+            status="native",
+            detail="Text box sizes were measured with Pillow using a real font file.",
+        )
+    if backend == "tk":
+        return FeatureObservation(
+            feature_key="text",
+            status="native",
+            detail="Text box sizes were measured with Tk system font metrics.",
+        )
     return FeatureObservation(
         feature_key="text",
         status="native",
@@ -427,18 +199,29 @@ def note_gradient_usage(*, approximated: bool) -> FeatureObservation:
     )
 
 
-def note_filter_usage(*, native: bool) -> FeatureObservation:
+def note_filter_usage(
+    *,
+    native: bool,
+    approximated: bool = False,
+    detail: str | None = None,
+) -> FeatureObservation:
     """Return the user-facing observation for one encountered filter."""
+    if approximated:
+        return FeatureObservation(
+            feature_key="filters",
+            status="approximate",
+            detail=detail or "SVG filters were simplified to the closest native draw.io shadow or glow.",
+        )
     if native:
         return FeatureObservation(
             feature_key="filters",
             status="native",
-            detail="Supported shadows were mapped to native draw.io styling.",
+            detail=detail or "Supported shadows were mapped to native draw.io styling.",
         )
     return FeatureObservation(
         feature_key="filters",
         status="fallback",
-        detail="Filter effects were preserved through embedded SVG fallback.",
+        detail=detail or "Filter effects were preserved through embedded SVG fallback.",
     )
 
 
@@ -578,3 +361,27 @@ def build_compatibility_overview(rows: list[CompatibilityRow]) -> CompatibilityO
         headline="Everything in this SVG stayed editable in draw.io.",
         summary=f"All {editable_count} detected feature area(s) converted natively.",
     )
+
+
+__all__ = [
+    "CompatibilityOverview",
+    "CompatibilityRow",
+    "CompatibilityStatus",
+    "FeatureDefinition",
+    "FeatureObservation",
+    "build_compatibility_overview",
+    "build_compatibility_rows",
+    "feature_definition",
+    "merge_status",
+    "note_feature",
+    "note_filter_usage",
+    "note_gradient_usage",
+    "note_image_usage",
+    "note_marker_usage",
+    "note_reference_usage",
+    "note_shape_usage",
+    "note_text_backend",
+    "observation_from_asset",
+    "observation_from_issue",
+    "status_label",
+]

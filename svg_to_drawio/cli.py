@@ -11,7 +11,7 @@ from os import PathLike, path
 from typing import Literal, cast
 
 from . import REPORT_SCHEMA_VERSION, __version__
-from .capabilities import capability_keys
+from .capabilities import capability_keys, rendering_preflight_lines
 from .conversion_service import (
     ConversionEvent,
     ConversionEventKind,
@@ -28,6 +28,9 @@ from .rendering_options import (
     as_filter_policy,
     as_gradient_policy,
     as_text_metrics_policy,
+    detect_rendering_preset,
+    rendering_preset_label,
+    rendering_preset_options,
 )
 
 
@@ -47,6 +50,33 @@ def _print_compatibility(report: ConversionReport, *, show_all_rows: bool) -> No
         print(f"  - {remaining} more compatibility detail row(s) omitted for brevity.")
 
 
+def _resolve_rendering_options(
+    *,
+    rendering_preset: str | None,
+    gradient_policy: str | None,
+    filter_policy: str | None,
+    text_metrics_policy: str | None,
+) -> RenderingOptions:
+    """Merge an optional preset with any explicit per-policy overrides."""
+    base = rendering_preset_options(rendering_preset) if rendering_preset is not None else RenderingOptions()
+    return RenderingOptions(
+        gradient_policy=as_gradient_policy(gradient_policy or base.gradient_policy),
+        filter_policy=as_filter_policy(filter_policy or base.filter_policy),
+        text_metrics_policy=as_text_metrics_policy(text_metrics_policy or base.text_metrics_policy),
+    )
+
+
+def _print_rendering_selection(options: RenderingOptions) -> None:
+    """Explain the active rendering configuration in the same plain English used by the desktop app."""
+    preset = detect_rendering_preset(options)
+    if preset is None:
+        print("Rendering preset: Custom")
+    else:
+        print(f"Rendering preset: {rendering_preset_label(preset)}")
+    for line in rendering_preflight_lines(options):
+        print(f"  - {line}")
+
+
 def run(
     input_path: str | PathLike[str] | Sequence[str | PathLike[str]] | None,
     output_dir: str | PathLike[str] | None = None,
@@ -59,9 +89,10 @@ def run(
     report_json: str | PathLike[str] | None = None,
     analyze: bool = False,
     use_cache: bool = True,
-    gradient_policy: str = "auto",
-    filter_policy: str = "auto",
-    text_metrics_policy: str = "auto",
+    rendering_preset: str | None = None,
+    gradient_policy: str | None = None,
+    filter_policy: str | None = None,
+    text_metrics_policy: str | None = None,
     fail_on_warning: bool = False,
     fail_on_fallback: bool = False,
     min_score: int | None = None,
@@ -91,10 +122,11 @@ def run(
         print(f'Error: "{missing[0]}" does not exist.')
         return 1
 
-    rendering_options = RenderingOptions(
-        gradient_policy=as_gradient_policy(gradient_policy),
-        filter_policy=as_filter_policy(filter_policy),
-        text_metrics_policy=as_text_metrics_policy(text_metrics_policy),
+    rendering_options = _resolve_rendering_options(
+        rendering_preset=rendering_preset,
+        gradient_policy=gradient_policy,
+        filter_policy=filter_policy,
+        text_metrics_policy=text_metrics_policy,
     )
     try:
         required_native = validate_required_capabilities(list(require_native))
@@ -175,6 +207,7 @@ def run(
             write_report(batch_payload("analyze", reports))
             return 0
 
+        _print_rendering_selection(rendering_options)
         print(f"Analyzing {len(jobs)} SVG file(s)...")
         for job in jobs:
             try:
@@ -225,6 +258,7 @@ def run(
         resolved_watch_backend = cast(Literal["auto", "poll", "event"], watch_backend)
         backend_name = resolve_watch_backend(resolved_watch_backend)
         watched_label = resolved_inputs[0] if len(resolved_inputs) == 1 else f"{len(resolved_inputs)} input path(s)"
+        _print_rendering_selection(rendering_options)
         print(f'Watching "{watched_label}" for changes using the {backend_name} backend... (Ctrl+C to stop)')
         try:
             watch_svg_files(resolved_inputs, options, reporter=emit_progress, backend=resolved_watch_backend)
@@ -233,6 +267,7 @@ def run(
         return 0
 
     service = ConversionService()
+    _print_rendering_selection(rendering_options)
     if workers > 1:
         summary = service.convert_parallel(resolved_inputs, options, reporter=emit_progress, max_workers=workers)
     else:
@@ -280,21 +315,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Warn and truncate output after N drawable elements (useful for very large SVGs)",
     )
     parser.add_argument(
+        "--rendering-preset",
+        choices=("balanced", "editability", "fidelity"),
+        default=None,
+        help="Apply the same beginner-friendly rendering preset used by the desktop app and Python API",
+    )
+    parser.add_argument(
         "--gradient-policy",
         choices=("auto", "prefer-native", "prefer-fallback"),
-        default="auto",
+        default=None,
         help="Choose how multi-stop gradients trade editability against visual fidelity",
     )
     parser.add_argument(
         "--filter-policy",
         choices=("auto", "prefer-native", "force-fallback"),
-        default="auto",
+        default=None,
         help="Choose whether SVG filters prefer native editability or embedded SVG fallback",
     )
     parser.add_argument(
         "--text-metrics-policy",
         choices=("auto", "system", "heuristic"),
-        default="auto",
+        default=None,
         help="Choose how text bounds are measured when sizing draw.io text cells",
     )
     parser.add_argument("--workers", type=int, default=1, metavar="N", help="Convert files in parallel with N workers")
@@ -351,6 +392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_json=args.report_json,
         analyze=args.analyze,
         use_cache=args.use_cache,
+        rendering_preset=args.rendering_preset,
         gradient_policy=args.gradient_policy,
         filter_policy=args.filter_policy,
         text_metrics_policy=args.text_metrics_policy,

@@ -64,7 +64,7 @@ def emit_polygon_stencil(
     add_gradient_styles(style, gradient)
     style.extend_raw(dash)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, filter_ref)
+    add_filter_styles(style, ctx, elem, filter_ref, fallback_color=fill if fill != "none" else stroke)
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
 
@@ -112,7 +112,7 @@ def emit_stencil_commands(
     add_gradient_styles(style, gradient)
     style.extend_raw(dash)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, filter_ref)
+    add_filter_styles(style, ctx, elem, filter_ref, fallback_color=fill if fill != "none" else stroke)
     box = bounds_from_points(((bx, by), (bx + bw, by + bh)))
     ctx.add(make_box_vertex(ctx, style.build(), box))
 

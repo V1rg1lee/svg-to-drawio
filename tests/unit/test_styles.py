@@ -185,6 +185,136 @@ class StyleAndTextTests(SvgTestCase):
                 float(first.find("mxGeometry").get("x")),
             )
 
+    def test_letter_spacing_uses_positioned_editable_glyphs(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="220" height="100">
+          <text x="20" y="50" font-size="20" letter-spacing="8" fill="#b45309">TRACK</text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertTrue(any(cell.get("style") == "group;" for cell in cells))
+            glyph_cells = [cell for cell in cells if cell.get("value") in set("TRACK")]
+            self.assertGreaterEqual(len(glyph_cells), 5)
+
+    def test_text_length_uses_positioned_editable_glyphs(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="260" height="100">
+          <text x="20" y="50" font-size="20" textLength="150" fill="#0f766e">STRETCH</text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertTrue(any(cell.get("style") == "group;" for cell in cells))
+            glyph_cells = [cell for cell in cells if cell.get("value") in set("STRETCH")]
+            self.assertGreaterEqual(len(glyph_cells), 7)
+
+    def test_text_path_uses_rotated_positioned_glyphs(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="220" height="120">
+          <defs>
+            <path id="curve" d="M 20 90 C 70 20 150 20 200 90" />
+          </defs>
+          <text x="20" y="90" font-size="18" font-family="Georgia" fill="#1d4ed8">
+            <textPath href="#curve">Curved text</textPath>
+          </text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertTrue(any(cell.get("style") == "group;" for cell in cells))
+            glyph_cells = [cell for cell in cells if cell.get("value") in set("Curved text")]
+            self.assertGreaterEqual(len(glyph_cells), 9)
+
+            rotations = [
+                float(self._style_map(cell)["rotation"]) for cell in glyph_cells if "rotation" in self._style_map(cell)
+            ]
+            self.assertGreater(len(rotations), 5)
+            self.assertGreater(max(rotations) - min(rotations), 20.0)
+
+            ys = [
+                float(cell.find("mxGeometry").get("y")) for cell in glyph_cells if cell.find("mxGeometry") is not None
+            ]
+            self.assertGreater(max(ys) - min(ys), 10.0)
+
+    def test_text_path_honors_positive_and_negative_start_offset(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="260" height="120">
+          <defs>
+            <path id="line" d="M 20 60 L 220 60" />
+          </defs>
+          <text x="20" y="60" font-size="18" fill="#dc2626">
+            <textPath href="#line" startOffset="50%">MID</textPath>
+          </text>
+          <text x="20" y="60" font-size="18" fill="#2563eb">
+            <textPath href="#line" startOffset="-18">NEG</textPath>
+          </text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+
+            red_cells = [cell for cell in cells if self._style_map(cell).get("fontColor") == "#dc2626"]
+            blue_cells = [cell for cell in cells if self._style_map(cell).get("fontColor") == "#2563eb"]
+
+            self.assertGreaterEqual(len(red_cells), 3)
+            self.assertGreaterEqual(len(blue_cells), 3)
+
+            red_left = min(self._absolute_cell_position(root, cell)[0] for cell in red_cells)
+            blue_left = min(self._absolute_cell_position(root, cell)[0] for cell in blue_cells)
+
+            self.assertGreater(red_left, 95.0)
+            self.assertLess(blue_left, 20.0)
+
+    def test_text_path_preserves_tspan_styles_and_normal_offsets(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="280" height="140">
+          <defs>
+            <path id="line" d="M 20 80 L 240 80" />
+          </defs>
+          <text x="20" y="80" font-size="18" font-family="Georgia" fill="#111827">
+            <textPath href="#line">
+              Base <tspan fill="#dc2626" font-weight="bold">RED</tspan><tspan
+                dx="12" dy="-10" fill="#2563eb" font-size="14" baseline-shift="super"
+              >UP</tspan>
+            </textPath>
+          </text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+
+            red_cells = [cell for cell in cells if self._style_map(cell).get("fontColor") == "#dc2626"]
+            blue_cells = [cell for cell in cells if self._style_map(cell).get("fontColor") == "#2563eb"]
+
+            self.assertGreaterEqual(len(red_cells), 3)
+            self.assertGreaterEqual(len(blue_cells), 2)
+            self.assertTrue(any(self._style_map(cell).get("fontStyle") == "1" for cell in red_cells))
+            self.assertTrue(any(self._style_map(cell).get("fontSize") == "14.0" for cell in blue_cells))
+
+            red_right = max(self._absolute_cell_position(root, cell)[0] for cell in red_cells)
+            blue_left = min(self._absolute_cell_position(root, cell)[0] for cell in blue_cells)
+            red_avg_y = sum(self._absolute_cell_position(root, cell)[1] for cell in red_cells) / len(red_cells)
+            blue_avg_y = sum(self._absolute_cell_position(root, cell)[1] for cell in blue_cells) / len(blue_cells)
+            red_center_ys: list[float] = []
+            for cell in red_cells:
+                geometry = cell.find("mxGeometry")
+                self.assertIsNotNone(geometry)
+                assert geometry is not None
+                red_center_ys.append(
+                    self._absolute_cell_position(root, cell)[1] + float(geometry.get("height", "0")) / 2.0
+                )
+            red_avg_center_y = sum(red_center_ys) / len(red_center_ys)
+
+            self.assertGreater(blue_left, red_right)
+            self.assertLess(blue_avg_y, red_avg_y)
+            self.assertLess(red_avg_center_y, 77.0)
+
     def test_gradient_href_geometry_override_derives_correct_direction(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">
@@ -322,6 +452,52 @@ class StyleAndTextTests(SvgTestCase):
             self.assertEqual(styles["shadowOpacity"], "25")
             self.assertEqual(styles["shadowOffsetX"], "3")
             self.assertEqual(styles["shadowOffsetY"], "4")
+
+    def test_classic_shadow_filter_chain_is_mapped(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="90">
+          <defs>
+            <filter id="shadow-chain">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur" />
+              <feOffset in="blur" dx="4" dy="5" result="offset" />
+              <feFlood flood-color="#345678" flood-opacity="0.35" result="shadow-color" />
+              <feComposite in="shadow-color" in2="offset" operator="in" result="shadow" />
+              <feMerge>
+                <feMergeNode in="shadow" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <rect x="10" y="10" width="50" height="30" fill="#22c55e" filter="url(#shadow-chain)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            styles = self._style_map(self._user_cells(root)[0])
+            self.assertEqual(styles["shadow"], "1")
+            self.assertEqual(styles["shadowColor"], "#345678")
+            self.assertEqual(styles["shadowOpacity"], "35")
+            self.assertEqual(styles["shadowOffsetX"], "4")
+            self.assertEqual(styles["shadowOffsetY"], "5")
+
+    def test_offset_only_filter_is_mapped_to_a_native_shadow_approximation(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="90">
+          <defs>
+            <filter id="offset-only">
+              <feOffset dx="5" dy="2" />
+            </filter>
+          </defs>
+          <rect x="10" y="10" width="50" height="30" fill="#22c55e" filter="url(#offset-only)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            styles = self._style_map(self._user_cells(root)[0])
+            self.assertEqual(styles["shadow"], "1")
+            self.assertEqual(styles["shadowColor"], "#22c55e")
+            self.assertEqual(styles["shadowOffsetX"], "5")
+            self.assertEqual(styles["shadowOffsetY"], "2")
 
     def test_link_with_query_string_produces_valid_drawio_xml(self) -> None:
         svg = """

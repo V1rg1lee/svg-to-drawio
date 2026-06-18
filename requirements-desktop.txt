@@ -1,2 +1,3 @@
+Pillow>=10.0
 PySide6>=6.8
 PyInstaller>=6.0

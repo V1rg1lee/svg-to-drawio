@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 if [[ $# -ne 3 ]]; then
     echo "Usage: $0 <bundle-dir> <version> <output-path>" >&2
     exit 1
@@ -9,46 +12,19 @@ fi
 BUNDLE_DIR="$(readlink -f "$1")"
 VERSION="$2"
 OUTPUT_ARG="$3"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DESKTOP_FILE="$SCRIPT_DIR/io.github.v1rg1lee.svg-to-drawio.desktop"
-METAINFO_FILE="$SCRIPT_DIR/io.github.v1rg1lee.svg-to-drawio.metainfo.xml"
-ICON_PNG="$REPO_ROOT/svg_to_drawio_desktop/assets/app_logo_256x256.png"
-ICON_SVG="$REPO_ROOT/svg_to_drawio_desktop/assets/app_logo.svg"
-LICENSE_FILE="$REPO_ROOT/LICENSE"
-PACKAGE_NAME="svg-to-drawio"
-APP_ID="io.github.v1rg1lee.svg-to-drawio"
 ARCHITECTURE="${RPM_ARCHITECTURE:-$(rpmbuild --eval '%{_arch}' | tr -d '\r' | tail -n 1)}"
 PACKAGER="${RPM_PACKAGER:-V1rg1lee <noreply@github.com>}"
+OUTPUT_PATH="$(resolve_output_path "$OUTPUT_ARG")"
 
-mkdir -p "$(dirname "$OUTPUT_ARG")"
-OUTPUT_DIR="$(cd "$(dirname "$OUTPUT_ARG")" && pwd)"
-OUTPUT_PATH="$OUTPUT_DIR/$(basename "$OUTPUT_ARG")"
-
-if [[ ! -d "$BUNDLE_DIR" ]]; then
-    echo "Bundle directory not found: $BUNDLE_DIR" >&2
-    exit 1
-fi
-
-if [[ ! -x "$BUNDLE_DIR/svg-to-drawio" ]]; then
-    echo "Expected executable not found in bundle: $BUNDLE_DIR/svg-to-drawio" >&2
-    exit 1
-fi
-
-required_assets=("$DESKTOP_FILE" "$METAINFO_FILE" "$ICON_PNG" "$ICON_SVG" "$LICENSE_FILE")
-missing_assets=()
-for asset in "${required_assets[@]}"; do
-    if [[ ! -f "$asset" ]]; then
-        missing_assets+=("$asset")
-    fi
-done
-
-if (( ${#missing_assets[@]} > 0 )); then
-    echo "Linux packaging assets are incomplete. Missing:" >&2
-    printf '  - %s\n' "${missing_assets[@]}" >&2
-    exit 1
-fi
+require_bundle_directory "$BUNDLE_DIR"
+require_bundle_entrypoint "$BUNDLE_DIR"
+require_files_present \
+    "Linux packaging assets are incomplete. Missing:" \
+    "$DESKTOP_FILE" \
+    "$METAINFO_FILE" \
+    "$ICON_PNG" \
+    "$ICON_SVG" \
+    "$LICENSE_FILE"
 
 if ! command -v rpmbuild >/dev/null 2>&1; then
     echo "rpmbuild is required to build an .rpm package." >&2

@@ -92,7 +92,7 @@ class RenderingOptionsTests(SvgTestCase):
         <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
           <defs>
             <filter id="blur">
-              <feGaussianBlur stdDeviation="3" />
+              <feGaussianBlur stdDeviation="8" />
             </filter>
           </defs>
           <rect x="10" y="10" width="80" height="50" fill="#00bcd4" filter="url(#blur)" />
@@ -115,6 +115,32 @@ class RenderingOptionsTests(SvgTestCase):
         self.assertFalse(any(self._style_map(cell).get("shape") == "image" for cell in cells))
         self.assertEqual(report.fallback_count, 0)
         self.assertIn("filter-ignored-for-editability", {issue.code for issue in report.issues})
+
+    def test_light_blur_filter_uses_svg_fallback_in_auto_mode(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">
+          <defs>
+            <filter id="blur">
+              <feGaussianBlur stdDeviation="3" />
+            </filter>
+          </defs>
+          <rect x="10" y="10" width="80" height="50" fill="#00bcd4" filter="url(#blur)" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "filter-auto.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            xml = converter.convert_to_string(svg_path, rendering_options=RenderingOptions())
+            report = converter.get_report()
+
+        root = ET.fromstring(xml)
+        cells = self._user_cells(root)
+        self.assertTrue(any(self._style_map(cell).get("shape") == "image" for cell in cells))
+        self.assertEqual(report.fallback_count, 1)
+        self.assertIn("filter-fallback", {issue.code for issue in report.issues})
 
     def test_force_fallback_filter_wraps_supported_shadow_in_embedded_svg(self) -> None:
         svg = """

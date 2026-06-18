@@ -2,6 +2,8 @@
 
 This project converts SVG files into editable draw.io diagrams - as a CLI, a Python library, and a desktop app sharing the same conversion engine. It targets Python 3.11+. If your contribution is outside that scope (a different output format, a different input format, a web service, etc.), open an issue first to discuss it before writing code.
 
+By participating in this project, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Found a security vulnerability instead of a regular bug? See [SECURITY.md](SECURITY.md) and report it privately rather than opening a public issue.
+
 ## Setup
 
 ```bash
@@ -30,6 +32,10 @@ python -m tests.regenerate_fixtures
 The fixture baseline is generated with `text_metrics_policy="heuristic"` on purpose, so it stays identical across Windows, Linux, and CI runners regardless of installed system fonts. Don't regenerate it with a different policy.
 
 Tests live under `tests/unit/` (rendering, styles, transforms, compatibility, fuzzing) and `tests/integration/` (CLI, end-to-end conversions, the conversion service). Add tests next to the existing ones that cover the same area rather than creating a new top-level test module.
+
+## Questions and ideas
+
+Not a bug, not a concrete feature request yet? Use [Discussions](https://github.com/V1rg1lee/svg-to-drawio/discussions) instead of an issue - usage questions, troubleshooting, and "would this be in scope" ideas belong there, not in the issue tracker.
 
 ## Reporting a bug
 

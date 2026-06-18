@@ -299,7 +299,7 @@ def _emit_filled_shape(
     style.add("opacity", opacity).add("fillOpacity", fill_opacity).add("strokeOpacity", 100)
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, filter_ref)
+    add_filter_styles(style, ctx, elem, filter_ref, fallback_color=color)
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
 
@@ -338,7 +338,7 @@ def _emit_shape_stroke_overlay(
     style.extend_raw(dash)
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, filter_ref)
+    add_filter_styles(style, ctx, elem, filter_ref, fallback_color=stroke)
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
 

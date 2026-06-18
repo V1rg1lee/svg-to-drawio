@@ -84,7 +84,7 @@ def _emit_open_path_as_edge(
     style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
     style.extend_raw(visual["dash_style"])
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=stroke_color)
     ctx.add(make_edge(ctx, style.build(), src, tgt, waypoints=mid))
 
     marker_size = max(stroke_width * 4.0, 8.0)
@@ -177,5 +177,11 @@ def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     add_gradient_styles(style, gradient)
     style.extend_raw(visual["dash_style"])
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(
+        style,
+        ctx,
+        elem,
+        visual["filter"],
+        fallback_color=fill if fill != "none" else stroke_color,
+    )
     ctx.add(make_bounds_vertex(ctx, style.build(), bx, by, bw, bh))

@@ -25,6 +25,16 @@ xml = convert_to_string(
 
 [`convert_file_result`](api-reference.md#svg_to_drawio.convert_file_result), [`convert_to_string_result`](api-reference.md#svg_to_drawio.convert_to_string_result), [`convert_svg_string_result`](api-reference.md#svg_to_drawio.convert_svg_string_result), and [`convert_svg_bytes_result`](api-reference.md#svg_to_drawio.convert_svg_bytes_result) all return a [`ConversionResult`](api-reference.md#svg_to_drawio.ConversionResult) pairing the output with its full diagnostics report, instead of just a path or a string.
 
+The same beginner-friendly presets exposed by the desktop app are also available programmatically:
+
+```python
+from svg_to_drawio import rendering_preflight_lines, rendering_preset_options
+
+options = rendering_preset_options("editability")
+for line in rendering_preflight_lines(options):
+    print(line)
+```
+
 ## In-memory conversions
 
 For web backends, notebooks, or CI transforms that already hold SVG content in memory rather than on disk:

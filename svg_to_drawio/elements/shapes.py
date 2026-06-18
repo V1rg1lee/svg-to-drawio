@@ -85,7 +85,7 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
             style.add("strokeOpacity", stroke_opacity)
             style.extend_raw(visual["dash_style"])
             add_metadata_styles(style, elem, ctx)
-            add_filter_styles(style, ctx, visual["filter"])
+            add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=stroke_color)
             ctx.add(make_bounds_vertex(ctx, style.build(), bx, by, bw, bh))
         return
 
@@ -97,7 +97,7 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
     style.extend_raw(visual["dash_style"])
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=stroke_color)
     ctx.add(make_edge(ctx, style.build(), (x1, y1), (x2, y2)))
     marker_size = max(stroke_width * 4.0, 8.0)
     if start_shape is not None:
@@ -194,7 +194,7 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
     style.extend_raw(visual["dash_style"])
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=fill if fill != "none" else stroke)
 
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
@@ -272,7 +272,7 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
     style.extend_raw(visual["dash_style"])
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=fill if fill != "none" else stroke)
 
     ctx.add(make_box_vertex(ctx, style.build(), box))
 
@@ -380,6 +380,6 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     style.extend_raw(visual["dash_style"])
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=fill if fill != "none" else stroke)
 
     ctx.add(make_box_vertex(ctx, style.build(), box))

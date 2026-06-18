@@ -122,6 +122,11 @@ jobs:
         if: matrix.build-linux-installers
         run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-linux-package
 
+      - name: Prune optional Qt plugins from Linux installer bundle
+        if: matrix.build-linux-installers
+        shell: bash
+        run: bash packaging/linux/prune_bundle.sh dist/desktop-linux-package/svg-to-drawio
+
       - name: Prepare release directory
         shell: bash
         run: mkdir -p dist/release
@@ -151,11 +156,15 @@ jobs:
           chmod +x "appimagetool-${{ matrix.appimage-arch }}.AppImage"
           chmod +x \
             packaging/linux/AppRun \
+            packaging/linux/common.sh \
             packaging/linux/build_appimage.sh \
             packaging/linux/build_deb.sh \
             packaging/linux/build_rpm.sh \
             packaging/linux/build_rpm_in_fedora_container.sh \
-            packaging/linux/build_flatpak.sh
+            packaging/linux/build_flatpak.sh \
+            packaging/linux/prune_bundle.sh \
+            packaging/linux/smoke_test_artifacts.sh \
+            packaging/macos/smoke_test_artifacts.sh
 
       - name: Import release GPG key for AppImage signing
         if: matrix.platform-family == 'linux' && env.RELEASE_GPG_PRIVATE_KEY != ''
@@ -265,6 +274,27 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             dist/desktop/svg-to-drawio.app \
             "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.zip"
+
+      - name: Smoke-test packaged Linux deliverables
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          bash packaging/linux/smoke_test_artifacts.sh \
+            "${{ steps.version.outputs.value }}" \
+            "${{ matrix.package-arch }}"
+
+      - name: Smoke-test packaged Windows deliverables
+        if: matrix.platform-family == 'windows'
+        shell: pwsh
+        run: >
+          .\packaging\windows\smoke_test_artifacts.ps1
+          -Version "${{ steps.version.outputs.value }}"
+          -PackageArchitecture "${{ matrix.package-arch }}"
+
+      - name: Smoke-test packaged macOS deliverables
+        if: matrix.platform-family == 'macos'
+        shell: bash
+        run: bash packaging/macos/smoke_test_artifacts.sh "${{ steps.version.outputs.value }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

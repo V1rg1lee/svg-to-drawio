@@ -9,10 +9,14 @@ from threading import Lock
 from typing import Any
 
 _TK_LOCK = Lock()
+_QT_LOCK = Lock()
 _tk: Any | None
 _tkfont: Any | None
+_qtgui: Any | None
 _TK_ROOT: Any = None
+_QT_APPLICATION: Any = None
 _TK_AVAILABLE = True
+_QT_AVAILABLE = True
 _PIL_IMAGE_FONT: Any | None
 _FONT_CACHE: dict[tuple[str, bool, bool], str | None] = {}
 
@@ -27,6 +31,7 @@ def _optional_import(module_name: str) -> Any | None:
 
 _tk = _optional_import("tkinter")
 _tkfont = _optional_import("tkinter.font")
+_qtgui = _optional_import("PySide6.QtGui")
 _PIL_IMAGE_FONT = _optional_import("PIL.ImageFont")
 
 
@@ -83,6 +88,36 @@ def _get_tk_root() -> Any | None:
                 return None
             _TK_ROOT = root
         return _TK_ROOT
+
+
+def _prepare_qt_offscreen_environment() -> None:
+    """Set a safe Qt platform plugin when running headless."""
+    if os.name != "nt" and not os.environ.get("QT_QPA_PLATFORM"):
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+
+def _get_qt_application() -> Any | None:
+    """Return a shared ``QGuiApplication`` instance when Qt is available."""
+    global _QT_APPLICATION, _QT_AVAILABLE
+
+    if _qtgui is None or not _QT_AVAILABLE:
+        return None
+    if _QT_APPLICATION is not None:
+        return _QT_APPLICATION
+
+    with _QT_LOCK:
+        try:  # pragma: no cover - depends on optional Qt runtime behavior
+            _prepare_qt_offscreen_environment()
+            app = _qtgui.QGuiApplication.instance()
+            if app is None:
+                argv = ["svg-to-drawio-text-metrics"]
+                app = _qtgui.QGuiApplication(argv)
+        except Exception:
+            _QT_AVAILABLE = False
+            return None
+        _QT_APPLICATION = app
+        return _QT_APPLICATION
 
 
 def _font_dirs() -> list[str]:
@@ -226,6 +261,54 @@ def _measure_with_pillow(
     return width, height
 
 
+def _measure_with_qt(
+    text: str,
+    font_size: float,
+    font_family: str,
+    *,
+    bold: bool,
+    italic: bool,
+) -> tuple[float, float] | None:
+    """Measure text with Qt text shaping when PySide6 is available."""
+    app = _get_qt_application()
+    if app is None or _qtgui is None:
+        return None
+
+    try:  # pragma: no cover - depends on optional Qt runtime and fonts
+        font = _qtgui.QFont(_normalized_family(font_family))
+        font.setPixelSize(max(1, int(round(font_size))))
+        font.setBold(bold)
+        font.setItalic(italic)
+        font.setKerning(True)
+
+        option = _qtgui.QTextOption()
+        option.setWrapMode(_qtgui.QTextOption.WrapMode.NoWrap)
+        lines = text.splitlines() or [text]
+        widths: list[float] = []
+        heights: list[float] = []
+        for line in lines:
+            sample = line or " "
+            layout = _qtgui.QTextLayout(sample, font)
+            layout.setTextOption(option)
+            layout.beginLayout()
+            text_line = layout.createLine()
+            if not text_line.isValid():
+                layout.endLayout()
+                continue
+            text_line.setLineWidth(10_000_000.0)
+            widths.append(float(text_line.naturalTextWidth()))
+            heights.append(float(text_line.height()))
+            layout.endLayout()
+        if not widths or not heights:
+            return None
+    except Exception:
+        return None
+
+    width = max(max(widths, default=0.0), font_size * 0.9)
+    height = max(sum(heights) or 0.0, font_size * 1.2)
+    return width, height
+
+
 @lru_cache(maxsize=4096)
 def measure_text_detailed(
     text: str,
@@ -247,6 +330,9 @@ def measure_text_detailed(
         return width, height, "heuristic"
 
     if policy in {"auto", "system"}:
+        qt_metrics = _measure_with_qt(normalized_text, font_size, normalized_family, bold=bold, italic=italic)
+        if qt_metrics is not None:
+            return qt_metrics[0], qt_metrics[1], "qt"
         pillow_metrics = _measure_with_pillow(normalized_text, font_size, normalized_family, bold=bold, italic=italic)
         if pillow_metrics is not None:
             return pillow_metrics[0], pillow_metrics[1], "pillow"

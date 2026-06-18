@@ -18,6 +18,7 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--no-cache` | Disable the persistent cache for unchanged inputs |
 | `--max-elements N` | Warn and truncate output after N drawable elements |
 | `--workers N` | Convert files in parallel |
+| `--rendering-preset PRESET` | Apply `balanced`, `editability`, or `fidelity` exactly like in the desktop app |
 | `--gradient-policy MODE` | `auto`, `prefer-native`, or `prefer-fallback` for multi-stop gradients |
 | `--filter-policy MODE` | `auto`, `prefer-native`, or `force-fallback` for SVG filters |
 | `--text-metrics-policy MODE` | `auto`, `system`, or `heuristic` for text sizing |
@@ -29,6 +30,8 @@ svg-to-drawio [INPUT] [OPTIONS]
 The event-driven `--watch-backend event` mode requires the optional `watchdog` dependency (`pip install "svg-to-drawio[watch]"`); `auto` falls back to polling when it is not installed.
 
 `--fail-on-warning`, `--fail-on-fallback`, `--min-score`, and `--require-native` are quality gates for CI: see [Quality gates](python-api.md#quality-gates-for-ci) for the equivalent Python API.
+
+`--rendering-preset` is the quickest way to match the desktop app's preset choices from the terminal. Individual flags such as `--gradient-policy` or `--text-metrics-policy` still override the preset when you need a custom mix.
 
 ## Examples
 
@@ -48,6 +51,9 @@ svg-to-drawio diagram.svg --analyze --report-json report.json
 # Prefer editable native output over exact SVG filters and complex gradients
 svg-to-drawio diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
 
+# Use the same preset as the desktop app's "Best visual fidelity" choice
+svg-to-drawio diagram.svg --rendering-preset fidelity
+
 # Use parallel workers for a larger batch
 svg-to-drawio src/ --recursive --workers 4 --overwrite
 
@@ -58,4 +64,4 @@ svg-to-drawio diagram.svg --stdout > diagram.drawio
 svg-to-drawio diagram.svg --flatten --overwrite
 ```
 
-During a normal conversion run, the CLI prints a short compatibility summary and mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling. See the [compatibility reference](reference.md) for what each status means.
+During a normal conversion run, the CLI first prints the active rendering plan in plain English, then a short compatibility summary that mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling. See the [compatibility reference](reference.md) for what each status means.

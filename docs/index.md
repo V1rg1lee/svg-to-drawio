@@ -8,6 +8,7 @@ Turn any SVG into a real, editable [draw.io](https://app.diagrams.net/) diagram.
 
 - **Truly editable output** - rectangles, circles, paths, text, and groups all stay as native, movable draw.io cells.
 - **One engine, three ways in** - the CLI, the Python API, and the desktop app all share the exact same conversion logic, so results are identical everywhere.
+- **Shared rendering controls everywhere** - the same presets and advanced rendering policies are available across the desktop app, CLI, and Python API.
 - **Smart fallbacks, not silent failures** - gradients, filters, masks, and clip-paths render natively whenever draw.io supports them, and fall back to a faithful embedded SVG image when it can't, instead of dropping detail.
 - **Built for batches** - convert a single icon or an entire folder tree recursively, with watch mode, incremental caching, and structured diagnostics.
 

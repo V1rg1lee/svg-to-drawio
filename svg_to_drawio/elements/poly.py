@@ -67,7 +67,7 @@ def emit_polyline(
         style.add("fillOpacity", fill_opacity).add("strokeOpacity", stroke_opacity)
         style.extend_raw(visual["dash_style"])
         add_metadata_styles(style, elem, ctx)
-        add_filter_styles(style, ctx, visual["filter"])
+        add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=fill if fill != "none" else stroke_color)
         ctx.add(make_box_vertex(ctx, style.build(), box))
         return
 
@@ -91,7 +91,7 @@ def emit_polyline(
     style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
     style.extend_raw(visual["dash_style"])
     add_metadata_styles(style, elem, ctx)
-    add_filter_styles(style, ctx, visual["filter"])
+    add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=stroke_color)
     ctx.add(make_edge(ctx, style.build(), src, tgt, waypoints=mid))
 
     marker_size = max(stroke_width * 4.0, 8.0)

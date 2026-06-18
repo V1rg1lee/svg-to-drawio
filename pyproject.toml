@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [
   { name = "V1rg1lee" },
 ]
-keywords = ["svg", "drawio", "diagrams", "converter"]
+keywords = ["svg", "drawio", "diagrams-net", "diagrams", "converter", "xml", "vector-graphics", "diagramming"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -36,6 +36,9 @@ Issues = "https://github.com/V1rg1lee/svg-to-drawio/issues"
 svg-to-drawio = "svg_to_drawio.cli:main"
 
 [project.optional-dependencies]
+text-metrics = [
+  "Pillow>=10.0",
+]
 watch = [
   "watchdog>=6.0",
 ]

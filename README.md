@@ -6,11 +6,12 @@
 [![PyPI](https://img.shields.io/pypi/v/svg-to-drawio.svg)](https://pypi.org/project/svg-to-drawio/)
 [![Downloads](https://static.pepy.tech/badge/svg-to-drawio)](https://pepy.tech/project/svg-to-drawio)
 [![Docs](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://v1rg1lee.github.io/svg-to-drawio/)
+[![GitHub stars](https://img.shields.io/github/stars/V1rg1lee/svg-to-drawio.svg?style=social)](https://github.com/V1rg1lee/svg-to-drawio/stargazers)
 
 Convert any SVG into a truly native, editable [draw.io](https://app.diagrams.net/) diagram. Every shape, line, and text label becomes its own selectable cell - not a single flattened picture pasted onto the canvas.
 
 <p align="center">
-  <img src="docs/assets/svg-to-drawio-demo.gif" alt="Demo" width="1000">
+  <img src="https://raw.githubusercontent.com/V1rg1lee/svg-to-drawio/main/docs/assets/svg-to-drawio-demo.gif" alt="Demo" width="1000">
 </p>
 
 ```bash
@@ -19,7 +20,7 @@ pip install svg-to-drawio
 
 ⭐ If this project saves you time, consider giving it a star!
 
-📖 Full documentation: **https://v1rg1lee.github.io/svg-to-drawio/**
+📖 Full documentation: **https://v1rg1lee.github.io/svg-to-drawio/** - see [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 - **Truly editable output** - rectangles, circles, paths, text, and groups all stay as native, movable draw.io cells.
 - **One engine, three ways in** - the CLI, the Python API, and the desktop app all share the exact same conversion logic, so results are identical everywhere.
@@ -35,6 +36,8 @@ pip install svg-to-drawio
 - [Advanced rendering](#advanced-rendering)
 - [Development](#development)
 - [Release authenticity](#release-authenticity)
+- [Contributing](#contributing)
+- [Changelog](CHANGELOG.md)
 - [License](#license)
 - [Full documentation site ↗](https://v1rg1lee.github.io/svg-to-drawio/)
 
@@ -52,6 +55,14 @@ If you want the optional event-driven watch mode instead of polling:
 ```bash
 pip install "svg-to-drawio[watch]"
 ```
+
+If you want the best available text sizing backend in library / CLI environments too:
+
+```bash
+pip install "svg-to-drawio[text-metrics]"
+```
+
+The CLI, Python API, and desktop app all expose the same rendering policies. The desktop presets map directly to the CLI and API too.
 
 By default, output is written next to the source file (`diagram.svg` -> `diagram.drawio`).
 
@@ -86,6 +97,8 @@ Download a release artifact from the [Releases page](https://github.com/V1rg1lee
 
 Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
+GitHub Actions now also smoke-tests the produced desktop deliverables on Windows (`x64`, `ARM64`), Linux (`x64`, `ARM64`), and macOS so installer/archive regressions are caught earlier.
+
 Run it from source instead:
 
 ```bash
@@ -119,6 +132,7 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--no-cache` | Disable the persistent cache for unchanged inputs |
 | `--max-elements N` | Warn and truncate output after N drawable elements |
 | `--workers N` | Convert files in parallel |
+| `--rendering-preset PRESET` | Apply `balanced`, `editability`, or `fidelity` exactly like in the desktop app |
 | `--gradient-policy MODE` | `auto`, `prefer-native`, or `prefer-fallback` for multi-stop gradients |
 | `--filter-policy MODE` | `auto`, `prefer-native`, or `force-fallback` for SVG filters |
 | `--text-metrics-policy MODE` | `auto`, `system`, or `heuristic` for text sizing |
@@ -147,6 +161,9 @@ svg-to-drawio diagram.svg --analyze --report-json report.json
 # Prefer editable native output over exact SVG filters and complex gradients
 svg-to-drawio diagram.svg --filter-policy prefer-native --gradient-policy prefer-native
 
+# Use the same preset as the desktop app's "Best visual fidelity" button
+svg-to-drawio diagram.svg --rendering-preset fidelity
+
 # Use parallel workers for a larger batch
 svg-to-drawio src/ --recursive --workers 4 --overwrite
 
@@ -157,7 +174,7 @@ svg-to-drawio diagram.svg --stdout > diagram.drawio
 svg-to-drawio diagram.svg --flatten --overwrite
 ```
 
-During a normal conversion run, the CLI prints a short compatibility summary and mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling.
+During a normal conversion run, the CLI prints the active rendering plan in plain English, then a short compatibility summary that mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling.
 
 ## Python API
 
@@ -182,6 +199,16 @@ xml = convert_to_string(
         text_metrics_policy="heuristic",
     ),
 )
+```
+
+The same beginner-friendly presets exposed by the desktop app are available in the API too:
+
+```python
+from svg_to_drawio import rendering_preflight_lines, rendering_preset_options
+
+options = rendering_preset_options("fidelity")
+for line in rendering_preflight_lines(options):
+    print(line)
 ```
 
 <details>
@@ -262,14 +289,15 @@ if violations:
 
 The engine exposes a small set of rendering policies shared by the CLI, Python API, and desktop app:
 
+- `rendering_preset="balanced" | "editability" | "fidelity"` is available directly in the CLI and via `rendering_preset_options(...)` in the Python API, while the desktop app exposes the same choices as buttons / combo-box presets.
 - `gradient_policy="auto"` keeps the default behavior: use native multi-stop approximation when supported, otherwise fall back to embedded SVG.
 - `gradient_policy="prefer-native"` keeps output editable even for unsupported multi-stop gradients by reducing them to draw.io's native two-color gradients when needed.
 - `gradient_policy="prefer-fallback"` always preserves multi-stop gradients through embedded SVG fallback.
-- `filter_policy="auto"` keeps the default behavior: native `feDropShadow` when supported, SVG fallback for unsupported filters.
-- `filter_policy="prefer-native"` ignores unsupported filters instead of falling back so the surrounding shapes stay editable.
+- `filter_policy="auto"` keeps the default behavior: native shadows stay native, some glow or simple offset filters may be approximated natively, and harder filters fall back.
+- `filter_policy="prefer-native"` ignores unsupported filters instead of falling back so the surrounding shapes stay editable, while still keeping supported native approximations.
 - `filter_policy="force-fallback"` always preserves filters through embedded SVG fallback.
-- `text_metrics_policy="auto"` uses platform text metrics when available and a tuned heuristic otherwise.
-- `text_metrics_policy="system"` explicitly prefers platform font metrics.
+- `text_metrics_policy="auto"` uses Qt text shaping when `PySide6` is available, then falls back to Pillow or Tk font metrics, and finally to the built-in heuristic.
+- `text_metrics_policy="system"` explicitly prefers real font metrics over the heuristic.
 - `text_metrics_policy="heuristic"` keeps text sizing deterministic without consulting the system font backend.
 
 The desktop app also exposes three beginner-friendly presets built on top of those policies:
@@ -314,11 +342,12 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
-- Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`
-- `<textPath>` flattened into regular editable text near the original anchor point, with a compatibility warning
-- Simple `clip-path` / `mask` rewrites for some solid-filled cases; otherwise embedded SVG fallback keeps the appearance
+- Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`, native approximation for `letter-spacing` and `textLength`
+- `<textPath>` approximated with rotated editable glyphs placed along the source path, including `startOffset`, styled `tspan`s, and normal-offset `dy` / `baseline-shift` handling, with a compatibility warning
+- Simple `clip-path` / `mask` rewrites for some solid-filled cases, including simple `objectBoundingBox` mappings and polygonal replacements; otherwise embedded SVG fallback keeps the appearance
+- Simple user-space dot / stripe / grid `<pattern>` fills on rectangles can be expanded into editable native geometry; more complex pattern artwork still falls back
 - Structured diagnostics, compatibility scoring, and a user-facing compatibility matrix for CLI, automation, and the desktop app
-- `<title>` -> draw.io tooltip; `feDropShadow` -> draw.io shadow style
+- `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
 
@@ -327,14 +356,14 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 <details>
 <summary><strong>Limitations</strong></summary>
 
-- Some very simple solid-filled `clipPath` and `mask` cases can stay editable, but most advanced clips, masks, pattern fills, and unsupported filters still fall back to embedded SVG images for visual fidelity.
-- Only `feDropShadow` is mapped to native draw.io shadow styles; other filter effects use embedded SVG fallback when possible.
+- Some very simple solid-filled `clipPath`, `mask`, and rectangle pattern cases can stay editable, but most advanced clips, masks, and pattern artwork still fall back to embedded SVG for visual fidelity.
+- Native filter support is still intentionally narrow: drop shadows, classic shadow chains, some glow-like filters, and simple offsets are covered, while broader SVG filter graphs still fall back or are dropped depending on policy.
 - Multi-stop radial gradients on `<path>` elements fall back to embedded SVG because draw.io's radial gradient always fills the whole cell bounding box.
 - Two-stop gradients are mapped directly to draw.io's native gradient properties. `stop-opacity` is blended against white for all gradient types.
 - Multi-stop gradients combined with a CSS `filter` or a shear transform fall back to embedded SVG because the filter or skew effect itself requires SVG.
 - The advanced rendering policies can intentionally trade exact fidelity for editability by keeping native shapes and simplifying unsupported gradients or filters.
 - Text uses platform font metrics when available, with a tuned heuristic fallback in headless environments.
-- `letter-spacing` is reported when encountered, but draw.io text does not preserve it natively.
+- `letter-spacing`, `textLength`, and `textPath` are approximated with editable positioned glyphs for better fidelity. `textPath` now follows the source path more closely, but advanced SVG text layout is still reported as an approximation rather than perfect native fidelity.
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
@@ -404,6 +433,8 @@ python -m pre_commit run --all-files
 ```
 
 Pre-commit runs ruff, mypy, and repository hygiene hooks on every commit. Tests run on every push, and GitHub Actions mirrors the same checks remotely.
+
+CI also builds and smoke-tests desktop deliverables on GitHub-hosted Windows, Linux, and macOS runners, including installer/package validation on architectures you might not have locally.
 
 <details>
 <summary><strong>Manual packaging (desktop app)</strong></summary>
@@ -634,6 +665,7 @@ svg_to_drawio/
   __init__.py                # Public package exports
   __main__.py                # python -m svg_to_drawio entry point
   cli.py                     # Installed console CLI
+  capability_registry.py     # Shared capability/help/compatibility registry
   compatibility.py           # User-facing compatibility matrix + overview builders
   conversion_cache.py        # Persistent cache for unchanged inputs
   conversion_service.py      # Shared batch service (CLI + desktop)
@@ -646,6 +678,7 @@ svg_to_drawio/
   emitter_context.py         # Per-conversion state shared by emitters
   cell_factory.py            # Cell construction helpers
   element_geometry.py        # Transformed bounds and geometry helpers
+  filter_effects.py          # Native shadow-compatible SVG filter parsing
   path_arcs.py               # SVG arc conversion helpers
   path_bounds.py             # Tight bounding boxes for path commands
   path_parser.py             # SVG path tokenization and command parsing
@@ -655,6 +688,8 @@ svg_to_drawio/
   path_utils.py              # Path helper facade
   polygon_clip.py            # Polygon clipping for gradient approximation
   rendering_options.py       # Shared rendering policy model
+  simple_clipping.py         # Simple clipPath / mask native rewrite helpers
+  simple_patterns.py         # Simple dot/stripe/grid pattern native expansion
   style_builder.py           # draw.io style-string builder
   styles.py                  # Visual property extraction
   svg_fallback.py            # Embedded SVG fallback generation
@@ -742,6 +777,12 @@ python scripts/generate_release_gpg_key.py --passphrase "your-passphrase-here"
 That still enables detached GPG signatures in CI. The desktop release workflow also attempts embedded AppImage signing in CI for passphrase-protected keys by configuring the runner's normal GPG home and priming `gpg-agent` before `appimagetool` runs.
 
 </details>
+
+## Contributing
+
+Bug reports, feature proposals, and pull requests are welcome - see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, the test/lint workflow, and how to report a bug with a minimal SVG reproducer. Found a security issue? See [SECURITY.md](SECURITY.md) instead of opening a public issue. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). Thanks to everyone listed in [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+Have a usage question or an idea you want feedback on before filing a formal request? Use [Discussions](https://github.com/V1rg1lee/svg-to-drawio/discussions) instead of an issue.
 
 ## License
 

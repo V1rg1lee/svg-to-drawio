@@ -30,12 +30,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from svg_to_drawio import REPORT_SCHEMA_VERSION, RenderingOptions, __version__
-from svg_to_drawio.capabilities import capability_descriptor, rendering_preflight_lines
+from svg_to_drawio.capabilities import rendering_preflight_lines
 from svg_to_drawio.compatibility import (
     CompatibilityRow,
     build_compatibility_overview,
     build_compatibility_rows,
-    observation_from_issue,
 )
 from svg_to_drawio.conversion_service import (
     ConversionEvent,
@@ -53,6 +52,7 @@ from svg_to_drawio.rendering_options import (
     rendering_preset_options,
 )
 
+from .compatibility_view import build_feature_dialog_text, render_compatibility_html
 from .pages import ConvertPage, ResultsPage, SettingsPage
 from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon
 from .widgets import NavBar
@@ -557,6 +557,7 @@ class MainWindow(QMainWindow):
     def _build_equivalent_cli_command(self) -> str:
         """Build a copy-paste-friendly CLI command matching the current desktop settings."""
         cp = self.convert_page
+        sp = self.settings_page
         args = ["svg-to-drawio"]
         args.extend(self._quote_cli_arg(source) for source in self._sources())
         output_dir = cp.output_dir_edit.text().strip()
@@ -577,13 +578,17 @@ class MainWindow(QMainWindow):
         if cp.workers_spinbox.value() > 1 and not cp.watch_checkbox.isChecked():
             args.extend(["--workers", str(cp.workers_spinbox.value())])
 
+        preset = str(sp.preset_combo.currentData())
         rendering_options = self._current_rendering_options()
-        if rendering_options.gradient_policy != "auto":
-            args.extend(["--gradient-policy", rendering_options.gradient_policy])
-        if rendering_options.filter_policy != "auto":
-            args.extend(["--filter-policy", rendering_options.filter_policy])
-        if rendering_options.text_metrics_policy != "auto":
-            args.extend(["--text-metrics-policy", rendering_options.text_metrics_policy])
+        if preset not in {"custom", "balanced"}:
+            args.extend(["--rendering-preset", preset])
+        else:
+            if rendering_options.gradient_policy != "auto":
+                args.extend(["--gradient-policy", rendering_options.gradient_policy])
+            if rendering_options.filter_policy != "auto":
+                args.extend(["--filter-policy", rendering_options.filter_policy])
+            if rendering_options.text_metrics_policy != "auto":
+                args.extend(["--text-metrics-policy", rendering_options.text_metrics_policy])
         return " ".join(args)
 
     def _copy_equivalent_cli_command(self) -> None:
@@ -853,45 +858,7 @@ class MainWindow(QMainWindow):
 
     def _compatibility_html(self, rows: list[CompatibilityRow]) -> str:
         """Render the compatibility matrix as compact rich text for the results page."""
-        if not rows:
-            return '<div style="line-height:1.45;">No compatibility details were recorded for this run.</div>'
-
-        t = DARK if self._is_dark else LIGHT
-        status_colors = {
-            "native": t["success_label"],
-            "approximate": t["warning_label"],
-            "fallback": t["log_info"],
-            "ignored": t["error_label"],
-        }
-        sorted_rows = sorted(
-            rows,
-            key=lambda row: (
-                {"ignored": 3, "fallback": 2, "approximate": 1, "native": 0}.get(row.status, 0),
-                row.label,
-            ),
-            reverse=True,
-        )
-
-        blocks: list[str] = []
-        for row in sorted_rows:
-            status_color = status_colors.get(row.status, t["text"])
-            detail_html = ""
-            if row.details:
-                detail_html = (
-                    f'<div style="margin-top:4px; color:{t["text_muted"]};">{html.escape(row.details[0])}</div>'
-                )
-            blocks.append(
-                '<div style="margin-bottom:10px; padding-bottom:10px; '
-                f'border-bottom:1px solid {t["card_border"]};">'
-                f'<div><a href="capability:{html.escape(row.feature_key)}" '
-                f'style="font-weight:700; color:{t["text"]}; text-decoration:none;">{html.escape(row.label)}</a> '
-                f'<span style="color:{status_color}; font-weight:700;">{html.escape(row.status_label)}</span></div>'
-                f'<div style="margin-top:2px; color:{t["text"]};">{html.escape(row.message)} '
-                f'<span style="color:{t["text_muted"]};">({row.count})</span></div>'
-                f"{detail_html}"
-                "</div>"
-            )
-        return "".join(blocks)
+        return render_compatibility_html(rows, palette=DARK if self._is_dark else LIGHT)
 
     def _on_compatibility_link_clicked(self, url: QUrl) -> None:
         """Show a detailed explanation for one clicked compatibility capability."""
@@ -902,32 +869,7 @@ class MainWindow(QMainWindow):
         if row is None:
             return
 
-        descriptor = capability_descriptor(feature_key)
-        lines: list[str] = [f"<b>{html.escape(row.label)}</b>", html.escape(row.message)]
-        if descriptor is not None:
-            lines.append("")
-            lines.append(html.escape(descriptor.description))
-            lines.append(f"Default engine behavior: {html.escape(descriptor.default_behavior)}")
-        if row.details:
-            lines.append("")
-            lines.append("Observed details:")
-            lines.extend(f"• {detail}" for detail in row.details)
-
-        related_issue_lines: list[str] = []
-        for report in self._last_reports:
-            file_label = path.basename(report.source_path) or report.source_path or "<memory>"
-            for issue in report.issues:
-                observation = observation_from_issue(issue.code, issue.message, element_tag=issue.element_tag)
-                if observation is None or observation.feature_key != feature_key:
-                    continue
-                element_hint = f" [{issue.element_tag}#{issue.element_id}]" if issue.element_id else ""
-                related_issue_lines.append(f"{file_label}{element_hint}: {issue.message}")
-        if related_issue_lines:
-            lines.append("")
-            lines.append("Affected elements:")
-            lines.extend(f"• {entry}" for entry in related_issue_lines[:12])
-
-        QMessageBox.information(self, row.label, "\n".join(lines))
+        QMessageBox.information(self, row.label, build_feature_dialog_text(row, self._last_reports))
 
     def _append_report_diagnostics(self, report: ConversionReport) -> None:
         """Append one compact diagnostics block for a finished file conversion."""

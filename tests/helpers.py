@@ -60,3 +60,30 @@ class SvgTestCase(unittest.TestCase):
         compressed = base64.b64decode(match.group(1))
         quoted = zlib.decompress(compressed, wbits=-15).decode("utf-8")
         return unquote(quoted)
+
+    def _absolute_cell_position(self, root: ET.Element, cell: ET.Element) -> tuple[float, float]:
+        """Return one cell's absolute top-left draw.io coordinates.
+
+        Grouped children store coordinates relative to their group bounds, so tests that
+        care about real canvas placement should accumulate parent group offsets first.
+        """
+        by_id = {candidate.get("id"): candidate for candidate in root.findall(".//mxCell")}
+        x = 0.0
+        y = 0.0
+        current: ET.Element | None = cell
+
+        while current is not None:
+            geometry = current.find("mxGeometry")
+            if geometry is not None:
+                x += float(geometry.get("x", "0"))
+                y += float(geometry.get("y", "0"))
+            parent_id = current.get("parent")
+            current = by_id.get(parent_id) if parent_id else None
+            if current is not None and current.get("id") in {"0", "1"}:
+                geometry = current.find("mxGeometry")
+                if geometry is not None:
+                    x += float(geometry.get("x", "0"))
+                    y += float(geometry.get("y", "0"))
+                break
+
+        return x, y

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import math
 import re
-from typing import TypedDict
+from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
+from .filter_effects import ShadowFilter, parse_shadow_filter
 from .styles import GradientStop, GradientStyle, normalize_color
+from .transforms import IDENTITY, Matrix, mat_mul, parse_transform
 from .utils import parse_float, parse_style_attr, strip_ns
 
 # Heuristic mapping of common marker identifiers to draw.io arrow names.
@@ -23,14 +25,13 @@ _MARKER_ID_MAP: dict[str, str] = {
 _POINT_RE = re.compile(r"[-\d.eE+]+")
 
 
-class ShadowFilter(TypedDict):
-    """Normalized drop-shadow values that can be converted into draw.io styles."""
+@dataclass(frozen=True)
+class FilterStyleResolution:
+    """Resolved native filter style entries plus their compatibility meaning."""
 
-    type: str
-    dx: float
-    dy: float
-    color: str
-    opacity: int
+    entries: list[tuple[str, str | int]]
+    approximated: bool
+    detail: str
 
 
 def _stop_color(stop_elem: Element) -> str:
@@ -114,17 +115,26 @@ class DefsIndex:
 
     def __init__(self) -> None:
         self._elements: dict[str, Element] = {}
+        self._element_transforms: dict[str, Matrix] = {}
         self._gradients: dict[str, GradientStyle] = {}
         self._markers: dict[str, str] = {}
         self._filters: dict[str, ShadowFilter] = {}
 
     def index(self, svg_root: Element) -> None:
         """Scan an SVG tree and cache addressable `<defs>` resources by identifier."""
-        for elem in svg_root.iter():
+        self._elements.clear()
+        self._element_transforms.clear()
+        self._gradients.clear()
+        self._markers.clear()
+        self._filters.clear()
+
+        def walk(elem: Element, parent_matrix: Matrix) -> None:
+            local_matrix = mat_mul(parent_matrix, parse_transform(elem.get("transform")))
             tag = strip_ns(elem.tag)
             element_id = elem.get("id")
             if element_id:
                 self._elements[element_id] = elem
+                self._element_transforms[element_id] = local_matrix
             if tag == "linearGradient":
                 self._index_linear(elem, element_id)
             elif tag == "radialGradient":
@@ -133,6 +143,10 @@ class DefsIndex:
                 self._index_marker(elem, element_id)
             elif tag == "filter":
                 self._index_filter(elem, element_id)
+            for child in elem:
+                walk(child, local_matrix)
+
+        walk(svg_root, IDENTITY[:])
 
         # Second pass: resolve gradient href inheritance for gradients without their own stops.
         # SVG spec: attributes not present on the child are inherited from the href parent.
@@ -237,26 +251,18 @@ class DefsIndex:
         if not element_id:
             return
 
-        for child in elem.iter():
-            child_tag = strip_ns(child.tag)
-            if child_tag != "feDropShadow":
-                continue
-            dx = parse_float(child.get("dx", "2"))
-            dy = parse_float(child.get("dy", "2"))
-            color = normalize_color(child.get("flood-color", "#000000")) or "#000000"
-            opacity = int(parse_float(child.get("flood-opacity", "0.5")) * 100)
-            self._filters[element_id] = {
-                "type": "shadow",
-                "dx": dx,
-                "dy": dy,
-                "color": color,
-                "opacity": opacity,
-            }
-            return
+        shadow = parse_shadow_filter(elem)
+        if shadow is not None:
+            self._filters[element_id] = shadow
 
     def get_element(self, ref_id: str) -> Element | None:
         """Return an indexed element by ID for `<use>` or other internal references."""
         return self._elements.get(ref_id)
+
+    def get_element_transform(self, ref_id: str) -> Matrix | None:
+        """Return the cumulative SVG transform matrix recorded for one indexed element."""
+        matrix = self._element_transforms.get(ref_id)
+        return matrix[:] if matrix is not None else None
 
     def resolve_fill(self, fill_str: str | None) -> tuple[str | None, GradientStyle | None]:
         """Resolve `url(#id)` paint references into a fallback color plus gradient metadata."""
@@ -301,31 +307,47 @@ class DefsIndex:
             return None
         return _simple_marker_shape(marker)
 
-    def resolve_filter_entries(self, filter_str: str | None) -> list[tuple[str, str | int]]:
-        """Convert a supported SVG filter reference into ordered draw.io style entries."""
+    def resolve_filter_style(
+        self,
+        filter_str: str | None,
+        *,
+        fallback_color: str | None = None,
+    ) -> FilterStyleResolution | None:
+        """Resolve a supported SVG filter reference into native draw.io style entries."""
         if not filter_str:
-            return []
+            return None
 
         match = re.match(r"url\(#([^)]+)\)", filter_str)
         if not match:
-            return []
+            return None
 
         shadow = self._filters.get(match.group(1))
-        if shadow and shadow["type"] == "shadow":
-            return [
+        if shadow is None or shadow["type"] != "shadow":
+            return None
+
+        color = shadow["color"] or fallback_color or "#000000"
+        return FilterStyleResolution(
+            entries=[
                 ("shadow", 1),
-                ("shadowColor", shadow["color"]),
+                ("shadowColor", color),
                 ("shadowOpacity", shadow["opacity"]),
                 ("shadowOffsetX", f"{shadow['dx']:.0f}"),
                 ("shadowOffsetY", f"{shadow['dy']:.0f}"),
-            ]
-        return []
+            ],
+            approximated=shadow["approximation"] == "approximate",
+            detail=shadow["detail"],
+        )
+
+    def resolve_filter_entries(self, filter_str: str | None) -> list[tuple[str, str | int]]:
+        """Convert a supported SVG filter reference into ordered draw.io style entries."""
+        resolution = self.resolve_filter_style(filter_str)
+        return resolution.entries if resolution is not None else []
 
     def supports_filter(self, filter_str: str | None) -> bool:
         """Return whether a filter reference resolves to a supported draw.io approximation."""
         if not filter_str:
             return True
-        return bool(self.resolve_filter_entries(filter_str))
+        return self.resolve_filter_style(filter_str) is not None
 
     def resolve_filter(self, filter_str: str | None) -> str:
         """Convert a supported SVG filter reference into draw.io style fragments."""

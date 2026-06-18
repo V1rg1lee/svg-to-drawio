@@ -48,24 +48,25 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
-- Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`
-- `<textPath>` flattened into regular editable text near the original anchor point, with a compatibility warning
-- Simple `clip-path` / `mask` rewrites for some solid-filled cases; otherwise embedded SVG fallback keeps the appearance
+- Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`, plus Qt/Pillow/Tk-backed measurement when available
+- `<textPath>` approximated with rotated editable glyphs that follow the source path, including `startOffset`, styled `tspan`s, and normal-offset `dy` / `baseline-shift` handling, with a compatibility warning
+- Simple `clip-path` / `mask` rewrites for some solid-filled cases, including polygon replacements; otherwise embedded SVG fallback keeps the appearance
+- Simple user-space dot / stripe / grid `<pattern>` fills on rectangles can be expanded into editable native geometry; more complex pattern artwork still falls back
 - Structured diagnostics, compatibility scoring, and a user-facing compatibility matrix for CLI, automation, and the desktop app
-- `<title>` -> draw.io tooltip; `feDropShadow` -> draw.io shadow style
+- `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
 
 ## Limitations
 
-- Some very simple solid-filled `clipPath` and `mask` cases can stay editable, but most advanced clips, masks, pattern fills, and unsupported filters still fall back to embedded SVG images for visual fidelity.
-- Only `feDropShadow` is mapped to native draw.io shadow styles; other filter effects use embedded SVG fallback when possible.
+- Some very simple solid-filled `clipPath`, `mask`, and rectangle pattern cases can stay editable, but most advanced clips, masks, and pattern artwork still fall back to embedded SVG for visual fidelity.
+- Native filter support is still intentionally narrow: drop shadows, classic shadow chains, some glow-like filters, and simple offsets are covered, while broader SVG filter graphs still fall back or are dropped depending on policy.
 - Multi-stop radial gradients on `<path>` elements fall back to embedded SVG because draw.io's radial gradient always fills the whole cell bounding box.
 - Two-stop gradients are mapped directly to draw.io's native gradient properties. `stop-opacity` is blended against white for all gradient types.
 - Multi-stop gradients combined with a CSS `filter` or a shear transform fall back to embedded SVG because the filter or skew effect itself requires SVG.
 - The advanced rendering policies can intentionally trade exact fidelity for editability by keeping native shapes and simplifying unsupported gradients or filters.
 - Text uses platform font metrics when available, with a tuned heuristic fallback in headless environments.
-- `letter-spacing` is reported when encountered, but draw.io text does not preserve it natively.
+- `letter-spacing`, `textLength`, and `textPath` are approximated with editable positioned glyphs for better fidelity, but they are still reported as approximations rather than perfect native fidelity.
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.

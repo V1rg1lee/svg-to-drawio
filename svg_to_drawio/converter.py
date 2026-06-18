@@ -26,6 +26,8 @@ from .elements.shapes import emit_circle, emit_ellipse, emit_line, emit_rect
 from .elements.text import emit_text
 from .emitter_context import EmitterContext
 from .rendering_options import RenderingOptions, normalize_filter_ref
+from .simple_clipping import bounds_contains, local_shape_bounds, simple_clip_candidate, simple_mask_candidate
+from .simple_patterns import emit_simple_pattern_fill
 from .svg_fallback import build_fallback_svg_data_uri
 from .transforms import Matrix, mat_mul, parse_transform, viewbox_transform
 from .utils import parse_length, strip_ns
@@ -88,7 +90,6 @@ _DISPATCH: dict[str, ElementEmitter] = {
 }
 
 _FALLBACK_PAINT_PROPS: tuple[str, str] = ("fill", "stroke")
-_SIMPLE_CLIP_TAGS: frozenset[str] = frozenset({"rect", "circle", "ellipse", "polygon"})
 
 
 def _inkscape_layer_label(elem: Element) -> str | None:
@@ -352,87 +353,9 @@ class Converter:
             fallback_used=fallback_used,
         )
 
-    @staticmethod
-    def _local_shape_bounds(elem: Element) -> tuple[float, float, float, float] | None:
-        """Return local untransformed bounds for a simple SVG geometry element."""
-        tag = strip_ns(elem.tag)
-        if tag == "rect":
-            x = parse_length(elem.get("x"))
-            y = parse_length(elem.get("y"))
-            width = parse_length(elem.get("width"))
-            height = parse_length(elem.get("height"))
-            return x, y, width, height
-        if tag == "circle":
-            cx = parse_length(elem.get("cx"))
-            cy = parse_length(elem.get("cy"))
-            radius = parse_length(elem.get("r"))
-            return cx - radius, cy - radius, radius * 2.0, radius * 2.0
-        if tag == "ellipse":
-            cx = parse_length(elem.get("cx"))
-            cy = parse_length(elem.get("cy"))
-            rx = parse_length(elem.get("rx"))
-            ry = parse_length(elem.get("ry"))
-            return cx - rx, cy - ry, rx * 2.0, ry * 2.0
-        if tag == "polygon":
-            coords = [float(item) for item in re.findall(r"[-\d.eE+]+", elem.get("points", ""))]
-            if len(coords) < 6:
-                return None
-            xs = coords[0::2]
-            ys = coords[1::2]
-            x = min(xs)
-            y = min(ys)
-            return x, y, max(xs) - x, max(ys) - y
-        return None
-
-    @staticmethod
-    def _bounds_contains(outer: tuple[float, float, float, float], inner: tuple[float, float, float, float]) -> bool:
-        """Return whether one bounds tuple fully contains another."""
-        ox, oy, ow, oh = outer
-        ix, iy, iw, ih = inner
-        epsilon = 1e-6
-        return (
-            ix >= ox - epsilon and iy >= oy - epsilon and ix + iw <= ox + ow + epsilon and iy + ih <= oy + oh + epsilon
-        )
-
-    def _simple_clip_candidate(self, clip_ref: str) -> Element | None:
-        """Return a single simple clip geometry eligible for editable replacement."""
-        match = re.match(r"url\(#([^)]+)\)", clip_ref)
-        if not match:
-            return None
-        clip_elem = self.defs.get_element(match.group(1))
-        if clip_elem is None or strip_ns(clip_elem.tag) != "clipPath":
-            return None
-        units = (clip_elem.get("clipPathUnits") or "userSpaceOnUse").strip()
-        if units != "userSpaceOnUse":
-            return None
-        drawable_children = [child for child in clip_elem if strip_ns(child.tag) in _SIMPLE_CLIP_TAGS]
-        if len(drawable_children) != 1:
-            return None
-        return drawable_children[0]
-
-    def _simple_mask_candidate(self, mask_ref: str) -> Element | None:
-        """Return a single simple mask geometry eligible for editable replacement."""
-        match = re.match(r"url\(#([^)]+)\)", mask_ref)
-        if not match:
-            return None
-        mask_elem = self.defs.get_element(match.group(1))
-        if mask_elem is None or strip_ns(mask_elem.tag) != "mask":
-            return None
-        units = (mask_elem.get("maskUnits") or "userSpaceOnUse").strip()
-        if units != "userSpaceOnUse":
-            return None
-        drawable_children = [child for child in mask_elem if strip_ns(child.tag) in _SIMPLE_CLIP_TAGS]
-        if len(drawable_children) != 1:
-            return None
-        candidate = drawable_children[0]
-        fill = ((candidate.get("fill") or "") or "").strip().lower()
-        if fill and fill not in {"#fff", "#ffffff", "white"}:
-            return None
-        return candidate
-
     def _can_replace_clipped_shape(self, elem: Element, css: dict[str, str], replacement: Element) -> bool:
         """Return whether a simple clipped/masked shape can stay editable through replacement geometry."""
-        if strip_ns(elem.tag) not in {"rect", "circle", "ellipse"}:
+        if strip_ns(elem.tag) not in {"rect", "circle", "ellipse", "polygon"}:
             return False
         fill_value = (css.get("fill") or elem.get("fill") or "").strip().lower()
         if not fill_value or fill_value == "none" or fill_value.startswith("url("):
@@ -442,11 +365,11 @@ class Converter:
             return False
         if normalize_filter_ref(css.get("filter") or elem.get("filter")) is not None:
             return False
-        element_bounds = self._local_shape_bounds(elem)
-        replacement_bounds = self._local_shape_bounds(replacement)
+        element_bounds = local_shape_bounds(elem)
+        replacement_bounds = local_shape_bounds(replacement)
         if element_bounds is None or replacement_bounds is None:
             return False
-        return self._bounds_contains(element_bounds, replacement_bounds)
+        return bounds_contains(element_bounds, replacement_bounds)
 
     def _emit_replacement_geometry(
         self,
@@ -475,9 +398,13 @@ class Converter:
         record_issues: bool,
     ) -> bool:
         """Try to keep a very simple clip path or mask editable by rewriting the geometry."""
+        element_bounds = local_shape_bounds(elem)
+        if element_bounds is None:
+            return False
+
         clip_path = css.get("clip-path") or elem.get("clip-path") or ""
         if clip_path and clip_path.lower() != "none":
-            candidate = self._simple_clip_candidate(clip_path)
+            candidate = simple_clip_candidate(self.defs, clip_path, element_bounds)
             if candidate is not None and self._can_replace_clipped_shape(elem, css, candidate):
                 emitted = self._emit_replacement_geometry(candidate, ctx, matrix, css)
                 if emitted and record_issues:
@@ -490,7 +417,7 @@ class Converter:
 
         mask = css.get("mask") or elem.get("mask") or ""
         if mask and mask.lower() != "none":
-            candidate = self._simple_mask_candidate(mask)
+            candidate = simple_mask_candidate(self.defs, mask, element_bounds)
             if candidate is not None and self._can_replace_clipped_shape(elem, css, candidate):
                 emitted = self._emit_replacement_geometry(candidate, ctx, matrix, css)
                 if emitted and record_issues:
@@ -814,6 +741,8 @@ class Converter:
 
         if allow_fallback:
             if self._emit_simple_clip_or_mask_replacement(elem, ctx, matrix, css, record_issues=record_issues):
+                return
+            if emit_simple_pattern_fill(ctx, elem, matrix, css):
                 return
             fallback_reason = self._fallback_reason(elem, css)
             if fallback_reason is None:

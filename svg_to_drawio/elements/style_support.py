@@ -26,12 +26,35 @@ def add_gradient_styles(builder: StyleBuilder, gradient: GradientStyle | None) -
     return builder.extend_pairs(gradient_entries(gradient))
 
 
-def add_filter_styles(builder: StyleBuilder, ctx: EmitterContext, filter_ref: str | None) -> StyleBuilder:
+def add_filter_styles(
+    builder: StyleBuilder,
+    ctx: EmitterContext,
+    elem: Element,
+    filter_ref: str | None,
+    *,
+    fallback_color: str | None = None,
+) -> StyleBuilder:
     """Append filter-related style entries when the SVG element references one."""
-    entries = ctx.defs.resolve_filter_entries(filter_ref)
-    if entries:
-        ctx.report.record_feature_observation(note_filter_usage(native=True))
-    return builder.extend_pairs(entries)
+    resolution = ctx.defs.resolve_filter_style(filter_ref, fallback_color=fallback_color)
+    if resolution is None:
+        return builder
+
+    if resolution.approximated:
+        ctx.report.add_issue(
+            "filter-simplified-native",
+            "warning",
+            resolution.detail,
+            element_tag=elem.tag.rsplit("}", 1)[-1],
+            element_id=elem.get("id"),
+        )
+    ctx.report.record_feature_observation(
+        note_filter_usage(
+            native=not resolution.approximated,
+            approximated=resolution.approximated,
+            detail=resolution.detail,
+        )
+    )
+    return builder.extend_pairs(resolution.entries)
 
 
 def emit_midpoint_markers(
