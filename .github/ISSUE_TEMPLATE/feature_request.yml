@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a new SVG feature mapping, CLI flag, or API addition.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Please open this before sending a PR for anything that significantly increases
+        scope (new file formats, new runtime dependencies, GUI-only features with no
+        CLI/API equivalent) - it avoids throwaway work if the approach needs to change.
+
+  - type: textarea
+    id: svg-input
+    attributes:
+      label: SVG input
+      description: The SVG feature, attribute, or structure this is about.
+      render: xml
+    validations:
+      required: true
+
+  - type: textarea
+    id: drawio-output
+    attributes:
+      label: Expected draw.io output
+      description: What should the converted .drawio look/behave like for this input?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why the current fallback isn't good enough
+      description: >
+        If this already converts via embedded SVG fallback or a different approximation,
+        explain what's missing or wrong with that result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope impact
+      description: >
+        Does this need a new runtime dependency, a new file format, or a GUI-only feature?
+        If so, say so explicitly.

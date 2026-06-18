@@ -56,5 +56,6 @@ Open an issue before writing code. Describe the SVG input and the draw.io output
 - Tests pass, `ruff check`, `ruff format`, and `mypy` are clean.
 - If you changed conversion output, update or regenerate the fixtures and explain why in the PR description.
 - Update `README.md` if you added a CLI flag, Python API function, or changed default behavior.
+- Update the GitHub Pages docs under `docs/` (`quickstart.md`, `cli.md`, `python-api.md`, `advanced-rendering.md`) for the same change. The API reference page is generated from docstrings via mkdocstrings, but the hand-written pages are not - they only change if you edit them. Verify locally with `python scripts/build_docs.py build --strict` before pushing; the site auto-deploys to GitHub Pages on merge to `main` (see `.github/workflows/docs.yml`).
 
 Contributors are listed in [CONTRIBUTORS.md](CONTRIBUTORS.md).

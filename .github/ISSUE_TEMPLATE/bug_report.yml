@@ -1,0 +1,67 @@
+name: Bug report
+description: Something converts incorrectly, crashes, or behaves differently than documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal SVG reproducer
+      description: >
+        Paste the smallest SVG snippet that reproduces the problem - not your full
+        production file. If you can't shrink it, attach the original, but try first;
+        a 10-line repro gets fixed faster than a 2000-line one.
+      render: xml
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or API call
+      description: The exact CLI command, Python snippet, or desktop app action you used.
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: >
+        What you got instead - the generated .drawio content, a CLI error message/traceback,
+        or a screenshot of the result in draw.io.
+    validations:
+      required: true
+
+  - type: textarea
+    id: analyze
+    attributes:
+      label: "--analyze output (optional)"
+      description: >
+        If this is about an SVG feature not rendering as expected, running with --analyze
+        often shows whether the converter already knows it's falling back:
+        `svg-to-drawio your-file.svg --analyze`
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: svg-to-drawio version
+      placeholder: "e.g. 3.5.1, or the commit hash if running from source"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+      placeholder: "e.g. Python 3.12.4 on Windows 11"
+    validations:
+      required: true
