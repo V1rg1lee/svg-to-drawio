@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends elfutils flatpak flatpak-builder gnupg rpm
+          sudo apt-get install -y --no-install-recommends elfutils flatpak flatpak-builder gnupg
 
       - name: Read application version
         id: version
@@ -154,6 +154,7 @@ jobs:
             packaging/linux/build_appimage.sh \
             packaging/linux/build_deb.sh \
             packaging/linux/build_rpm.sh \
+            packaging/linux/build_rpm_in_fedora_container.sh \
             packaging/linux/build_flatpak.sh
 
       - name: Import release GPG key for AppImage signing
@@ -228,11 +229,7 @@ jobs:
         if: matrix.platform-family == 'linux'
         shell: bash
         run: |
-          RPM_ARCH="$(rpmbuild --eval '%{_arch}' | tr -d '\r' | tail -n 1)"
-          packaging/linux/build_rpm.sh \
-            dist/desktop-linux-package/svg-to-drawio \
-            "${{ steps.version.outputs.value }}" \
-            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${RPM_ARCH}.rpm"
+          packaging/linux/build_rpm_in_fedora_container.sh "${{ steps.version.outputs.value }}"
 
       - name: Build Linux Flatpak bundle
         if: matrix.platform-family == 'linux'

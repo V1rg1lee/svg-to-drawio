@@ -426,7 +426,7 @@ Extra packaging layers are built on top of that base bundle:
 
 - Windows installer: `packaging/windows/build_installer.ps1`
 - Linux Debian package: `packaging/linux/build_deb.sh`
-- Linux RPM package: `packaging/linux/build_rpm.sh`
+- Linux RPM package: `packaging/linux/build_rpm_in_fedora_container.sh` + `packaging/linux/build_rpm.sh`
 - Linux Flatpak bundle: `packaging/linux/build_flatpak.sh`
 - Linux AppImage: `packaging/linux/build_appimage.sh`
 - macOS: archive only for now
@@ -464,14 +464,17 @@ For Linux, the release page now ships five packaging styles on both `x64` and `A
 - `.rpm`: best for Fedora, openSUSE, RHEL-like systems, and similar distributions
 - `.flatpak`: best when you want one installer format that works across many distros
 - `.AppImage`: best when you prefer a portable single file instead of an installed package
+- `.tar.gz`: best when you explicitly want the raw unpacked bundle
 
-The `.deb`, `.rpm`, and `.flatpak` formats all reuse the same dedicated `onedir` Linux bundle:
+The `.deb`, `.flatpak`, and `.tar.gz` outputs reuse the dedicated Ubuntu-built `onedir` Linux bundle:
 
 ```bash
 python -m pip install -r requirements-desktop.txt
 python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-linux-package
 VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
 ```
+
+The `.rpm` is built differently on purpose: it is assembled from a Fedora-built bundle so the packaged runtime matches Fedora/openSUSE/RHEL-like ABI expectations instead of reusing the Ubuntu bundle.
 
 **Linux Debian package**
 
@@ -499,17 +502,20 @@ This installs the app under `/opt/svg-to-drawio`, adds a launcher command at `/u
 **Linux RPM package**
 
 ```bash
-RPM_ARCH="$(rpmbuild --eval '%{_arch}' | tail -n 1)"
-chmod +x packaging/linux/build_rpm.sh
-./packaging/linux/build_rpm.sh \
-  dist/desktop-linux-package/svg-to-drawio \
-  "$VERSION" \
-  "dist/release/svg-to-drawio-${VERSION}-linux-${RPM_ARCH}.rpm"
+docker --version
+chmod +x packaging/linux/build_rpm_in_fedora_container.sh
+./packaging/linux/build_rpm_in_fedora_container.sh "$VERSION"
 ```
 
 This produces:
 
 - `dist/release/svg-to-drawio-<version>-linux-<rpm-arch>.rpm`
+
+By default the helper uses `docker` and a `fedora:42` container. If you prefer Podman locally, you can run:
+
+```bash
+CONTAINER_RUNTIME=podman ./packaging/linux/build_rpm_in_fedora_container.sh "$VERSION"
+```
 
 Typical end-user installation after downloading the `.rpm` from a release:
 

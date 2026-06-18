@@ -71,6 +71,9 @@ tar -czf "$TOPDIR/SOURCES/${PACKAGE_NAME}-${VERSION}.tar.gz" -C "$TOPDIR" "${PAC
 
 SPEC_FILE="$TOPDIR/SPECS/${PACKAGE_NAME}.spec"
 cat > "$SPEC_FILE" <<EOF
+%global debug_package %{nil}
+%undefine _debugsource_packages
+
 Name:           $PACKAGE_NAME
 Version:        $VERSION
 Release:        1%{?dist}
