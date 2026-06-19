@@ -103,3 +103,24 @@ class AdvancedCssTests(SvgTestCase):
             root, _ = self._convert_in_dir(tmpdir, svg)
             cell = next(c for c in self._user_cells(root) if "fillColor=" in c.get("style", ""))
             self.assertEqual(self._style_map(cell)["fillColor"], "#fedcba")
+
+    def test_root_pseudo_class_variable_is_resolved_but_other_pseudo_classes_are_ignored(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <style>
+            :root { --accent: #336699; }
+            rect:first-child { fill: red; }
+            rect { fill: var(--accent); }
+          </style>
+          <rect id="a" x="0" y="0" width="10" height="10" />
+          <rect id="b" x="20" y="0" width="10" height="10" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = {cell.get("id"): self._style_map(cell) for cell in self._user_cells(root)}
+            fills = {styles["fillColor"] for styles in cells.values()}
+            # The unsupported `rect:first-child` rule never matches (rather than
+            # mismatching), so both rects fall through to the plain `rect` rule and
+            # resolve the `:root`-scoped CSS variable instead of turning red.
+            self.assertEqual(fills, {"#336699"})

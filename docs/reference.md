@@ -37,6 +37,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 ## Supported CSS and SVG features
 
 - CSS `<style>` blocks: element, class (`.cls`), ID (`#id`), descendant (`A B`), child (`A > B`), multi-class (`.a.b`), and attribute selectors
+- A standalone `:root` pseudo-class (commonly used to scope CSS variables); other pseudo-classes (`:hover`, `:first-child`, etc.) never match, so rules using them are silently ignored rather than applied
 - CSS inheritance through `<g>` groups and custom properties (`var(--name, fallback)`)
 - `currentColor`, `display:none`, and `visibility:hidden`
 - Transforms: `translate`, `scale`, `rotate`, `matrix`, `skewX`, `skewY`

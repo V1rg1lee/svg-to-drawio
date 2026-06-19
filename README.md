@@ -331,6 +331,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 <summary><strong>Supported CSS and SVG features</strong></summary>
 
 - CSS `<style>` blocks: element, class (`.cls`), ID (`#id`), descendant (`A B`), child (`A > B`), multi-class (`.a.b`), and attribute selectors
+- A standalone `:root` pseudo-class (commonly used to scope CSS variables); other pseudo-classes (`:hover`, `:first-child`, etc.) never match, so rules using them are silently ignored rather than applied
 - CSS inheritance through `<g>` groups and custom properties (`var(--name, fallback)`)
 - `currentColor`, `display:none`, and `visibility:hidden`
 - Transforms: `translate`, `scale`, `rotate`, `matrix`, `skewX`, `skewY`
@@ -542,7 +543,7 @@ This produces:
 
 - `dist/release/svg-to-drawio-<version>-linux-<rpm-arch>.rpm`
 
-By default the helper uses `docker` and a `fedora:42` container. If you prefer Podman locally, you can run:
+By default the helper uses `docker` and the Fedora image pinned as `DEFAULT_FEDORA_IMAGE` in `packaging/linux/common.sh` (currently `fedora:42`, shared with the smoke-test script so the build and test environments always match). If you prefer Podman locally, you can run:
 
 ```bash
 CONTAINER_RUNTIME=podman ./packaging/linux/build_rpm_in_fedora_container.sh "$VERSION"

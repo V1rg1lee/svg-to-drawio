@@ -17,7 +17,7 @@ TAR_PATH="$RELEASE_DIR/$PACKAGE_NAME-$VERSION-linux-$PACKAGE_ARCH.tar.gz"
 DEB_PATH="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$PACKAGE_NAME-$VERSION-linux-*.deb" | head -n 1)"
 RPM_PATH="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$PACKAGE_NAME-$VERSION-linux-*.rpm" | head -n 1)"
 FLATPAK_PATH="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "$PACKAGE_NAME-$VERSION-linux-*.flatpak" | head -n 1)"
-FEDORA_IMAGE="${FEDORA_IMAGE:-fedora:42}"
+FEDORA_IMAGE="${FEDORA_IMAGE:-$DEFAULT_FEDORA_IMAGE}"
 
 require_files_present \
     "Linux smoke-test artifacts are incomplete. Missing:" \

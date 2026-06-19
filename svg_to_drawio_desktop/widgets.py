@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from os import path
 
-from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QParallelAnimationGroup, QPropertyAnimation, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont, QIcon, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -246,14 +247,80 @@ class CollapsibleSection(QWidget):
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(6, 4, 0, 0)
         self.content_layout.setSpacing(10)
+        self._content_opacity = QGraphicsOpacityEffect(self.content)
+        self.content.setGraphicsEffect(self._content_opacity)
         outer.addWidget(self.content)
 
+        self._animation_group = QParallelAnimationGroup(self)
+        self._height_animation = QPropertyAnimation(self.content, b"maximumHeight", self)
+        self._height_animation.setDuration(180)
+        self._height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation_group.addAnimation(self._height_animation)
+
+        self._opacity_animation = QPropertyAnimation(self._content_opacity, b"opacity", self)
+        self._opacity_animation.setDuration(140)
+        self._opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation_group.addAnimation(self._opacity_animation)
+        self._animation_group.finished.connect(self._finish_animation)
+        self._expanded_after_animation = expanded
+
         self.header_button.toggled.connect(self._on_toggled)
-        self._on_toggled(expanded)
+        self._apply_initial_state(expanded)
 
     def _on_toggled(self, checked: bool) -> None:
         self.header_button.setIcon(self._expanded_icon if checked else self._collapsed_icon)
-        self.content.setVisible(checked)
+        self._start_animation(checked)
+
+    def _apply_initial_state(self, expanded: bool) -> None:
+        """Apply the non-animated startup state once before any content is added."""
+        self.header_button.setIcon(self._expanded_icon if expanded else self._collapsed_icon)
+        self.content.setVisible(expanded)
+        self.content.setMaximumHeight(16777215 if expanded else 0)
+        self._content_opacity.setOpacity(1.0 if expanded else 0.0)
+
+    def _content_target_height(self) -> int:
+        """Return the natural content height used as the expansion target."""
+        content_height = int(self.content.sizeHint().height())
+        layout_height = int(self.content_layout.sizeHint().height())
+        return max(content_height, layout_height, 0)
+
+    def _start_animation(self, expanded: bool) -> None:
+        """Animate the disclosure body instead of snapping it open or shut."""
+        self._animation_group.stop()
+        self._expanded_after_animation = expanded
+
+        target_height = self._content_target_height()
+        current_height = self.content.maximumHeight() if self.content.isVisible() else 0
+        current_opacity = float(self._content_opacity.opacity())
+
+        if expanded:
+            self.content.setVisible(True)
+            self.content.setMaximumHeight(max(current_height, 0))
+            self._height_animation.setStartValue(max(current_height, 0))
+            self._height_animation.setEndValue(target_height)
+            self._opacity_animation.setStartValue(current_opacity)
+            self._opacity_animation.setEndValue(1.0)
+        else:
+            collapse_start = self.content.height() or self.content.maximumHeight() or target_height
+            self.content.setMaximumHeight(max(collapse_start, 0))
+            self._height_animation.setStartValue(max(collapse_start, 0))
+            self._height_animation.setEndValue(0)
+            self._opacity_animation.setStartValue(current_opacity)
+            self._opacity_animation.setEndValue(0.0)
+
+        self._animation_group.start()
+
+    def _finish_animation(self) -> None:
+        """Normalize the final expanded/collapsed state after the animation ends."""
+        if self._expanded_after_animation:
+            self.content.setMaximumHeight(16777215)
+            self.content.setVisible(True)
+            self._content_opacity.setOpacity(1.0)
+            return
+
+        self.content.setMaximumHeight(0)
+        self.content.setVisible(False)
+        self._content_opacity.setOpacity(0.0)
 
 
 class CounterCard(QFrame):

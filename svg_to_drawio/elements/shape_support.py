@@ -15,12 +15,23 @@ from ..path_utils import (
     make_stencil_style_from_xml,
     path_commands,
 )
+from ..rendering_options import normalize_filter_ref
 from ..style_builder import StyleBuilder
 from ..styles import GradientStyle
 from ..transforms import Matrix, apply_pt
 from .style_support import add_filter_styles, add_gradient_styles, add_metadata_styles
 
 Point2D = tuple[float, float]
+
+
+def multi_stop_filter_refs(ctx: EmitterContext, filter_ref: str | None) -> tuple[str | None, str | None]:
+    """Return the filter refs used for approximation support checks and emitted children."""
+    normalized = normalize_filter_ref(filter_ref)
+    if normalized is None:
+        return None, None
+    if ctx.rendering_options.filter_policy != "prefer-native":
+        return normalized, None
+    return None, normalized if ctx.defs.supports_filter(normalized) else None
 
 
 def emit_polygon_stencil(

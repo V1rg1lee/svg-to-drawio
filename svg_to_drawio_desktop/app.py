@@ -7,6 +7,7 @@ import html
 import json
 import os
 import sys
+import traceback
 from datetime import datetime
 from os import path
 from typing import Any, cast
@@ -69,6 +70,46 @@ PAGE_SETTINGS = 3
 
 _QT_MESSAGE_FILTER_INSTALLED = False
 _PREVIOUS_QT_MESSAGE_HANDLER: Any = None
+
+_CRASH_LOG_DIR = path.join(path.expanduser("~"), ".svg-to-drawio")
+_CRASH_LOG_PATH = path.join(_CRASH_LOG_DIR, "crash.log")
+
+
+def _install_crash_handler() -> None:
+    """Log uncaught exceptions to a file and show a dialog instead of vanishing silently.
+
+    The packaged (PyInstaller) build has no console, so without this an unhandled
+    exception just kills the process with zero trace for the user to report.
+    """
+
+    def _handle_exception(exc_type: type[BaseException], exc_value: BaseException, exc_tb: Any) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            os.makedirs(_CRASH_LOG_DIR, exist_ok=True)
+            with open(_CRASH_LOG_PATH, "a", encoding="utf-8") as handle:
+                handle.write(f"\n--- {datetime.now().isoformat()} (v{__version__}) ---\n{details}")
+        except OSError:
+            pass
+
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            try:
+                QMessageBox.critical(
+                    None,
+                    APP_TITLE,
+                    "Something went wrong and the application needs to close.\n\n"
+                    f"Details were written to:\n{_CRASH_LOG_PATH}",
+                )
+            except Exception:
+                pass
+
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _handle_exception
 
 
 def _install_qt_message_filter() -> None:
@@ -342,8 +383,13 @@ class MainWindow(QMainWindow):
         sp = self.settings_page
         preset_value = str(self._settings.value("rendering/preset", "balanced"))
         if preset_value != "custom":
-            self._set_combo_value(sp.preset_combo, preset_value)
-            self._apply_rendering_preset(preset_value, persist=False)
+            try:
+                self._apply_rendering_preset(preset_value, persist=False)
+            except ValueError:
+                # A persisted preset from an older/incompatible version of the app
+                # is no longer recognized - fall back to the default instead of
+                # crashing on startup.
+                self._apply_rendering_preset("balanced", persist=False)
         else:
             self._set_combo_value(sp.gradient_combo, str(self._settings.value("rendering/gradient_policy", "auto")))
             self._set_combo_value(sp.filter_combo, str(self._settings.value("rendering/filter_policy", "auto")))
@@ -1104,6 +1150,7 @@ def create_application() -> QApplication:
 
 def main() -> int:
     """Launch the desktop application."""
+    _install_crash_handler()
     app = create_application()
     window = MainWindow()
     window.show()

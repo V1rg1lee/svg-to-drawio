@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -98,6 +100,27 @@ def _inkscape_layer_label(elem: Element) -> str | None:
     if groupmode == "layer":
         return elem.get(f"{{{_INKSCAPE_NS}}}label") or elem.get("inkscape:label") or ""
     return None
+
+
+def _write_output_atomically(output_path: str, xml: str) -> None:
+    """Write *xml* to *output_path* via a temp file + atomic rename.
+
+    Writing in place left a truncated `.drawio` file on disk if the process was
+    killed mid-write (e.g. the desktop app's force-close path), which a later
+    run's cache/overwrite logic could then mistake for a valid prior output.
+    """
+    output_dir = path.dirname(output_path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix=".svg-to-drawio-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(xml)
+        os.replace(tmp_path, output_path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class Converter:
@@ -225,8 +248,7 @@ class Converter:
         title = path.splitext(path.basename(svg_path_str))[0]
         xml = self._parse_and_convert(svg_path_str, title)
         output_path = fspath(out_path) if out_path is not None else path.splitext(svg_path_str)[0] + ".drawio"
-        with open(output_path, "w", encoding="utf-8") as handle:
-            handle.write(xml)
+        _write_output_atomically(output_path, xml)
         self.report.output_path = output_path
         return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=output_path)
 
@@ -816,6 +838,88 @@ class Converter:
             return None
         return group_bbox(temp_cells)
 
+    def _try_emit_fallback(
+        self,
+        elem: Element,
+        ctx: EmitterContext,
+        parent_matrix: Matrix,
+        matrix: Matrix,
+        css: dict[str, str],
+        inherited_css: dict[str, str],
+        ancestor_list: list[AncestorInfo],
+        *,
+        record_issues: bool,
+    ) -> bool:
+        """Try each fallback/approximation strategy in turn; return True if one consumed *elem*."""
+        if self._emit_simple_clip_or_mask_replacement(
+            elem,
+            ctx,
+            parent_matrix,
+            matrix,
+            css,
+            inherited_css,
+            ancestor_list,
+            record_issues=record_issues,
+        ):
+            return True
+
+        if emit_simple_pattern_fill(ctx, elem, matrix, css):
+            if record_issues:
+                self._record_preview_annotation_for_element(
+                    elem,
+                    parent_matrix,
+                    inherited_css,
+                    ancestor_list,
+                    status="approximate",
+                    label="Editable pattern expansion",
+                    message="This pattern stayed editable through a simplified native expansion.",
+                    feature_key="patterns",
+                )
+            return True
+
+        fallback_reason = self._fallback_reason(elem, css)
+        if fallback_reason is None:
+            fallback_reason = self._multi_stop_gradient_fallback_reason(elem, css, matrix)
+        if fallback_reason is not None and self._emit_svg_fallback(
+            elem,
+            ctx,
+            parent_matrix,
+            css,
+            inherited_css,
+            ancestor_list,
+            fallback_reason[0],
+            fallback_reason[1],
+        ):
+            return True
+
+        return False
+
+    def _is_truncated_by_max_elements(self, elem: Element, *, record_issues: bool) -> bool:
+        """Track the drawable-element count; report/warn exactly once when the limit is first exceeded.
+
+        Returns True for *elem* and every element after it once `self._max_elements` is exceeded, so
+        the caller can skip emitting them.
+        """
+        if self._max_elements is None:
+            return False
+        self._element_count += 1
+        if self._element_count <= self._max_elements:
+            return False
+        if self._element_count == self._max_elements + 1:
+            warnings.warn(
+                f"SVG has more than {self._max_elements} drawable elements; output truncated.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            if record_issues:
+                self.report.truncated = True
+                self._record_issue(
+                    "max-elements-truncated",
+                    f"Output was truncated after {self._max_elements} drawable elements.",
+                    elem=elem,
+                )
+        return True
+
     def _convert(
         self,
         elem: Element,
@@ -850,45 +954,17 @@ class Converter:
         if display_value == "none" or visibility_value == "hidden":
             return
 
-        if allow_fallback:
-            if self._emit_simple_clip_or_mask_replacement(
-                elem,
-                ctx,
-                parent_matrix,
-                matrix,
-                css,
-                inherited_css,
-                ancestor_list,
-                record_issues=record_issues,
-            ):
-                return
-            if emit_simple_pattern_fill(ctx, elem, matrix, css):
-                if record_issues:
-                    self._record_preview_annotation_for_element(
-                        elem,
-                        parent_matrix,
-                        inherited_css,
-                        ancestor_list,
-                        status="approximate",
-                        label="Editable pattern expansion",
-                        message="This pattern stayed editable through a simplified native expansion.",
-                        feature_key="patterns",
-                    )
-                return
-            fallback_reason = self._fallback_reason(elem, css)
-            if fallback_reason is None:
-                fallback_reason = self._multi_stop_gradient_fallback_reason(elem, css, matrix)
-            if fallback_reason is not None and self._emit_svg_fallback(
-                elem,
-                ctx,
-                parent_matrix,
-                css,
-                inherited_css,
-                ancestor_list,
-                fallback_reason[0],
-                fallback_reason[1],
-            ):
-                return
+        if allow_fallback and self._try_emit_fallback(
+            elem,
+            ctx,
+            parent_matrix,
+            matrix,
+            css,
+            inherited_css,
+            ancestor_list,
+            record_issues=record_issues,
+        ):
+            return
 
         self._record_policy_notes(
             elem,
@@ -951,23 +1027,8 @@ class Converter:
                     enforce_max_elements=enforce_max_elements,
                 )
         elif tag in _DISPATCH:
-            if enforce_max_elements and self._max_elements is not None:
-                self._element_count += 1
-                if self._element_count > self._max_elements:
-                    if self._element_count == self._max_elements + 1:
-                        warnings.warn(
-                            f"SVG has more than {self._max_elements} drawable elements; output truncated.",
-                            RuntimeWarning,
-                            stacklevel=2,
-                        )
-                        if record_issues:
-                            self.report.truncated = True
-                            self._record_issue(
-                                "max-elements-truncated",
-                                f"Output was truncated after {self._max_elements} drawable elements.",
-                                elem=elem,
-                            )
-                    return
+            if enforce_max_elements and self._is_truncated_by_max_elements(elem, record_issues=record_issues):
+                return
             try:
                 _DISPATCH[tag](ctx, elem, matrix, css)
             except Exception as exc:

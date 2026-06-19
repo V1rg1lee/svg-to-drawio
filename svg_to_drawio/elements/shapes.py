@@ -9,7 +9,6 @@ from ..compatibility import note_gradient_usage, note_marker_usage, note_shape_u
 from ..element_geometry import ellipse_bounds, has_shear, line_endpoints, rect_bounds, rect_corners
 from ..emitter_context import EmitterContext
 from ..path_utils import make_stencil_style_from_commands
-from ..rendering_options import normalize_filter_ref
 from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix, stroke_scale
@@ -20,7 +19,7 @@ from .gradient_approx import (
     supports_multi_stop_gradient_approximation,
 )
 from .shape_paths import ellipse_path_d, rounded_rect_path_d
-from .shape_support import emit_polygon_stencil, emit_transformed_path_stencil
+from .shape_support import emit_polygon_stencil, emit_transformed_path_stencil, multi_stop_filter_refs
 from .style_support import (
     add_filter_styles,
     add_gradient_styles,
@@ -28,16 +27,6 @@ from .style_support import (
     emit_endpoint_marker,
     segment_angle_degrees,
 )
-
-
-def _multi_stop_filter_refs(ctx: EmitterContext, filter_ref: str | None) -> tuple[str | None, str | None]:
-    """Return the filter refs used for approximation support checks and emitted children."""
-    normalized = normalize_filter_ref(filter_ref)
-    if normalized is None:
-        return None, None
-    if ctx.rendering_options.filter_policy != "prefer-native":
-        return normalized, None
-    return None, normalized if ctx.defs.supports_filter(normalized) else None
 
 
 def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str, str] | None = None) -> None:
@@ -134,7 +123,7 @@ def emit_circle(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[st
     fill_opacity = opacity_pct(visual["fill_opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
-    approx_support_filter, approx_style_filter = _multi_stop_filter_refs(ctx, visual["filter"])
+    approx_support_filter, approx_style_filter = multi_stop_filter_refs(ctx, visual["filter"])
 
     if supports_multi_stop_gradient_approximation("circle", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None
@@ -212,7 +201,7 @@ def emit_ellipse(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[s
     fill_opacity = opacity_pct(visual["fill_opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
-    approx_support_filter, approx_style_filter = _multi_stop_filter_refs(ctx, visual["filter"])
+    approx_support_filter, approx_style_filter = multi_stop_filter_refs(ctx, visual["filter"])
 
     if supports_multi_stop_gradient_approximation("ellipse", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None
@@ -297,7 +286,7 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     fill_opacity = opacity_pct(visual["fill_opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
-    approx_support_filter, approx_style_filter = _multi_stop_filter_refs(ctx, visual["filter"])
+    approx_support_filter, approx_style_filter = multi_stop_filter_refs(ctx, visual["filter"])
 
     if supports_multi_stop_gradient_approximation("rect", matrix, gradient, filter_ref=approx_support_filter):
         assert gradient is not None

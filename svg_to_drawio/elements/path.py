@@ -9,11 +9,11 @@ from ..cell_factory import make_bounds_vertex, make_edge
 from ..compatibility import note_gradient_usage, note_marker_usage, note_shape_usage
 from ..emitter_context import EmitterContext
 from ..path_utils import commands_bbox, make_stencil_style_from_commands, path_commands, sample_open_path
-from ..rendering_options import normalize_filter_ref
 from ..style_builder import StyleBuilder
 from ..styles import VisualStyle, get_visual, opacity_pct
 from ..transforms import Matrix, apply_pt, stroke_scale
 from .gradient_approx import emit_path_multi_stop_gradient_approximation, supports_multi_stop_gradient_approximation
+from .shape_support import multi_stop_filter_refs
 from .style_support import (
     add_filter_styles,
     add_gradient_styles,
@@ -33,16 +33,6 @@ def _is_closed(path_data: str | None) -> bool:
 def _has_curve_commands(path_data: str | None) -> bool:
     """Return whether the path contains Bezier or arc commands."""
     return bool(re.search(r"[CcSsQqTtAa]", path_data or ""))
-
-
-def _multi_stop_filter_refs(ctx: EmitterContext, filter_ref: str | None) -> tuple[str | None, str | None]:
-    """Return the filter refs used for approximation support checks and emitted children."""
-    normalized = normalize_filter_ref(filter_ref)
-    if normalized is None:
-        return None, None
-    if ctx.rendering_options.filter_policy != "prefer-native":
-        return normalized, None
-    return None, normalized if ctx.defs.supports_filter(normalized) else None
 
 
 def _emit_open_path_as_edge(
@@ -126,7 +116,7 @@ def emit_path(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
     stroke_width = visual["stroke_width"] * stroke_scale(matrix)
     fill_rule = visual.get("fill_rule", "nonzero")
-    approx_support_filter, approx_style_filter = _multi_stop_filter_refs(ctx, visual["filter"])
+    approx_support_filter, approx_style_filter = multi_stop_filter_refs(ctx, visual["filter"])
 
     if gradient is not None and supports_multi_stop_gradient_approximation(
         "path", matrix, gradient, filter_ref=approx_support_filter

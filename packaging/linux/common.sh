@@ -13,6 +13,11 @@ ICON_PNG="$PACKAGING_REPO_ROOT/svg_to_drawio_desktop/assets/app_logo_256x256.png
 ICON_SVG="$PACKAGING_REPO_ROOT/svg_to_drawio_desktop/assets/app_logo.svg"
 LICENSE_FILE="$PACKAGING_REPO_ROOT/LICENSE"
 
+# Single source of truth for the Fedora image used both to build the RPM and to smoke-test
+# it afterwards - keeping the build and test environments on the same release matters more
+# than always tracking the latest Fedora, so bump this in one place rather than per-script.
+DEFAULT_FEDORA_IMAGE="fedora:42"
+
 
 resolve_output_path() {
     local raw_output="$1"

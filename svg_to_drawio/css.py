@@ -137,7 +137,14 @@ def _match_simple_sel(
     elem_classes: set[str],
     elem: Element,
 ) -> bool:
-    """Match a simple selector without combinators against an element."""
+    """Match a simple selector without combinators against an element.
+
+    The only supported pseudo-class is a standalone `:root` (handled entirely inside
+    `_match_type_selector`). Any other `:pseudo-class` reaching the loop below hits the
+    `else: return False` branch, so the whole rule never matches anything - it is safely
+    ignored rather than mismatched, even though `_selector_specificity` still counts the
+    colon. A rule that never matches cannot affect the cascade regardless of that count.
+    """
     ok, remainder = _match_type_selector(selector, tag)
     if not ok:
         return False
