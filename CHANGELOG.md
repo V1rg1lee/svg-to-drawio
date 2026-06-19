@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-06-19
+
+### Added
+
+- An interactive desktop preview experience with source SVG rendering, draw.io-oriented preview rendering, zooming, compatibility highlights, and batch preview selection.
+- Preview-specific text rendering support for advanced cases such as `textPath`, positioned glyphs, and compatibility annotations inside the desktop app.
+- A shared reusable desktop packaging workflow for CI and release builds, plus site fingerprinting to avoid unnecessary GitHub Pages deployments.
+- Additional regression coverage for desktop preview rendering, CLI/API quality gates, polygon clipping, CSS edge cases, packaging smoke tests, and documentation fingerprinting.
+
+### Changed
+
+- Polished the desktop UI with improved selectors, dialogs, expandable sections, preview controls, and cleaner logging behavior.
+- Consolidated desktop packaging logic so pull request validation and release packaging now share the same workflow definition.
+- Updated build and documentation dependencies, including PyInstaller, PySide6, mkdocstrings, pinned GitHub Actions steps, and release tooling.
+
+### Fixed
+
+- Hardened engine edge cases around transforms, polygon clipping, CSS/style resolution, shape emission, and preview asset handling.
+- Improved CLI and Python API input validation, and clarified quality gate messaging around score thresholds and rendering requirements.
+- Fixed CI startup issues caused by reusable workflow permission mismatches and reduced unnecessary GitHub Pages deployment churn.
+
 ## [3.6.0] - 2026-06-19
 
 ### Added
@@ -120,7 +141,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release: SVG to draw.io conversion engine.
 
-[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.6.0...HEAD
+[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.7.0...HEAD
+[3.7.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.5.1...v3.6.0
 [3.5.1]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.5.0...v3.5.1
 [3.5.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.4.0...v3.5.0
