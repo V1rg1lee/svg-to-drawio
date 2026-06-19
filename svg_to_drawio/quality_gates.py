@@ -10,7 +10,11 @@ from .diagnostics import ConversionReport
 
 @dataclass(frozen=True)
 class QualityGateOptions:
-    """User-configurable compatibility thresholds for automated runs."""
+    """User-configurable compatibility thresholds for automated runs.
+
+    Raises:
+        ValueError: If `min_score` is not an int in the 0-100 range.
+    """
 
     fail_on_warning: bool = False
     fail_on_fallback: bool = False

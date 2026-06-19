@@ -24,7 +24,7 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--text-metrics-policy MODE` | `auto`, `system`, or `heuristic` for text sizing |
 | `--fail-on-warning` | Exit with code 1 if any converted file reports a warning |
 | `--fail-on-fallback` | Exit with code 1 if any file uses embedded SVG fallback |
-| `--min-score N` | Exit with code 1 if any file scores below N compatibility points |
+| `--min-score N` | Exit with code 1 if any file scores below N compatibility points (0-100) |
 | `--require-native CAPABILITY...` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native |
 
 The event-driven `--watch-backend event` mode requires the optional `watchdog` dependency (`pip install "svg-to-drawio[watch]"`); `auto` falls back to polling when it is not installed.
