@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from os import path
 
-from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont, QPainter, QPaintEvent, QPen
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QFont, QIcon, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import STATUS_ICON, load_brand_pixmap
+from .theme import STATUS_ICON, asset_path, load_brand_pixmap
 
 
 class SourceListWidget(QListWidget):
@@ -186,14 +186,23 @@ class NavBar(QFrame):
 
         self.overflow_button = QToolButton()
         self.overflow_button.setObjectName("overflowButton")
-        self.overflow_button.setText("⋯")  # midline horizontal ellipsis
+        self.overflow_button.setText("⋮")
         self.overflow_button.setToolTip("More actions")
+        self.overflow_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.overflow_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.overflow_button.setFixedSize(34, 34)
+        overflow_font = QFont()
+        overflow_font.setPointSize(16)
+        overflow_font.setBold(True)
+        self.overflow_button.setFont(overflow_font)
         self.overflow_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         layout.addWidget(self.overflow_button)
 
         self.theme_button = QPushButton()
         self.theme_button.setObjectName("themeButton")
-        self.theme_button.setFixedHeight(28)
+        self.theme_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.theme_button.setFixedHeight(34)
         layout.addWidget(self.theme_button)
 
     def set_current_page(self, index: int) -> None:
@@ -216,21 +225,26 @@ class CollapsibleSection(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
 
-        self._collapsed_text = f"▸  {title}"
-        self._expanded_text = f"▾  {title}"
+        self._title = title
+        self._collapsed_icon = QIcon(str(asset_path("disclosure_chevron_right.svg")))
+        self._expanded_icon = QIcon(str(asset_path("disclosure_chevron_down.svg")))
 
         self.header_button = QToolButton()
         self.header_button.setObjectName("disclosureHeader")
         self.header_button.setCheckable(True)
         self.header_button.setChecked(expanded)
         self.header_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.header_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.header_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.header_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.header_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.header_button.setMinimumHeight(38)
+        self.header_button.setIconSize(QSize(12, 12))
+        self.header_button.setText(self._title)
         outer.addWidget(self.header_button)
 
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(0, 4, 0, 0)
+        self.content_layout.setContentsMargins(6, 4, 0, 0)
         self.content_layout.setSpacing(10)
         outer.addWidget(self.content)
 
@@ -238,7 +252,7 @@ class CollapsibleSection(QWidget):
         self._on_toggled(expanded)
 
     def _on_toggled(self, checked: bool) -> None:
-        self.header_button.setText(self._expanded_text if checked else self._collapsed_text)
+        self.header_button.setIcon(self._expanded_icon if checked else self._collapsed_icon)
         self.content.setVisible(checked)
 
 

@@ -53,6 +53,9 @@ class DiagnosticsAndFallbackTests(SvgTestCase):
         self.assertEqual(report.fallback_count, 1)
         self.assertIn("clip-path-fallback", {issue.code for issue in report.issues})
         self.assertTrue(any(asset.status == "embedded-svg-fallback" for asset in report.assets))
+        self.assertTrue(report.preview_annotations)
+        self.assertEqual(report.preview_annotations[0].status, "fallback")
+        self.assertEqual(report.preview_annotations[0].feature_key, "clipping")
 
     def test_mask_uses_embedded_svg_fallback_and_records_a_report_issue(self) -> None:
         svg = """
@@ -151,6 +154,9 @@ class DiagnosticsAndFallbackTests(SvgTestCase):
         self.assertTrue(any((cell.get("style") or "").startswith("group;") for cell in cells))
         self.assertEqual(report.fallback_count, 0)
         self.assertIn("pattern-simplified-native", {issue.code for issue in report.issues})
+        self.assertTrue(report.preview_annotations)
+        self.assertTrue(any(annotation.status == "approximate" for annotation in report.preview_annotations))
+        self.assertTrue(any(annotation.feature_key == "patterns" for annotation in report.preview_annotations))
 
     def test_mixed_pattern_artwork_falls_back_instead_of_dropping_unsupported_children(self) -> None:
         svg = """

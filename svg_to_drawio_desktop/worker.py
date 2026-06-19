@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from threading import Event
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -41,12 +42,18 @@ class ConversionWorker(QObject):
     def run(self) -> None:
         """Execute the batch conversion and forward progress signals."""
         try:
-            summary = self._service.convert(
-                self._input_paths,
-                self._options,
-                reporter=self._emit_event,
-                cancellation_token=self._token,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"SVG has more than .* drawable elements; output truncated\.",
+                    category=RuntimeWarning,
+                )
+                summary = self._service.convert(
+                    self._input_paths,
+                    self._options,
+                    reporter=self._emit_event,
+                    cancellation_token=self._token,
+                )
         except Exception as exc:  # pragma: no cover - driven by GUI interactions
             self.failed.emit(str(exc))
             return
@@ -79,13 +86,19 @@ class ParallelConversionWorker(QObject):
     def run(self) -> None:
         """Plan jobs then convert them in parallel, emitting progress signals."""
         try:
-            summary = ConversionService().convert_parallel(
-                self._input_paths,
-                self._options,
-                max_workers=self._max_workers,
-                reporter=self._emit_event,
-                cancellation_token=self._token,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"SVG has more than .* drawable elements; output truncated\.",
+                    category=RuntimeWarning,
+                )
+                summary = ConversionService().convert_parallel(
+                    self._input_paths,
+                    self._options,
+                    max_workers=self._max_workers,
+                    reporter=self._emit_event,
+                    cancellation_token=self._token,
+                )
         except Exception as exc:
             self.failed.emit(str(exc))
             return
@@ -121,13 +134,19 @@ class WatchConversionWorker(QObject):
     def run(self) -> None:
         """Run the initial conversion, then stay alive until cancellation is requested."""
         try:
-            watch_svg_files(
-                self._input_paths,
-                self._options,
-                reporter=self._emit_event,
-                stop_event=self._stop_event,
-                backend="event" if event_watch_available() else "poll",
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"SVG has more than .* drawable elements; output truncated\.",
+                    category=RuntimeWarning,
+                )
+                watch_svg_files(
+                    self._input_paths,
+                    self._options,
+                    reporter=self._emit_event,
+                    stop_event=self._stop_event,
+                    backend="event" if event_watch_available() else "poll",
+                )
         except Exception as exc:  # pragma: no cover - driven by GUI/runtime behavior
             self.failed.emit(str(exc))
             return

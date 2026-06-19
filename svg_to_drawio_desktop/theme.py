@@ -280,13 +280,26 @@ def load_brand_pixmap(size: int = 40) -> QPixmap:
 
 def build_stylesheet(t: dict[str, str]) -> str:
     """Build the application-wide stylesheet for the given color token set."""
+    combo_arrow_url = asset_path("combo_chevron_down.svg").as_posix()
+    spin_up_arrow_url = asset_path("spin_chevron_up.svg").as_posix()
+    spin_down_arrow_url = asset_path("spin_chevron_down.svg").as_posix()
     return f"""
         QMainWindow {{
             background: {t["bg"]};
         }}
+        QDialog, QMessageBox {{
+            background: {t["card_bg"]};
+        }}
         QWidget {{
             font-size: 13px;
             color: {t["text"]};
+        }}
+        QMessageBox QLabel {{
+            color: {t["text"]};
+            background: transparent;
+        }}
+        QMessageBox QPushButton {{
+            min-width: 88px;
         }}
         QScrollArea {{
             background: {t["bg"]};
@@ -380,16 +393,26 @@ def build_stylesheet(t: dict[str, str]) -> str:
         }}
         /* Disclosure / collapsible section */
         QToolButton#disclosureHeader {{
-            background: transparent;
-            border: none;
+            background: {t["card_bg"]};
+            border: 1px solid {t["card_border"]};
+            border-radius: 12px;
             color: {t["text"]};
             font-weight: 600;
             font-size: 12.5px;
-            padding: 4px 2px;
+            padding: 8px 14px;
             text-align: left;
         }}
         QToolButton#disclosureHeader:hover {{
+            background: {t["btn_hover_bg"]};
+            border-color: {t["btn_hover_border"]};
             color: {t["btn_hover_color"]};
+        }}
+        QToolButton#disclosureHeader:pressed {{
+            background: {t["btn_pressed_bg"]};
+        }}
+        QToolButton#disclosureHeader:checked {{
+            background: {t["neutral_bg"]};
+            border-color: {t["btn_hover_border"]};
         }}
         /* Summary label */
         QLabel#summaryLabel {{
@@ -477,17 +500,37 @@ def build_stylesheet(t: dict[str, str]) -> str:
             border-color: {t["btn_disabled_border"]};
         }}
         /* Theme toggle and overflow menu - blend into header */
-        QPushButton#themeButton, QToolButton#overflowButton {{
-            background: transparent;
-            border: none;
-            border-radius: 6px;
-            padding: 4px 8px;
+        QPushButton#themeButton {{
+            background: {t["card_bg"]};
+            border: 1px solid {t["card_border"]};
+            border-radius: 17px;
+            padding: 4px 12px;
             color: {t["text_muted"]};
+            font-weight: 600;
+        }}
+        QToolButton#overflowButton {{
+            background: {t["card_bg"]};
+            border: 1px solid {t["card_border"]};
+            border-radius: 17px;
+            padding: 0;
+            color: {t["text_muted"]};
+            min-width: 34px;
+            max-width: 34px;
+            min-height: 34px;
+            max-height: 34px;
         }}
         QPushButton#themeButton:hover, QToolButton#overflowButton:hover {{
             background: {t["btn_hover_bg"]};
             color: {t["btn_hover_color"]};
-            border: none;
+            border-color: {t["btn_hover_border"]};
+        }}
+        QPushButton#themeButton:pressed, QToolButton#overflowButton:pressed {{
+            background: {t["btn_pressed_bg"]};
+        }}
+        QToolButton#overflowButton::menu-indicator {{
+            image: none;
+            width: 0px;
+            height: 0px;
         }}
         QToolButton#helpBadge {{
             min-width: 20px;
@@ -558,7 +601,7 @@ def build_stylesheet(t: dict[str, str]) -> str:
             border-color: {t["btn_disabled_border"]};
         }}
         /* Inputs */
-        QListWidget, QLineEdit {{
+        QListWidget, QLineEdit, QComboBox {{
             background: {t["input_bg"]};
             border: 1.5px solid {t["input_border"]};
             border-radius: 10px;
@@ -567,8 +610,62 @@ def build_stylesheet(t: dict[str, str]) -> str:
             selection-background-color: {t["selection_bg"]};
             selection-color: {t["selection_color"]};
         }}
-        QListWidget:focus, QLineEdit:focus {{
+        QListWidget:focus, QLineEdit:focus, QComboBox:focus {{
             border-color: #3b82f6;
+        }}
+        QComboBox {{
+            combobox-popup: 0;
+            padding: 7px 42px 7px 12px;
+            border-radius: 12px;
+            min-height: 22px;
+            font-weight: 500;
+        }}
+        QComboBox:hover:!disabled {{
+            border-color: {t["btn_hover_border"]};
+        }}
+        QComboBox:disabled {{
+            background: {t["btn_disabled_bg"]};
+            color: {t["btn_disabled_color"]};
+            border-color: {t["btn_disabled_border"]};
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 34px;
+            margin: 2px;
+            border-left: 1px solid {t["card_border"]};
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
+            background: {t["neutral_bg"]};
+        }}
+        QComboBox:hover:!disabled::drop-down {{
+            border-left-color: {t["btn_hover_border"]};
+            background: {t["btn_hover_bg"]};
+        }}
+        QComboBox::down-arrow {{
+            image: url("{combo_arrow_url}");
+            width: 12px;
+            height: 12px;
+        }}
+        QListView#comboPopup {{
+            background: {t["menu_bg"]};
+            color: {t["text"]};
+            border: 1px solid {t["menu_border"]};
+            border-radius: 10px;
+            padding: 4px;
+            margin: 0;
+            outline: none;
+            selection-background-color: {t["menu_selected_bg"]};
+            selection-color: {t["menu_selected_color"]};
+        }}
+        QListView#comboPopup::item {{
+            min-height: 28px;
+            padding: 6px 10px;
+            border-radius: 6px;
+        }}
+        QListView#comboPopup::item:selected {{
+            background: {t["menu_selected_bg"]};
+            color: {t["menu_selected_color"]};
         }}
         QListWidget::item {{
             padding: 7px 10px;
@@ -722,7 +819,57 @@ def build_stylesheet(t: dict[str, str]) -> str:
             background: {t["input_bg"]};
             color: {t["input_color"]};
             border: 1.5px solid {t["input_border"]};
-            border-radius: 6px;
-            padding: 3px 6px;
+            border-radius: 12px;
+            padding: 4px 8px 4px 10px;
+            min-height: 22px;
+            font-weight: 500;
+            selection-background-color: {t["selection_bg"]};
+            selection-color: {t["selection_color"]};
+        }}
+        QSpinBox:hover:!disabled {{
+            border-color: {t["btn_hover_border"]};
+        }}
+        QSpinBox:focus {{
+            border-color: #3b82f6;
+        }}
+        QSpinBox:disabled {{
+            background: {t["btn_disabled_bg"]};
+            color: {t["btn_disabled_color"]};
+            border-color: {t["btn_disabled_border"]};
+        }}
+        QSpinBox::up-button, QSpinBox::down-button {{
+            subcontrol-origin: border;
+            width: 18px;
+            background: {t["neutral_bg"]};
+            border-left: 1px solid {t["card_border"]};
+        }}
+        QSpinBox::up-button {{
+            subcontrol-position: top right;
+            border-top-right-radius: 10px;
+            border-top: none;
+            border-right: none;
+            border-bottom: 1px solid {t["card_border"]};
+        }}
+        QSpinBox::down-button {{
+            subcontrol-position: bottom right;
+            border-bottom-right-radius: 10px;
+            border-right: none;
+            border-bottom: none;
+        }}
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+            background: {t["btn_hover_bg"]};
+        }}
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {{
+            background: {t["btn_pressed_bg"]};
+        }}
+        QSpinBox::up-arrow {{
+            image: url("{spin_up_arrow_url}");
+            width: 10px;
+            height: 10px;
+        }}
+        QSpinBox::down-arrow {{
+            image: url("{spin_down_arrow_url}");
+            width: 10px;
+            height: 10px;
         }}
     """

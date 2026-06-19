@@ -41,6 +41,21 @@ def _payload_list(payload: dict[str, object], key: str) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+def _payload_float(payload: dict[str, object], key: str, default: float = 0.0) -> float:
+    """Read one float-ish value from a loosely typed JSON payload."""
+    value = payload.get(key, default)
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
 @dataclass(frozen=True)
 class DiagnosticIssue:
     """One structured warning, fallback note, or failure detail."""
@@ -116,6 +131,67 @@ class AssetReference:
         )
 
 
+@dataclass(frozen=True)
+class PreviewAnnotation:
+    """One reliable preview overlay region for the desktop conversion impact view."""
+
+    status: str
+    label: str
+    message: str
+    x: float
+    y: float
+    width: float
+    height: float
+    feature_key: str | None = None
+    element_tag: str | None = None
+    element_id: str | None = None
+
+    def identity(self) -> tuple[str, str, str | None, str | None, str | None, float, float, float, float]:
+        """Return a stable identity used for deduplicating preview overlays."""
+        return (
+            self.status,
+            self.label,
+            self.feature_key,
+            self.element_tag,
+            self.element_id,
+            round(self.x, 4),
+            round(self.y, 4),
+            round(self.width, 4),
+            round(self.height, 4),
+        )
+
+    def to_dict(self) -> dict[str, str | float | None]:
+        """Serialize the preview annotation into a JSON-friendly dictionary."""
+        return {
+            "status": self.status,
+            "label": self.label,
+            "message": self.message,
+            "feature_key": self.feature_key,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+            "element_tag": self.element_tag,
+            "element_id": self.element_id,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> PreviewAnnotation:
+        """Rehydrate a serialized preview annotation."""
+        return cls(
+            status=str(payload.get("status", "approximate")),
+            label=str(payload.get("label", "")),
+            message=str(payload.get("message", "")),
+            feature_key=str(payload["feature_key"]) if payload.get("feature_key") is not None else None,
+            x=_payload_float(payload, "x"),
+            y=_payload_float(payload, "y"),
+            width=_payload_float(payload, "width"),
+            height=_payload_float(payload, "height"),
+            element_tag=str(payload["element_tag"]) if payload.get("element_tag") is not None else None,
+            element_id=str(payload["element_id"]) if payload.get("element_id") is not None else None,
+        )
+
+
 @dataclass
 class ConversionReport:
     """Mutable diagnostic report for one input SVG file."""
@@ -130,12 +206,16 @@ class ConversionReport:
     emitted_cells: int = 0
     issues: list[DiagnosticIssue] = field(default_factory=list)
     assets: list[AssetReference] = field(default_factory=list)
+    preview_annotations: list[PreviewAnnotation] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
     feature_observations: list[FeatureObservation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._issue_keys: set[tuple[str, str | None, str | None, bool]] = {issue.identity() for issue in self.issues}
         self._asset_keys: set[tuple[str, str, str | None]] = {asset.identity() for asset in self.assets}
+        self._preview_annotation_keys: set[
+            tuple[str, str, str | None, str | None, str | None, float, float, float, float]
+        ] = {annotation.identity() for annotation in self.preview_annotations}
         self._dependency_keys: set[str] = set(self.dependencies)
         self._feature_observation_keys: dict[tuple[str, str, str], int] = {
             observation.identity(): index for index, observation in enumerate(self.feature_observations)
@@ -198,6 +278,41 @@ class ConversionReport:
         compatibility_observation = observation_from_asset(status=status, message=message, mime_type=mime_type)
         if compatibility_observation is not None:
             self.record_feature_observation(compatibility_observation)
+
+    def add_preview_annotation(
+        self,
+        *,
+        status: str,
+        label: str,
+        message: str,
+        feature_key: str | None,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        element_tag: str | None = None,
+        element_id: str | None = None,
+    ) -> None:
+        """Append a deduplicated preview overlay region to the report."""
+        if width <= 0.0 or height <= 0.0:
+            return
+        annotation = PreviewAnnotation(
+            status=status,
+            label=label,
+            message=message,
+            feature_key=feature_key,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            element_tag=element_tag,
+            element_id=element_id,
+        )
+        annotation_key = annotation.identity()
+        if annotation_key in self._preview_annotation_keys:
+            return
+        self._preview_annotation_keys.add(annotation_key)
+        self.preview_annotations.append(annotation)
 
     def add_dependency(self, dependency_path: str | None) -> None:
         """Track one file path that should invalidate the conversion cache when it changes."""
@@ -286,6 +401,7 @@ class ConversionReport:
             "compatibility_score": self.compatibility_score,
             "issues": [issue.to_dict() for issue in self.issues],
             "assets": [asset.to_dict() for asset in self.assets],
+            "preview_annotations": [annotation.to_dict() for annotation in self.preview_annotations],
             "dependencies": list(self.dependencies),
             "feature_observations": [observation.to_dict() for observation in self.feature_observations],
             "compatibility_overview": self.compatibility_overview.to_dict(),
@@ -309,6 +425,11 @@ class ConversionReport:
             ],
             assets=[
                 AssetReference.from_dict(item) for item in _payload_list(payload, "assets") if isinstance(item, dict)
+            ],
+            preview_annotations=[
+                PreviewAnnotation.from_dict(item)
+                for item in _payload_list(payload, "preview_annotations")
+                if isinstance(item, dict)
             ],
             dependencies=[str(item) for item in _payload_list(payload, "dependencies") if item is not None],
             feature_observations=[

@@ -353,6 +353,56 @@ class Converter:
             fallback_used=fallback_used,
         )
 
+    def _record_preview_annotation_for_bbox(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        status: str,
+        label: str,
+        message: str,
+        feature_key: str | None,
+        elem: Element | None = None,
+    ) -> None:
+        """Record one reliable preview overlay for the desktop impact view."""
+        x, y, width, height = bbox
+        self.report.add_preview_annotation(
+            status=status,
+            label=label,
+            message=message,
+            feature_key=feature_key,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            element_tag=strip_ns(elem.tag) if elem is not None else None,
+            element_id=elem.get("id") if elem is not None else None,
+        )
+
+    def _record_preview_annotation_for_element(
+        self,
+        elem: Element,
+        parent_matrix: Matrix,
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo],
+        *,
+        status: str,
+        label: str,
+        message: str,
+        feature_key: str | None,
+    ) -> None:
+        """Estimate one subtree's bounds and record a preview overlay when possible."""
+        bbox = self._estimate_subtree_bounds(elem, parent_matrix, inherited_css, ancestors)
+        if bbox is None:
+            return
+        self._record_preview_annotation_for_bbox(
+            bbox,
+            status=status,
+            label=label,
+            message=message,
+            feature_key=feature_key,
+            elem=elem,
+        )
+
     def _can_replace_clipped_shape(self, elem: Element, css: dict[str, str], replacement: Element) -> bool:
         """Return whether a simple clipped/masked shape can stay editable through replacement geometry."""
         if strip_ns(elem.tag) not in {"rect", "circle", "ellipse", "polygon"}:
@@ -392,8 +442,11 @@ class Converter:
         self,
         elem: Element,
         ctx: EmitterContext,
+        parent_matrix: Matrix,
         matrix: Matrix,
         css: dict[str, str],
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo],
         *,
         record_issues: bool,
     ) -> bool:
@@ -413,6 +466,16 @@ class Converter:
                         "A simple clip path was rewritten into an editable replacement shape.",
                         elem=elem,
                     )
+                    self._record_preview_annotation_for_element(
+                        elem,
+                        parent_matrix,
+                        inherited_css,
+                        ancestors,
+                        status="approximate",
+                        label="Editable clip rewrite",
+                        message="This clipped shape stayed editable through a simplified native rewrite.",
+                        feature_key="clipping",
+                    )
                 return emitted
 
         mask = css.get("mask") or elem.get("mask") or ""
@@ -425,6 +488,16 @@ class Converter:
                         "mask-simplified-native",
                         "A simple mask was rewritten into an editable replacement shape.",
                         elem=elem,
+                    )
+                    self._record_preview_annotation_for_element(
+                        elem,
+                        parent_matrix,
+                        inherited_css,
+                        ancestors,
+                        status="approximate",
+                        label="Editable mask rewrite",
+                        message="This masked shape stayed editable through a simplified native rewrite.",
+                        feature_key="clipping",
                     )
                 return emitted
 
@@ -512,7 +585,10 @@ class Converter:
         self,
         elem: Element,
         css: dict[str, str],
+        parent_matrix: Matrix,
         matrix: Matrix,
+        inherited_css: dict[str, str],
+        ancestors: list[AncestorInfo],
         *,
         record_issues: bool,
     ) -> None:
@@ -530,6 +606,16 @@ class Converter:
                 "filter-ignored-for-editability",
                 "Unsupported SVG filter was ignored because the filter policy prefers editable native output.",
                 elem=elem,
+            )
+            self._record_preview_annotation_for_element(
+                elem,
+                parent_matrix,
+                inherited_css,
+                ancestors,
+                status="approximate",
+                label="Editable filter drop",
+                message="This region stayed editable, but an unsupported SVG filter was intentionally ignored.",
+                feature_key="filters",
             )
 
         fill_value = css.get("fill") or elem.get("fill") or ""
@@ -550,6 +636,16 @@ class Converter:
             "Multi-stop gradient was reduced to draw.io's native two-colour gradient because the gradient policy "
             "prefers editability over exact fidelity.",
             elem=elem,
+        )
+        self._record_preview_annotation_for_element(
+            elem,
+            parent_matrix,
+            inherited_css,
+            ancestors,
+            status="approximate",
+            label="Editable gradient reduction",
+            message="This region stayed editable, but its multi-stop gradient was simplified for native output.",
+            feature_key="gradients",
         )
 
     def _emit_svg_fallback(
@@ -601,10 +697,25 @@ class Converter:
             padding=padding,
             report=self.report,
         )
+        x, y, width, height = bbox
         self.report.fallback_count += 1
         self._record_issue(issue_code, issue_message, elem=elem, fallback_used=True)
+        feature_key = {
+            "clip-path-fallback": "clipping",
+            "mask-fallback": "clipping",
+            "pattern-fallback": "patterns",
+            "filter-fallback": "filters",
+            "multi-stop-gradient-fallback": "gradients",
+        }.get(issue_code)
+        self._record_preview_annotation_for_bbox(
+            (x - padding, y - padding, width + 2.0 * padding, height + 2.0 * padding),
+            status="fallback",
+            label="Embedded SVG fallback",
+            message=issue_message,
+            feature_key=feature_key,
+            elem=elem,
+        )
 
-        x, y, width, height = bbox
         emit_embedded_image_uri(
             ctx,
             elem,
@@ -740,9 +851,29 @@ class Converter:
             return
 
         if allow_fallback:
-            if self._emit_simple_clip_or_mask_replacement(elem, ctx, matrix, css, record_issues=record_issues):
+            if self._emit_simple_clip_or_mask_replacement(
+                elem,
+                ctx,
+                parent_matrix,
+                matrix,
+                css,
+                inherited_css,
+                ancestor_list,
+                record_issues=record_issues,
+            ):
                 return
             if emit_simple_pattern_fill(ctx, elem, matrix, css):
+                if record_issues:
+                    self._record_preview_annotation_for_element(
+                        elem,
+                        parent_matrix,
+                        inherited_css,
+                        ancestor_list,
+                        status="approximate",
+                        label="Editable pattern expansion",
+                        message="This pattern stayed editable through a simplified native expansion.",
+                        feature_key="patterns",
+                    )
                 return
             fallback_reason = self._fallback_reason(elem, css)
             if fallback_reason is None:
@@ -759,7 +890,15 @@ class Converter:
             ):
                 return
 
-        self._record_policy_notes(elem, css, matrix, record_issues=record_issues)
+        self._record_policy_notes(
+            elem,
+            css,
+            parent_matrix,
+            matrix,
+            inherited_css,
+            ancestor_list,
+            record_issues=record_issues,
+        )
 
         elem_classes = set((elem.get("class") or "").split())
         child_ancestors = ancestor_list + [(tag, elem_classes)]

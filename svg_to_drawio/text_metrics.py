@@ -322,18 +322,31 @@ def measure_text_detailed(
     """Measure text and return both its size and the backend that produced it."""
     normalized_text = text or " "
     normalized_family = _normalized_family(font_family)
+    normalized_font_size = max(float(font_size), 1.0)
     bold = font_weight in {"bold", "600", "700", "800", "900"}
     italic = font_style == "italic"
 
     if policy == "heuristic":
-        width, height = _heuristic_metrics(normalized_text, font_size, bold=bold, italic=italic)
+        width, height = _heuristic_metrics(normalized_text, normalized_font_size, bold=bold, italic=italic)
         return width, height, "heuristic"
 
     if policy in {"auto", "system"}:
-        qt_metrics = _measure_with_qt(normalized_text, font_size, normalized_family, bold=bold, italic=italic)
+        qt_metrics = _measure_with_qt(
+            normalized_text,
+            normalized_font_size,
+            normalized_family,
+            bold=bold,
+            italic=italic,
+        )
         if qt_metrics is not None:
             return qt_metrics[0], qt_metrics[1], "qt"
-        pillow_metrics = _measure_with_pillow(normalized_text, font_size, normalized_family, bold=bold, italic=italic)
+        pillow_metrics = _measure_with_pillow(
+            normalized_text,
+            normalized_font_size,
+            normalized_family,
+            bold=bold,
+            italic=italic,
+        )
         if pillow_metrics is not None:
             return pillow_metrics[0], pillow_metrics[1], "pillow"
 
@@ -343,17 +356,17 @@ def measure_text_detailed(
             tk_font = _tkfont.Font(
                 root=root,
                 family=normalized_family,
-                size=max(1, int(round(font_size))),
+                size=max(1, int(round(normalized_font_size))),
                 weight="bold" if bold else "normal",
                 slant="italic" if italic else "roman",
             )
             width = float(tk_font.measure(normalized_text))
             height = float(tk_font.metrics("linespace"))
-            return max(width, font_size * 0.9), max(height, font_size * 1.2), "tk"
+            return max(width, normalized_font_size * 0.9), max(height, normalized_font_size * 1.2), "tk"
         except Exception:
             pass
 
-    width, height = _heuristic_metrics(normalized_text, font_size, bold=bold, italic=italic)
+    width, height = _heuristic_metrics(normalized_text, normalized_font_size, bold=bold, italic=italic)
     return width, height, "heuristic"
 
 

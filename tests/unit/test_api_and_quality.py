@@ -102,6 +102,9 @@ class ApiAndQualityTests(SvgTestCase):
         self.assertEqual(payload["source_path"], result.source_path)
         self.assertEqual(payload["output_path"], result.output_path)
         self.assertEqual(payload["report"], result.report.to_dict())
+        self.assertTrue(result.report.preview_annotations)
+        self.assertTrue(payload["report"]["preview_annotations"])
+        self.assertEqual(payload["report"]["preview_annotations"][0]["feature_key"], "clipping")
 
     def test_quality_gates_detect_fallbacks_and_non_native_capabilities(self) -> None:
         svg = """

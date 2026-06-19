@@ -9,9 +9,9 @@ import os
 import sys
 from datetime import datetime
 from os import path
-from typing import cast
+from typing import Any, cast
 
-from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QThread, QUrl
+from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QThread, QUrl, qInstallMessageHandler
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
@@ -42,7 +42,7 @@ from svg_to_drawio.conversion_service import (
     ConversionOptions,
     ConversionSummary,
 )
-from svg_to_drawio.diagnostics import ConversionReport
+from svg_to_drawio.diagnostics import ConversionReport, PreviewAnnotation
 from svg_to_drawio.rendering_options import (
     as_filter_policy,
     as_gradient_policy,
@@ -53,8 +53,8 @@ from svg_to_drawio.rendering_options import (
 )
 
 from .compatibility_view import build_feature_dialog_text, render_compatibility_html
-from .pages import ConvertPage, ResultsPage, SettingsPage
-from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon
+from .pages import ConvertPage, PreviewPage, ResultsPage, SettingsPage
+from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon, load_brand_pixmap
 from .widgets import NavBar
 from .worker import ConversionWorker, ParallelConversionWorker, WatchConversionWorker
 
@@ -64,7 +64,30 @@ DRAWIO_URL = "https://app.diagrams.net"
 
 PAGE_CONVERT = 0
 PAGE_RESULTS = 1
-PAGE_SETTINGS = 2
+PAGE_PREVIEW = 2
+PAGE_SETTINGS = 3
+
+_QT_MESSAGE_FILTER_INSTALLED = False
+_PREVIOUS_QT_MESSAGE_HANDLER: Any = None
+
+
+def _install_qt_message_filter() -> None:
+    """Suppress known benign Qt preview warnings that only spam the desktop console."""
+    global _QT_MESSAGE_FILTER_INSTALLED, _PREVIOUS_QT_MESSAGE_HANDLER
+    if _QT_MESSAGE_FILTER_INSTALLED:
+        return
+
+    def _handler(message_type: object, context: object, message: str) -> None:
+        stripped = message.strip()
+        if stripped.startswith("qt.svg: Could not create image from "):
+            return
+        if stripped.startswith("QFont::setPointSizeF: Point size <= 0"):
+            return
+        if _PREVIOUS_QT_MESSAGE_HANDLER is not None:
+            _PREVIOUS_QT_MESSAGE_HANDLER(message_type, context, message)
+
+    _PREVIOUS_QT_MESSAGE_HANDLER = qInstallMessageHandler(_handler)
+    _QT_MESSAGE_FILTER_INSTALLED = True
 
 
 def _fmt_size(n: int) -> str:
@@ -90,6 +113,8 @@ class MainWindow(QMainWindow):
         self._close_after_run = False
         self._last_openable_directory: str | None = None
         self._last_reports: list[ConversionReport] = []
+        self._active_preview_report: ConversionReport | None = None
+        self._preview_selected_report_index: int | None = None
         self._warning_count = 0
         self._watch_mode_active = False
         self._tray: QSystemTrayIcon | None = None
@@ -107,6 +132,7 @@ class MainWindow(QMainWindow):
         self._apply_styles()
         self._update_summary_labels()
         self._update_compatibility_panel()
+        self._update_preview_panel()
         self._set_idle_state("Drop SVG files or folders to get started.")
         self._setup_tray()
 
@@ -125,7 +151,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self.nav_bar = NavBar(["Convert", "Results", "Settings"])
+        self.nav_bar = NavBar(["Convert", "Results", "Preview", "Settings"])
         self.nav_bar.page_changed.connect(self._goto_page)
         self.nav_bar.overflow_button.setMenu(self._build_overflow_menu())
         self.nav_bar.theme_button.clicked.connect(self._toggle_theme)
@@ -133,11 +159,13 @@ class MainWindow(QMainWindow):
 
         self.convert_page = ConvertPage()
         self.results_page = ResultsPage()
+        self.preview_page = PreviewPage()
         self.settings_page = SettingsPage()
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self.convert_page)
         self.stack.addWidget(self.results_page)
+        self.stack.addWidget(self.preview_page)
         self.stack.addWidget(self.settings_page)
 
         scroll_area = QScrollArea()
@@ -163,6 +191,8 @@ class MainWindow(QMainWindow):
         self.results_page.export_report_button.clicked.connect(self._export_last_report)
         self.results_page.log_output.anchorClicked.connect(self._on_log_link_clicked)
         self.results_page.compatibility_output.anchorClicked.connect(self._on_compatibility_link_clicked)
+        self.preview_page.annotation_clicked.connect(self._on_preview_annotation_clicked)
+        self.preview_page.preview_report_selected.connect(self._on_preview_report_selected)
 
         self.settings_page.preset_combo.currentIndexChanged.connect(self._apply_selected_rendering_preset)
         self.settings_page.gradient_combo.currentIndexChanged.connect(self._mark_rendering_preset_custom)
@@ -470,9 +500,16 @@ class MainWindow(QMainWindow):
             f'{APP_TITLE} <span style="font-size:10px; color:{t["version_color"]}; font-weight:normal;">'
             f"v{__version__}</span>"
         )
-        self.setStyleSheet(build_stylesheet(t))
+        stylesheet = build_stylesheet(t)
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.setStyleSheet(stylesheet)
+        else:
+            self.setStyleSheet(stylesheet)
+        self.preview_page.set_dark_mode(self._is_dark)
         self._apply_titlebar_theme()
         self._update_compatibility_panel()
+        self._update_preview_panel()
 
     def _apply_titlebar_theme(self) -> None:
         """Match the native Windows title bar to the in-app theme via a DWM dark-mode hint.
@@ -704,6 +741,7 @@ class MainWindow(QMainWindow):
             rp.export_report_button.setEnabled(True)
             self._warning_count += event.report.warning_count
             self._append_report_diagnostics(event.report)
+            self._update_preview_panel(event.report)
 
         self._update_summary_labels()
         self._update_compatibility_panel()
@@ -721,6 +759,7 @@ class MainWindow(QMainWindow):
         self._warning_count = sum(report.warning_count for report in self._last_reports)
         self._update_summary_labels()
         self._update_compatibility_panel()
+        self._update_preview_panel(summary.reports[-1] if summary.reports else None)
         rp.summary_label.setText(summary.to_status_line())
         rp.progress_bar.setMaximum(summary.total or 1)
         rp.progress_bar.setValue(summary.converted + summary.skipped + summary.failed)
@@ -787,6 +826,7 @@ class MainWindow(QMainWindow):
         self._warning_count = 0
         self._last_openable_directory = None
         self._last_reports = []
+        self._preview_selected_report_index = None
         rp = self.results_page
         rp.open_output_button.setEnabled(False)
         rp.export_report_button.setEnabled(False)
@@ -794,6 +834,7 @@ class MainWindow(QMainWindow):
         rp.summary_label.clear()
         self._update_summary_labels()
         self._update_compatibility_panel()
+        self._update_preview_panel()
 
     def _set_running_state(self, status_text: str) -> None:
         """Switch the window into its busy state."""
@@ -856,6 +897,56 @@ class MainWindow(QMainWindow):
         rp.compatibility_summary_label.setText(f"{overview.headline} {overview.summary} Based on the {scope_text}.")
         rp.compatibility_output.setHtml(self._compatibility_html(rows))
 
+    def _update_preview_panel(self, report: ConversionReport | None = None) -> None:
+        """Refresh the preview page from the selected report or the latest live result."""
+        self._sync_preview_file_selector()
+        active_report = self._resolve_preview_report(report)
+        if active_report is None:
+            self._active_preview_report = None
+            self.preview_page.clear_preview()
+            return
+
+        self._active_preview_report = active_report
+        source_path = (
+            active_report.source_path if active_report.source_path and path.isfile(active_report.source_path) else None
+        )
+        file_label = active_report.source_path or "No local SVG source path recorded."
+        self.preview_page.set_preview(
+            svg_path=source_path,
+            file_label=f"{file_label} - {active_report.short_status()}",
+            annotations=active_report.preview_annotations,
+        )
+
+    def _sync_preview_file_selector(self) -> None:
+        """Keep the preview selector aligned with the current batch history."""
+        if self._preview_selected_report_index is not None and not (
+            0 <= self._preview_selected_report_index < len(self._last_reports)
+        ):
+            self._preview_selected_report_index = None
+
+        labels = [self._preview_selector_label(index, report) for index, report in enumerate(self._last_reports)]
+        self.preview_page.set_preview_choices(labels, self._preview_selected_report_index)
+
+    def _resolve_preview_report(self, latest_report: ConversionReport | None = None) -> ConversionReport | None:
+        """Return the report that should currently drive the preview page."""
+        if not self._last_reports:
+            return None
+        if self._preview_selected_report_index is not None:
+            return self._last_reports[self._preview_selected_report_index]
+        if latest_report is not None:
+            return latest_report
+        return self._last_reports[-1]
+
+    def _preview_selector_label(self, index: int, report: ConversionReport) -> str:
+        """Build a compact label for one previewable conversion report."""
+        display_name = path.basename(report.source_path) if report.source_path else f"Item {index + 1}"
+        return f"{index + 1}. {display_name} - {report.short_status()}"
+
+    def _on_preview_report_selected(self, report_index: int) -> None:
+        """Lock the preview onto one processed file, or switch back to auto-follow mode."""
+        self._preview_selected_report_index = report_index if report_index >= 0 else None
+        self._update_preview_panel()
+
     def _compatibility_html(self, rows: list[CompatibilityRow]) -> str:
         """Render the compatibility matrix as compact rich text for the results page."""
         return render_compatibility_html(rows, palette=DARK if self._is_dark else LIGHT)
@@ -870,6 +961,30 @@ class MainWindow(QMainWindow):
             return
 
         QMessageBox.information(self, row.label, build_feature_dialog_text(row, self._last_reports))
+
+    def _on_preview_annotation_clicked(self, annotation: PreviewAnnotation) -> None:
+        """Show the compatibility explanation that best matches one clicked preview region."""
+        active_report = self._active_preview_report
+        lines = [annotation.label, annotation.message]
+        if annotation.element_id:
+            lines.append(f"Source id: {annotation.element_id}")
+        if annotation.element_tag:
+            lines.append(f"Source tag: <{annotation.element_tag}>")
+
+        if active_report is None or not annotation.feature_key:
+            QMessageBox.information(self, annotation.label, "\n".join(lines))
+            return
+
+        row = next(
+            (item for item in active_report.compatibility_matrix if item.feature_key == annotation.feature_key),
+            None,
+        )
+        if row is None:
+            QMessageBox.information(self, annotation.label, "\n".join(lines))
+            return
+
+        dialog_text = "\n".join(lines + ["", build_feature_dialog_text(row, [active_report])])
+        QMessageBox.information(self, row.label, dialog_text)
 
     def _append_report_diagnostics(self, report: ConversionReport) -> None:
         """Append one compact diagnostics block for a finished file conversion."""
@@ -955,15 +1070,25 @@ class MainWindow(QMainWindow):
 
     def _show_about(self) -> None:
         """Display the About dialog with the application version."""
-        QMessageBox.about(
-            self,
-            f"About {APP_TITLE}",
-            f"<b>{APP_TITLE}</b><br>Version {__version__}<br><br>Convert SVG files into editable draw.io diagrams.",
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(f"About {APP_TITLE}")
+        dialog.setIconPixmap(load_brand_pixmap(72))
+        dialog.setTextFormat(Qt.TextFormat.RichText)
+        dialog.setText(
+            f"<div style='font-size:18px; font-weight:700;'>{APP_TITLE}</div>"
+            f"<div style='margin-top:4px;'>Version {__version__}</div>"
         )
+        dialog.setInformativeText(
+            "Convert SVG files into editable draw.io diagrams.\n\n"
+            "Use the desktop app for interactive batch work, previews, and compatibility guidance."
+        )
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dialog.exec()
 
 
 def create_application() -> QApplication:
     """Create and configure the desktop QApplication instance."""
+    _install_qt_message_filter()
     app = QApplication.instance()
     if isinstance(app, QApplication):
         return cast(QApplication, app)

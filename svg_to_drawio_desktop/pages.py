@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -22,8 +23,24 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from svg_to_drawio.diagnostics import PreviewAnnotation
 
+from .preview import SvgPreviewWidget
+from .preview_selection import preview_combo_index_to_report_index, preview_report_index_to_combo_index
 from .widgets import CollapsibleSection, CounterCard, SourceListWidget
+
+
+def configure_combo_box(combo: QComboBox) -> QComboBox:
+    """Apply the shared desktop styling hooks for combo boxes and their popups."""
+    combo.setCursor(Qt.CursorShape.PointingHandCursor)
+    popup = QListView()
+    popup.setObjectName("comboPopup")
+    popup.setFrameShape(QFrame.Shape.NoFrame)
+    popup.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    popup.setUniformItemSizes(True)
+    popup.setSpacing(2)
+    combo.setView(popup)
+    return combo
 
 
 def make_help_badge(tooltip_text: str) -> QToolButton:
@@ -40,7 +57,7 @@ def make_help_badge(tooltip_text: str) -> QToolButton:
 
 def make_policy_combo(items: list[tuple[str, str]], current_value: str) -> QComboBox:
     """Create a combo box initialized to the given persisted policy value."""
-    combo = QComboBox()
+    combo = configure_combo_box(QComboBox())
     for label, value in items:
         combo.addItem(label, value)
     index = combo.findData(current_value)
@@ -165,7 +182,9 @@ class ConvertPage(QWidget):
         self.workers_spinbox = QSpinBox()
         self.workers_spinbox.setRange(1, 8)
         self.workers_spinbox.setValue(1)
-        self.workers_spinbox.setFixedWidth(56)
+        self.workers_spinbox.setFixedWidth(78)
+        self.workers_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.workers_spinbox.setAccelerated(True)
         self.workers_spinbox.setToolTip(
             "Use multiple workers for one-shot batch conversions. "
             "Watch mode processes changes sequentially as they arrive."
@@ -184,7 +203,9 @@ class ConvertPage(QWidget):
         self.max_elements_spinbox.setRange(1, 999_999)
         self.max_elements_spinbox.setValue(1000)
         self.max_elements_spinbox.setSingleStep(500)
-        self.max_elements_spinbox.setFixedWidth(84)
+        self.max_elements_spinbox.setFixedWidth(118)
+        self.max_elements_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.max_elements_spinbox.setAccelerated(True)
         self.max_elements_spinbox.setEnabled(False)
         self.max_elements_checkbox.toggled.connect(self.max_elements_spinbox.setEnabled)
         max_el_row.addWidget(self.max_elements_checkbox)
@@ -374,6 +395,283 @@ class ResultsPage(QWidget):
         self.clear_log_button.clicked.connect(self.log_output.clear)
         section.content_layout.addWidget(log_surface)
         return section
+
+
+class PreviewPage(QWidget):
+    """Side-by-side source and conversion-impact preview page."""
+
+    annotation_clicked = Signal(object)
+    preview_report_selected = Signal(int)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("pageRoot")
+        self._current_svg_path: str | None = None
+        self._current_file_label = "The selected processed SVG file will appear here."
+        self._current_annotations: list[PreviewAnnotation] = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 24)
+        layout.setSpacing(16)
+
+        heading = QLabel("Preview")
+        heading.setObjectName("pageHeading")
+        layout.addWidget(heading)
+
+        subheading = QLabel(
+            "See the original SVG on the left and a faithful impact overlay on the right. "
+            "The right pane uses the same SVG rendering plus reliable highlighted zones for regions that "
+            "fell back to embedded SVG or were intentionally simplified. Use the mouse wheel to zoom, "
+            "drag to pan, and double-click to reset the view."
+        )
+        subheading.setObjectName("pageSubheading")
+        subheading.setWordWrap(True)
+        layout.addWidget(subheading)
+
+        self.preview_status_label = QLabel(
+            "Run a conversion first to populate the preview. Impact highlights only appear where the engine can "
+            "estimate the affected region reliably."
+        )
+        self.preview_status_label.setObjectName("previewStatusLabel")
+        self.preview_status_label.setWordWrap(True)
+        layout.addWidget(self.preview_status_label)
+        layout.addLayout(self._build_preview_selector_row())
+
+        panes = QHBoxLayout()
+        panes.setSpacing(16)
+        panes.addWidget(self._build_source_group(), stretch=1)
+        panes.addWidget(self._build_impact_group(), stretch=1)
+        layout.addLayout(panes, stretch=1)
+
+    def _build_preview_selector_row(self) -> QHBoxLayout:
+        """Build the compact selector used to choose which batch item to preview."""
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        label = QLabel("Preview file")
+        label.setObjectName("sectionLabel")
+        row.addWidget(label)
+
+        self.preview_file_combo = configure_combo_box(QComboBox())
+        self.preview_file_combo.setObjectName("previewFileCombo")
+        self.preview_file_combo.setMinimumContentsLength(36)
+        self.preview_file_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.preview_file_combo.currentIndexChanged.connect(self._emit_preview_selection)
+        row.addWidget(self.preview_file_combo, stretch=1)
+
+        row.addWidget(
+            make_help_badge(
+                "Choose which converted file to inspect in the preview.\n\n"
+                "Latest processed file: follows the newest finished item automatically during a batch.\n\n"
+                "A specific file: locks the preview to that item until you switch back to Latest."
+            )
+        )
+        row.addStretch(1)
+        self.set_preview_choices([], None)
+        return row
+
+    def _build_source_group(self) -> QGroupBox:
+        group = QGroupBox("Source SVG")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 10, 14, 14)
+        layout.setSpacing(10)
+
+        self.source_caption_label = QLabel("The selected processed SVG file will appear here.")
+        self.source_caption_label.setWordWrap(True)
+        layout.addWidget(self.source_caption_label)
+
+        self.source_preview = SvgPreviewWidget("No source preview yet.")
+        layout.addWidget(self.source_preview, stretch=1)
+        return group
+
+    def _build_impact_group(self) -> QGroupBox:
+        group = QGroupBox("Conversion impact")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 10, 14, 14)
+        layout.setSpacing(10)
+
+        self.impact_caption_label = QLabel(
+            "This is not a draw.io renderer. It keeps the SVG visually faithful and marks reliable fallback "
+            "or simplification zones on top of it. Zoom and pan work in both panes."
+        )
+        self.impact_caption_label.setWordWrap(True)
+        layout.addWidget(self.impact_caption_label)
+
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(12)
+        self.show_fallback_checkbox = QCheckBox("Show fallback zones")
+        self.show_fallback_checkbox.setChecked(True)
+        self.show_approximation_checkbox = QCheckBox("Show approximation zones")
+        self.show_approximation_checkbox.setChecked(True)
+        filter_row.addWidget(self.show_fallback_checkbox)
+        filter_row.addWidget(self.show_approximation_checkbox)
+        filter_row.addStretch(1)
+        layout.addLayout(filter_row)
+
+        self.impact_preview = SvgPreviewWidget("No conversion-impact preview yet.")
+        self.impact_preview.annotation_clicked.connect(self.annotation_clicked.emit)
+        layout.addWidget(self.impact_preview, stretch=1)
+
+        self.preview_legend_label = QLabel()
+        self.preview_legend_label.setWordWrap(True)
+        self.preview_legend_label.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(self.preview_legend_label)
+        self.preview_click_hint_label = QLabel(
+            "Hover a highlighted region for a quick explanation, or click it for full compatibility details."
+        )
+        self.preview_click_hint_label.setWordWrap(True)
+        layout.addWidget(self.preview_click_hint_label)
+
+        self.show_fallback_checkbox.toggled.connect(self._refresh_preview_state)
+        self.show_approximation_checkbox.toggled.connect(self._refresh_preview_state)
+        self._set_legend_counts(0, 0)
+        return group
+
+    def set_dark_mode(self, is_dark: bool) -> None:
+        """Forward the current theme mode to both preview panes."""
+        self.source_preview.set_dark_mode(is_dark)
+        self.impact_preview.set_dark_mode(is_dark)
+
+    def clear_preview(self) -> None:
+        """Reset the page to its placeholder state."""
+        self._current_svg_path = None
+        self._current_file_label = "The selected processed SVG file will appear here."
+        self._current_annotations = []
+        self.set_preview_choices([], None)
+        self.preview_status_label.setText(
+            "Run a conversion first to populate the preview. Impact highlights only appear where the engine can "
+            "estimate the affected region reliably."
+        )
+        self.source_caption_label.setText(self._current_file_label)
+        self.impact_caption_label.setText(
+            "This is not a draw.io renderer. It keeps the SVG visually faithful and marks reliable fallback "
+            "or simplification zones on top of it. Zoom and pan work in both panes."
+        )
+        self.source_preview.clear_preview("No source preview yet.")
+        self.impact_preview.clear_preview("No conversion-impact preview yet.")
+        self._set_legend_counts(0, 0)
+
+    def set_preview_choices(self, labels: list[str], selected_report_index: int | None) -> None:
+        """Populate the file selector for the current batch and keep the chosen item highlighted."""
+        blocker = self.preview_file_combo.blockSignals(True)
+        try:
+            self.preview_file_combo.clear()
+            if not labels:
+                self.preview_file_combo.addItem("No processed file yet")
+                self.preview_file_combo.setEnabled(False)
+                self.preview_file_combo.setToolTip("Run a conversion to choose a preview target here.")
+                return
+
+            self.preview_file_combo.setEnabled(True)
+            self.preview_file_combo.setToolTip(
+                "Choose a specific converted file, or stay on Latest processed file to follow the batch live."
+            )
+            self.preview_file_combo.addItem("Latest processed file (auto)")
+            for label in labels:
+                self.preview_file_combo.addItem(label)
+
+            combo_index = preview_report_index_to_combo_index(selected_report_index)
+            self.preview_file_combo.setCurrentIndex(max(0, min(combo_index, self.preview_file_combo.count() - 1)))
+        finally:
+            self.preview_file_combo.blockSignals(blocker)
+
+    def set_preview(self, *, svg_path: str | None, file_label: str, annotations: list[PreviewAnnotation]) -> None:
+        """Show one converted file in the side-by-side preview panes."""
+        self._current_svg_path = svg_path
+        self._current_file_label = file_label
+        self._current_annotations = list(annotations)
+
+        self.source_caption_label.setText(self._current_file_label)
+        self.source_preview.set_preview(self._current_svg_path, [])
+        self._refresh_preview_state()
+
+        if not svg_path:
+            self.preview_status_label.setText("The selected item is not a local SVG file, so no preview is available.")
+            return
+        if not annotations:
+            self.preview_status_label.setText(
+                "No reliable fallback or simplification zone was recorded for the selected SVG. "
+                "That usually means everything stayed native, or only non-spatial approximations were used."
+            )
+            return
+
+        return
+
+    def _refresh_preview_state(self) -> None:
+        """Refresh the impact pane and status text after a visibility change."""
+        self._refresh_impact_preview()
+        if not self._current_svg_path:
+            return
+
+        total_fallback_count = sum(1 for annotation in self._current_annotations if annotation.status == "fallback")
+        total_approximate_count = sum(1 for annotation in self._current_annotations if annotation.status != "fallback")
+        visible_annotations = self._filtered_annotations()
+        visible_fallback_count = sum(1 for annotation in visible_annotations if annotation.status == "fallback")
+        visible_approximate_count = sum(1 for annotation in visible_annotations if annotation.status != "fallback")
+
+        if not self._current_annotations:
+            self.preview_status_label.setText(
+                "No reliable fallback or simplification zone was recorded for the selected SVG. "
+                "That usually means everything stayed native, or only non-spatial approximations were used."
+            )
+            return
+
+        self.preview_status_label.setText(
+            "Showing the selected SVG with "
+            f"{visible_fallback_count}/{total_fallback_count} visible fallback zone(s) and "
+            f"{visible_approximate_count}/{total_approximate_count} visible simplified editable zone(s). "
+            "Hover a highlighted region for details, or click it for the matching compatibility explanation."
+        )
+
+    def _emit_preview_selection(self, combo_index: int) -> None:
+        """Translate the combo-box index into a report index understood by the main window."""
+        report_index = preview_combo_index_to_report_index(combo_index)
+        self.preview_report_selected.emit(-1 if report_index is None else report_index)
+
+    def _refresh_impact_preview(self) -> None:
+        """Redraw the impact pane with the active visibility filters."""
+        visible_annotations = self._filtered_annotations()
+        total_fallback_count = sum(1 for annotation in self._current_annotations if annotation.status == "fallback")
+        total_approximate_count = sum(1 for annotation in self._current_annotations if annotation.status != "fallback")
+        visible_fallback_count = sum(1 for annotation in visible_annotations if annotation.status == "fallback")
+        visible_approximate_count = sum(1 for annotation in visible_annotations if annotation.status != "fallback")
+        self.impact_preview.set_preview(self._current_svg_path, visible_annotations)
+        self._set_legend_counts(
+            visible_fallback_count,
+            visible_approximate_count,
+            total_fallback_count=total_fallback_count,
+            total_approximate_count=total_approximate_count,
+        )
+
+    def _filtered_annotations(self) -> list[PreviewAnnotation]:
+        """Return only the preview annotations that should currently stay visible."""
+        visible: list[PreviewAnnotation] = []
+        for annotation in self._current_annotations:
+            if annotation.status == "fallback" and not self.show_fallback_checkbox.isChecked():
+                continue
+            if annotation.status != "fallback" and not self.show_approximation_checkbox.isChecked():
+                continue
+            visible.append(annotation)
+        return visible
+
+    def _set_legend_counts(
+        self,
+        fallback_count: int,
+        approximate_count: int,
+        *,
+        total_fallback_count: int | None = None,
+        total_approximate_count: int | None = None,
+    ) -> None:
+        """Refresh the small legend below the impact pane."""
+        effective_total_fallback_count = fallback_count if total_fallback_count is None else total_fallback_count
+        effective_total_approximate_count = (
+            approximate_count if total_approximate_count is None else total_approximate_count
+        )
+        self.preview_legend_label.setText(
+            "<span style='color:#dc2626; font-weight:700;'>Fallback</span>: "
+            f"{fallback_count}/{effective_total_fallback_count} visible zone(s) &nbsp;&nbsp; "
+            "<span style='color:#d97706; font-weight:700;'>Approximation</span>: "
+            f"{approximate_count}/{effective_total_approximate_count} visible zone(s)"
+        )
 
 
 class SettingsPage(QWidget):
