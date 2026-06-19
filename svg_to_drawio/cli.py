@@ -34,6 +34,22 @@ from .rendering_options import (
 )
 
 
+def _positive_int(value: str) -> int:
+    """argparse type: a strictly positive integer."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {parsed}")
+    return parsed
+
+
+def _compatibility_score(value: str) -> int:
+    """argparse type: an integer compatibility score between 0 and 100 inclusive."""
+    parsed = int(value)
+    if not 0 <= parsed <= 100:
+        raise argparse.ArgumentTypeError(f"must be between 0 and 100, got {parsed}")
+    return parsed
+
+
 def _print_compatibility(report: ConversionReport, *, show_all_rows: bool) -> None:
     """Print a short, non-technical compatibility summary for one converted file."""
     rows = report.compatibility_matrix
@@ -309,7 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-elements",
-        type=int,
+        type=_positive_int,
         default=None,
         metavar="N",
         help="Warn and truncate output after N drawable elements (useful for very large SVGs)",
@@ -338,7 +354,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Choose how text bounds are measured when sizing draw.io text cells",
     )
-    parser.add_argument("--workers", type=int, default=1, metavar="N", help="Convert files in parallel with N workers")
+    parser.add_argument(
+        "--workers", type=_positive_int, default=1, metavar="N", help="Convert files in parallel with N workers"
+    )
     parser.add_argument(
         "--watch-backend",
         choices=("auto", "poll", "event"),
@@ -357,10 +375,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--min-score",
-        type=int,
+        type=_compatibility_score,
         default=None,
         metavar="N",
-        help="Exit with code 1 if any converted file scores below N compatibility points",
+        help="Exit with code 1 if any converted file scores below N compatibility points (0-100)",
     )
     parser.add_argument(
         "--require-native",
@@ -400,7 +418,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         fail_on_fallback=args.fail_on_fallback,
         min_score=args.min_score,
         require_native=args.require_native,
-        workers=max(1, int(args.workers)),
+        workers=args.workers,
         watch_backend=args.watch_backend,
     )
 

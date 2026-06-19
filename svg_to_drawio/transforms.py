@@ -105,7 +105,12 @@ def viewbox_transform(
     if not viewbox:
         return IDENTITY[:]
 
-    values = [float(value) for value in re.split(r"[\s,]+", viewbox.strip()) if value]
+    try:
+        values = [float(value) for value in re.split(r"[\s,]+", viewbox.strip()) if value]
+    except ValueError:
+        # A malformed viewBox (e.g. a non-numeric token) falls back to identity, same as
+        # a missing or too-short viewBox just below, instead of crashing the conversion.
+        return IDENTITY[:]
     if len(values) < 4:
         return IDENTITY[:]
 

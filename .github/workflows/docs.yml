@@ -12,6 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -24,6 +25,8 @@ jobs:
   build:
     name: Build documentation
     runs-on: ubuntu-latest
+    outputs:
+      site_changed: ${{ steps.compare.outputs.site_changed }}
 
     steps:
       - name: Check out repository
@@ -44,10 +47,74 @@ jobs:
       - name: Build site
         run: python scripts/build_docs.py build --strict
 
+      - name: Compute site fingerprint
+        id: fingerprint
+        run: python scripts/site_fingerprint.py site --output site-fingerprint.txt
+
+      - name: Compare with latest successful docs deployment
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .docs-previous
+          previous_run_id=""
+          previous_fingerprint_file=""
+
+          while IFS= read -r run_id; do
+            if [[ "$run_id" == "$CURRENT_RUN_ID" ]]; then
+              continue
+            fi
+
+            rm -rf .docs-previous/*
+            if gh run download "$run_id" -n docs-site-fingerprint -D .docs-previous >/dev/null 2>&1; then
+              previous_fingerprint_file="$(find .docs-previous -name 'site-fingerprint.txt' -print -quit)"
+              if [[ -n "$previous_fingerprint_file" ]]; then
+                previous_run_id="$run_id"
+                break
+              fi
+            fi
+          done < <(
+            gh api \
+              "repos/$REPOSITORY/actions/workflows/docs.yml/runs?branch=main&status=completed&per_page=20" \
+              --jq '.workflow_runs[] | select(.conclusion == "success") | .id'
+          )
+
+          if [[ -z "$previous_run_id" || -z "$previous_fingerprint_file" ]]; then
+            echo "No previous successful docs fingerprint found; Pages deployment will run."
+            echo "site_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          current_fingerprint="$(tr -d '\r\n' < site-fingerprint.txt)"
+          previous_fingerprint="$(tr -d '\r\n' < "$previous_fingerprint_file")"
+
+          echo "Previous successful docs run: $previous_run_id"
+          if [[ "$current_fingerprint" == "$previous_fingerprint" ]]; then
+            echo "Generated site is unchanged; skipping Pages deployment."
+            echo "site_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Generated site changed; Pages deployment will run."
+            echo "site_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload site fingerprint artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: docs-site-fingerprint
+          path: site-fingerprint.txt
+          retention-days: 30
+
       - name: Configure Pages
+        if: steps.compare.outputs.site_changed == 'true'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
 
       - name: Upload Pages artifact
+        if: steps.compare.outputs.site_changed == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: site
@@ -55,6 +122,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    if: needs.build.outputs.site_changed == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
