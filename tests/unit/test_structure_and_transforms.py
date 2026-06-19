@@ -24,6 +24,19 @@ class StructureAndTransformTests(SvgTestCase):
             self.assertAlmostEqual(float(geometry.get("width")), 377.95, places=1)
             self.assertAlmostEqual(float(geometry.get("height")), 377.95, places=1)
 
+    def test_malformed_viewbox_falls_back_to_identity_instead_of_crashing(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 abc 50">
+          <rect x="0" y="0" width="50" height="50" fill="red" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            geometry = self._user_cells(root)[0].find("mxGeometry")
+            self.assertIsNotNone(geometry)
+            self.assertAlmostEqual(float(geometry.get("width")), 50.0, places=1)
+            self.assertAlmostEqual(float(geometry.get("height")), 50.0, places=1)
+
     def test_scaled_paths_scale_stroke_width(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">

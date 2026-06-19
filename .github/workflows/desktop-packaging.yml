@@ -1,0 +1,317 @@
+name: Desktop packaging matrix
+
+# Shared by ci.yml (verification builds on every push/PR, publish=false) and
+# desktop-build.yml (real release builds, publish=true). Keeping this matrix in one
+# place means a packaging change only needs to be made once instead of drifting
+# between two near-identical ~300-line job definitions.
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: "Upload build artifacts and attach them to a GitHub release."
+        type: boolean
+        default: false
+    secrets:
+      RELEASE_GPG_PRIVATE_KEY:
+        required: false
+      RELEASE_GPG_PASSPHRASE:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Desktop packages (${{ matrix.os-label }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    env:
+      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            os-label: Linux x64
+            artifact-name: svg-to-drawio-linux-x64
+            platform-family: linux
+            package-arch: x64
+            appimage-arch: x86_64
+            build-linux-installers: true
+            build-windows-installer: false
+          - os: ubuntu-24.04-arm
+            os-label: Linux ARM64
+            artifact-name: svg-to-drawio-linux-arm64
+            platform-family: linux
+            package-arch: arm64
+            appimage-arch: aarch64
+            build-linux-installers: true
+            build-windows-installer: false
+          - os: windows-2025
+            os-label: Windows x64
+            artifact-name: svg-to-drawio-windows-x64
+            platform-family: windows
+            package-arch: x64
+            build-linux-installers: false
+            build-windows-installer: true
+          - os: windows-11-arm
+            os-label: Windows ARM64
+            artifact-name: svg-to-drawio-windows-arm64
+            platform-family: windows
+            package-arch: arm64
+            build-linux-installers: false
+            build-windows-installer: true
+          - os: macos-latest
+            os-label: macOS
+            artifact-name: svg-to-drawio-macos
+            platform-family: macos
+            package-arch: x64
+            build-linux-installers: false
+            build-windows-installer: false
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-desktop.txt
+
+      - name: Install desktop build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-desktop.txt
+
+      - name: Install Linux packaging dependencies
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends elfutils flatpak flatpak-builder gnupg
+
+      - name: Read application version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c "from svg_to_drawio import __version__; print(__version__)")"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Read Linux package architecture
+        if: matrix.platform-family == 'linux'
+        id: linux-arch
+        shell: bash
+        run: |
+          echo "value=$(dpkg --print-architecture)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release tag matches package version
+        if: inputs.publish && github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$TAG_VERSION" != "${{ steps.version.outputs.value }}" ]]; then
+            echo "Release tag version ($TAG_VERSION) does not match package version (${{ steps.version.outputs.value }})." >&2
+            exit 1
+          fi
+
+      - name: Build desktop bundle
+        run: python build_desktop.py
+
+      - name: Build Windows installer bundle
+        if: matrix.build-windows-installer
+        run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-installer
+
+      - name: Build Linux installer bundle
+        if: matrix.build-linux-installers
+        run: python build_desktop.py --bundle-mode onedir --dist-dir dist/desktop-linux-package
+
+      - name: Prune optional Qt plugins from Linux installer bundle
+        if: matrix.build-linux-installers
+        shell: bash
+        run: bash packaging/linux/prune_bundle.sh dist/desktop-linux-package/svg-to-drawio
+
+      - name: Prepare release directory
+        shell: bash
+        run: mkdir -p dist/release
+
+      - name: Install Inno Setup
+        if: matrix.build-windows-installer
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Download appimagetool
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          curl -L \
+            -o "appimagetool-${{ matrix.appimage-arch }}.AppImage" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          chmod +x "appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          chmod +x \
+            packaging/linux/common.sh \
+            packaging/linux/AppRun \
+            packaging/linux/build_appimage.sh \
+            packaging/linux/build_deb.sh \
+            packaging/linux/build_rpm.sh \
+            packaging/linux/build_rpm_in_fedora_container.sh \
+            packaging/linux/build_flatpak.sh \
+            packaging/linux/prune_bundle.sh \
+            packaging/linux/smoke_test_artifacts.sh \
+            packaging/macos/smoke_test_artifacts.sh
+
+      - name: Build Windows installer
+        if: matrix.build-windows-installer
+        shell: pwsh
+        run: >
+          .\packaging\windows\build_installer.ps1
+          -Version "${{ steps.version.outputs.value }}"
+          -InputDir "dist\desktop-installer\svg-to-drawio"
+          -OutputDir "dist\release"
+          -PackageArchitecture "${{ matrix.package-arch }}"
+
+      - name: Import release GPG key for AppImage signing
+        if: inputs.publish && matrix.platform-family == 'linux' && env.RELEASE_GPG_PRIVATE_KEY != ''
+        id: appimage-gpg-import
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.gnupg"
+          chmod 700 "$HOME/.gnupg"
+
+          cat > "$HOME/.gnupg/gpg-agent.conf" <<'EOF'
+          allow-preset-passphrase
+          default-cache-ttl 7200
+          max-cache-ttl 7200
+          EOF
+
+          gpgconf --kill gpg-agent || true
+
+          printf '%s' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+
+          FINGERPRINT="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+          if [[ -z "$FINGERPRINT" ]]; then
+            echo "Unable to determine imported AppImage signing key fingerprint." >&2
+            exit 1
+          fi
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "default-key $FINGERPRINT"
+            echo "pinentry-mode loopback"
+          } >> "$HOME/.gnupg/gpg.conf"
+
+          if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
+            touch .appimage-signing-warmup
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$RELEASE_GPG_PASSPHRASE" \
+              --local-user "$FINGERPRINT" \
+              --armor --detach-sign \
+              --output .appimage-signing-warmup.asc \
+              .appimage-signing-warmup
+            rm -f .appimage-signing-warmup .appimage-signing-warmup.asc
+          fi
+
+      - name: Build Linux AppImage
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.appimage-arch }}
+        run: |
+          if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
+            export APPIMAGE_SIGN=1
+          else
+            export APPIMAGE_SIGN=0
+          fi
+
+          packaging/linux/build_appimage.sh \
+            dist/desktop/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "./appimagetool-${{ matrix.appimage-arch }}.AppImage" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ matrix.package-arch }}.AppImage"
+
+      - name: Build Linux Debian package
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          packaging/linux/build_deb.sh \
+            dist/desktop-linux-package/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ steps.linux-arch.outputs.value }}.deb"
+
+      - name: Build Linux RPM package
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: packaging/linux/build_rpm_in_fedora_container.sh "${{ steps.version.outputs.value }}"
+
+      - name: Build Linux Flatpak bundle
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          FLATPAK_ARCH="$(flatpak --default-arch | tr -d '\r')"
+          packaging/linux/build_flatpak.sh \
+            dist/desktop-linux-package/svg-to-drawio \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${FLATPAK_ARCH}.flatpak"
+
+      - name: Archive bundle (Windows)
+        if: matrix.platform-family == 'windows'
+        shell: pwsh
+        run: >
+          Compress-Archive
+          -Path dist\desktop\svg-to-drawio.exe
+          -DestinationPath dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows-${{ matrix.package-arch }}.zip
+
+      - name: Archive bundle (Linux)
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          tar -czf \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${{ matrix.package-arch }}.tar.gz" \
+            -C dist/desktop \
+            svg-to-drawio
+
+      - name: Archive bundle (macOS)
+        if: matrix.platform-family == 'macos'
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/desktop/svg-to-drawio.app \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.zip"
+
+      - name: Smoke-test packaged Linux deliverables
+        if: matrix.platform-family == 'linux'
+        shell: bash
+        run: |
+          bash packaging/linux/smoke_test_artifacts.sh \
+            "${{ steps.version.outputs.value }}" \
+            "${{ matrix.package-arch }}"
+
+      - name: Smoke-test packaged Windows deliverables
+        if: matrix.platform-family == 'windows'
+        shell: pwsh
+        run: >
+          .\packaging\windows\smoke_test_artifacts.ps1
+          -Version "${{ steps.version.outputs.value }}"
+          -PackageArchitecture "${{ matrix.package-arch }}"
+
+      - name: Smoke-test packaged macOS deliverables
+        if: matrix.platform-family == 'macos'
+        shell: bash
+        run: bash packaging/macos/smoke_test_artifacts.sh "${{ steps.version.outputs.value }}"
+
+      - name: Upload artifact
+        if: inputs.publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: dist/release/*
+
+      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
+      - name: Attach release assets
+        if: inputs.publish && github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" --clobber dist/release/*

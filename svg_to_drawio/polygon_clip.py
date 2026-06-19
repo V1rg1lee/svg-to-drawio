@@ -58,7 +58,15 @@ def _inside(px: float, py: float, a: float, b: float, c: float) -> bool:
 def _intersect(p1: Point2D, p2: Point2D, a: float, b: float, c: float) -> Point2D:
     """Intersection of segment p1→p2 with the boundary line ax+by+c = 0."""
     dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-    t = -(a * p1[0] + b * p1[1] + c) / (a * dx + b * dy)
+    denom = a * dx + b * dy
+    if abs(denom) < 1e-9:
+        # A segment whose endpoints disagree on which side of the line they're on
+        # (the only case _clip_halfplane calls this for) can't be truly parallel to
+        # that line - but independent floating-point rounding of the two endpoint
+        # evaluations can still make `denom` round to (near) zero. Fall back to the
+        # midpoint instead of risking a ZeroDivisionError on pathological geometry.
+        return ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+    t = -(a * p1[0] + b * p1[1] + c) / denom
     return (p1[0] + t * dx, p1[1] + t * dy)
 
 

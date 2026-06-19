@@ -62,3 +62,30 @@ class DesktopAppSmokeTests(unittest.TestCase):
         window = MainWindow()
         self.addCleanup(window.close)
         self.assertIsNotNone(window)
+
+    def test_show_plain_text_dialog_never_interprets_content_as_rich_text(self) -> None:
+        from unittest.mock import patch
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QMessageBox
+        from svg_to_drawio_desktop.app import MainWindow
+
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        captured: list[QMessageBox] = []
+
+        def fake_exec(box: QMessageBox) -> int:
+            captured.append(box)
+            return 0
+
+        # SVG element ids/tags/messages are attacker- or author-controlled and end up in
+        # these dialogs; without forcing plain text, Qt's mightBeRichText() heuristic could
+        # misrender something that merely looks like a tag, e.g. an id of "<script>".
+        svg_derived_text = "Source id: <script>alert(1)</script>"
+        with patch.object(QMessageBox, "exec", fake_exec):
+            window._show_plain_text_dialog(QMessageBox.Icon.Information, "Detail", svg_derived_text)
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].textFormat(), Qt.TextFormat.PlainText)
+        self.assertEqual(captured[0].text(), svg_derived_text)

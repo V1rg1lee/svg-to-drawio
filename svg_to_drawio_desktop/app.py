@@ -686,7 +686,7 @@ class MainWindow(QMainWindow):
                 "\n\nNote: watch mode does not use parallel workers, "
                 "so the copied command intentionally omits --workers."
             )
-        QMessageBox.information(self, "CLI command copied", message)
+        self._show_plain_text_dialog(QMessageBox.Icon.Information, "CLI command copied", message)
 
     # ----------------------------------------------------------- workflow
 
@@ -848,7 +848,7 @@ class MainWindow(QMainWindow):
         self.results_page.status_label.setText("Batch aborted before conversion could complete.")
         self.results_page.summary_label.setText(error_message)
         self._set_controls_enabled(True)
-        QMessageBox.critical(self, "Conversion failed", error_message)
+        self._show_plain_text_dialog(QMessageBox.Icon.Critical, "Conversion failed", error_message)
 
     def _cleanup_worker(self) -> None:
         """Release thread-owned worker objects after the run ends."""
@@ -997,6 +997,21 @@ class MainWindow(QMainWindow):
         """Render the compatibility matrix as compact rich text for the results page."""
         return render_compatibility_html(rows, palette=DARK if self._is_dark else LIGHT)
 
+    def _show_plain_text_dialog(self, icon: QMessageBox.Icon, title: str, text: str) -> None:
+        """Show a message dialog that always renders *text* as plain text.
+
+        `QMessageBox.information`/`.critical` auto-detect rich text via Qt's
+        `mightBeRichText()` heuristic, so SVG-derived content (an element id, a file
+        path) containing something that looks like an HTML tag could be silently
+        misrendered instead of shown literally. Forcing plain text avoids that.
+        """
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.exec()
+
     def _on_compatibility_link_clicked(self, url: QUrl) -> None:
         """Show a detailed explanation for one clicked compatibility capability."""
         if url.scheme() != "capability":
@@ -1006,7 +1021,9 @@ class MainWindow(QMainWindow):
         if row is None:
             return
 
-        QMessageBox.information(self, row.label, build_feature_dialog_text(row, self._last_reports))
+        self._show_plain_text_dialog(
+            QMessageBox.Icon.Information, row.label, build_feature_dialog_text(row, self._last_reports)
+        )
 
     def _on_preview_annotation_clicked(self, annotation: PreviewAnnotation) -> None:
         """Show the compatibility explanation that best matches one clicked preview region."""
@@ -1018,7 +1035,7 @@ class MainWindow(QMainWindow):
             lines.append(f"Source tag: <{annotation.element_tag}>")
 
         if active_report is None or not annotation.feature_key:
-            QMessageBox.information(self, annotation.label, "\n".join(lines))
+            self._show_plain_text_dialog(QMessageBox.Icon.Information, annotation.label, "\n".join(lines))
             return
 
         row = next(
@@ -1026,11 +1043,11 @@ class MainWindow(QMainWindow):
             None,
         )
         if row is None:
-            QMessageBox.information(self, annotation.label, "\n".join(lines))
+            self._show_plain_text_dialog(QMessageBox.Icon.Information, annotation.label, "\n".join(lines))
             return
 
         dialog_text = "\n".join(lines + ["", build_feature_dialog_text(row, [active_report])])
-        QMessageBox.information(self, row.label, dialog_text)
+        self._show_plain_text_dialog(QMessageBox.Icon.Information, row.label, dialog_text)
 
     def _append_report_diagnostics(self, report: ConversionReport) -> None:
         """Append one compact diagnostics block for a finished file conversion."""

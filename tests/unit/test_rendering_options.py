@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import xml.etree.ElementTree as ET
 from os import path
@@ -16,6 +17,14 @@ from tests.helpers import SvgTestCase
 
 class RenderingOptionsTests(SvgTestCase):
     """Exercise the editability-vs-fidelity rendering policies."""
+
+    def test_to_dict_covers_every_field_so_the_conversion_cache_key_cannot_go_stale(self) -> None:
+        # ConversionService derives its persistent-cache invalidation key from
+        # RenderingOptions.to_dict() (see conversion_service.py::_options_signature). If a
+        # future field were added to this dataclass without updating to_dict(), the cache
+        # would keep serving stale results for runs that only differ by that new field.
+        field_names = {f.name for f in dataclasses.fields(RenderingOptions)}
+        self.assertEqual(field_names, set(RenderingOptions().to_dict().keys()))
 
     def test_prefer_fallback_forces_multi_stop_gradient_into_svg_image(self) -> None:
         svg = """

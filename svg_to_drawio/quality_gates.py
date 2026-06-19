@@ -17,6 +17,14 @@ class QualityGateOptions:
     min_score: int | None = None
     require_native: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.min_score is None:
+            return
+        if not isinstance(self.min_score, int) or isinstance(self.min_score, bool):
+            raise ValueError(f"min_score must be an int, got {type(self.min_score).__name__}.")
+        if not 0 <= self.min_score <= 100:
+            raise ValueError(f"min_score must be between 0 and 100, got {self.min_score}.")
+
 
 @dataclass(frozen=True)
 class QualityGateViolation:
