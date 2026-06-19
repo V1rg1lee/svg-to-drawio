@@ -17,15 +17,13 @@ on:
       RELEASE_GPG_PASSPHRASE:
         required: false
 
-permissions:
-  contents: read
-
 jobs:
   build:
     name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
+    # Permissions are intentionally controlled by the caller workflow.
+    # CI calls this workflow with read-only contents, while release publishing
+    # calls it with contents: write for release asset uploads.
     env:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
