@@ -65,7 +65,7 @@ jobs:
             os-label: macOS
             artifact-name: svg-to-drawio-macos
             platform-family: macos
-            package-arch: x64
+            package-arch: universal2
             build-linux-installers: false
             build-windows-installer: false
 
@@ -159,6 +159,7 @@ jobs:
             packaging/linux/build_flatpak.sh \
             packaging/linux/prune_bundle.sh \
             packaging/linux/smoke_test_artifacts.sh \
+            packaging/macos/build_dmg.sh \
             packaging/macos/smoke_test_artifacts.sh
 
       - name: Build Windows installer
@@ -254,13 +255,13 @@ jobs:
             "${{ steps.version.outputs.value }}" \
             "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-linux-${FLATPAK_ARCH}.flatpak"
 
-      - name: Archive bundle (Windows)
+      - name: Copy portable executable (Windows)
         if: matrix.platform-family == 'windows'
         shell: pwsh
         run: >
-          Compress-Archive
-          -Path dist\desktop\svg-to-drawio.exe
-          -DestinationPath dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows-${{ matrix.package-arch }}.zip
+          Copy-Item
+          -LiteralPath dist\desktop\svg-to-drawio.exe
+          -Destination dist\release\svg-to-drawio-${{ steps.version.outputs.value }}-windows-${{ matrix.package-arch }}.exe
 
       - name: Archive bundle (Linux)
         if: matrix.platform-family == 'linux'
@@ -275,9 +276,10 @@ jobs:
         if: matrix.platform-family == 'macos'
         shell: bash
         run: |
-          ditto -c -k --sequesterRsrc --keepParent \
-            dist/desktop/svg-to-drawio.app \
-            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.zip"
+          bash packaging/macos/build_dmg.sh \
+            "dist/desktop/SVG to draw.io.app" \
+            "${{ steps.version.outputs.value }}" \
+            "dist/release/svg-to-drawio-${{ steps.version.outputs.value }}-macos.dmg"
 
       - name: Smoke-test packaged Linux deliverables
         if: matrix.platform-family == 'linux'

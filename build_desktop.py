@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import platform
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+
+DEFAULT_APP_NAME = "svg-to-drawio"
+MACOS_APP_NAME = "SVG to draw.io"
 
 
 def _add_data_argument(source: Path, destination: str) -> str:
@@ -30,6 +34,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="dist/desktop",
         help="Output directory for the built bundle, relative to the repository root by default.",
     )
+    parser.add_argument(
+        "--macos-target-arch",
+        choices=("auto", "x86_64", "arm64", "universal2"),
+        default="auto",
+        help=(
+            "macOS-only PyInstaller target architecture. Defaults to universal2 on macOS "
+            "and is ignored on other platforms."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -38,7 +51,21 @@ def _resolve_bundle_mode(bundle_mode: str) -> str:
     if bundle_mode != "auto":
         return bundle_mode
     # macOS requires a .app bundle; Windows/Linux default to a portable onefile build.
-    return "onedir" if sys.platform == "darwin" else "onefile"
+    return "onedir" if platform.system() == "Darwin" else "onefile"
+
+
+def _resolve_app_name() -> str:
+    """Return the user-facing bundle or executable name for the current platform."""
+    return MACOS_APP_NAME if platform.system() == "Darwin" else DEFAULT_APP_NAME
+
+
+def _resolve_macos_target_arch(target_arch: str) -> str | None:
+    """Resolve the effective PyInstaller macOS target architecture."""
+    if platform.system() != "Darwin":
+        return None
+    if target_arch != "auto":
+        return target_arch
+    return "universal2"
 
 
 def _resolve_path(project_root: Path, raw_path: str) -> Path:
@@ -89,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     options = _parse_args(argv)
     project_root = Path(__file__).resolve().parent
     bundle_mode = _resolve_bundle_mode(options.bundle_mode)
+    app_name = _resolve_app_name()
+    macos_target_arch = _resolve_macos_target_arch(options.macos_target_arch)
     build_root = project_root / "build" / "pyinstaller" / bundle_mode
     dist_root = _resolve_path(project_root, options.dist_dir)
     assets_dir = project_root / "svg_to_drawio_desktop" / "assets"
@@ -100,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--windowed",
         f"--{bundle_mode}",
         "--name",
-        "svg-to-drawio",
+        app_name,
         "--paths",
         str(project_root),
         "--distpath",
@@ -140,6 +169,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if icns_path and icns_path.is_file():
             args.extend(["--icon", str(icns_path)])
         args.extend(["--osx-bundle-identifier", "io.github.v1rg1lee.svg-to-drawio"])
+        if macos_target_arch is not None:
+            args.extend(["--target-arch", macos_target_arch])
 
     # Linux: PyInstaller ignores --icon; the icon is set at runtime via Qt's setWindowIcon.
 

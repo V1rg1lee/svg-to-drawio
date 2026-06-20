@@ -6,24 +6,25 @@ The desktop app uses the exact same conversion engine as the CLI and Python API.
 
 | Platform | Architecture | Recommended download | Other available formats |
 |---|---|---|---|
-| Windows | `x64` | `windows-x64-setup.exe` | `windows-x64.zip` |
-| Windows | `ARM64` | `windows-arm64-setup.exe` | `windows-arm64.zip` |
+| Windows | `x64` | `windows-x64-setup.exe` | `windows-x64.exe` |
+| Windows | `ARM64` | `windows-arm64-setup.exe` | `windows-arm64.exe` |
 | Linux (Debian / Ubuntu family) | `x64` | `linux-amd64.deb` | `linux-x86_64.flatpak`, `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (Debian / Ubuntu family) | `ARM64` | `linux-arm64.deb` | `linux-aarch64.flatpak`, `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | Linux (Fedora / openSUSE / RHEL-like) | `x64` | `linux-x86_64.rpm` | `linux-x86_64.flatpak`, `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (Fedora / openSUSE / RHEL-like) | `ARM64` | `linux-aarch64.rpm` | `linux-aarch64.flatpak`, `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | Linux (cross-distro) | `x64` | `linux-x86_64.flatpak` | `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (cross-distro) | `ARM64` | `linux-aarch64.flatpak` | `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
-| macOS | bundled app archive | `macos.zip` | none |
+| macOS | `universal2` | `macos.dmg` | none |
 
 ## Short guidance
 
-- Choose `Setup.exe` on Windows unless you explicitly want a portable zip.
+- Choose `Setup.exe` on Windows unless you explicitly want the portable standalone `.exe`.
 - Choose `.deb` on Debian, Ubuntu, Linux Mint, Pop!_OS, and close derivatives.
 - Choose `.rpm` on Fedora, openSUSE, and RHEL-like systems.
 - Choose `.flatpak` when you want a cross-distro Linux install flow.
 - Choose `.AppImage` when you prefer a single portable Linux file instead of an installed package.
 - Choose `.tar.gz` only if you specifically want the raw extracted bundle.
+- Choose `macos.dmg` on macOS for the standard drag-and-drop install flow. The bundle is built as universal2 so one download works on both Apple Silicon and Intel Macs.
 
 ## Release verification
 
