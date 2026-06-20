@@ -92,12 +92,19 @@ class PackagingAssetTests(unittest.TestCase):
         self.assertIn('"$SETFILE_BIN" -a C "$OUTPUT_DMG"', script)
         self.assertIn("find_xcode_tool GetFileInfo", script)
 
-    def test_macos_dmg_smoke_test_diagnoses_a_missing_volume_icon(self) -> None:
-        """A failed volume-icon check should print the mounted root for CI diagnosis."""
+    def test_macos_dmg_smoke_test_validates_volume_icon_metadata(self) -> None:
+        """The final DMG should validate the volume icon file and Finder metadata."""
         script = MACOS_DMG_SMOKE_TEST.read_text(encoding="utf-8")
 
         self.assertIn('! -s "$mount_point/.VolumeIcon.icns"', script)
         self.assertIn('ls -laO "$mount_point"', script)
+        self.assertIn("find_xcode_tool GetFileInfo", script)
+        self.assertIn('"$GETFILEINFO_BIN" -a "$mount_point/.VolumeIcon.icns"', script)
+        self.assertIn('"$GETFILEINFO_BIN" -c "$mount_point/.VolumeIcon.icns"', script)
+        self.assertIn('"$GETFILEINFO_BIN" -a "$mount_point"', script)
+        self.assertIn('[[ "$icon_attributes" != *V* ]]', script)
+        self.assertIn('[[ "$icon_creator" != *icnC* ]]', script)
+        self.assertIn('[[ "$volume_attributes" != *C* ]]', script)
 
 
 if __name__ == "__main__":
