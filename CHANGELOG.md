@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.9.1] - 2026-06-20
+
+### Fixed
+
+- Corrected the macOS DMG background dimensions to match the `660x400` Finder window, keeping its artwork and drag-to-Applications guidance properly positioned.
+- Restored the mounted-volume icon by installing `.VolumeIcon.icns` directly on the writable mounted image and applying its `icnC`, invisible, and custom-volume attributes before final compression.
+- Strengthened macOS packaging checks so CI validates the DMG background dimensions and fails when the configured mounted-volume icon is missing from the finished image.
+
 ## [3.9.0] - 2026-06-20
 
 ### Added
