@@ -106,6 +106,48 @@ jobs:
           svg-to-drawio --version
           python -m svg_to_drawio --version
 
+  changes:
+    name: Detect desktop-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Determine whether desktop packaging is affected
+        id: filter
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+
+          zero_sha="0000000000000000000000000000000000000000"
+          if [[ -z "${BASE_SHA:-}" || "$BASE_SHA" == "$zero_sha" ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            echo "No usable base commit (new branch or shallow history); running desktop packaging."
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "$BASE_SHA" HEAD)"
+          echo "Changed files since $BASE_SHA:"
+          echo "$changed_files"
+
+          pattern='^(svg_to_drawio/|svg_to_drawio_desktop/|packaging/|build_desktop\.py|desktop_app\.py|requirements-desktop\.txt|pyproject\.toml|\.github/workflows/desktop-packaging\.yml|\.github/workflows/ci\.yml)'
+          if echo "$changed_files" | grep -qE "$pattern"; then
+            echo "Desktop-relevant change detected; running desktop packaging."
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No desktop-relevant change; skipping desktop packaging."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
+
   desktop-packages:
     name: Desktop deliverables
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/desktop-packaging.yml

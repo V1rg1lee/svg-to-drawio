@@ -45,9 +45,9 @@ watch = [
 dev = [
   "build>=1.2",
   "hatchling>=1.27",
-  "mypy>=1.18",
+  "mypy==2.1.0",
   "pre-commit>=4.0",
-  "ruff>=0.12",
+  "ruff==0.15.17",
   "twine>=6.1",
 ]
 docs = [
