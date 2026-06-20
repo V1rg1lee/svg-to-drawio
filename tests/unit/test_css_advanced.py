@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import tempfile
+import xml.etree.ElementTree as ET
+
+from svg_to_drawio.css import CssRule, apply_css, index_css_rules
 
 from tests.helpers import SvgTestCase
 
@@ -103,6 +106,30 @@ class AdvancedCssTests(SvgTestCase):
             root, _ = self._convert_in_dir(tmpdir, svg)
             cell = next(c for c in self._user_cells(root) if "fillColor=" in c.get("style", ""))
             self.assertEqual(self._style_map(cell)["fillColor"], "#fedcba")
+
+    def test_rule_index_produces_the_same_cascade_result_as_the_unindexed_scan(self) -> None:
+        # A deliberately mixed bucket set: universal, tag, class, id, and a child-combinator
+        # rule whose subject is the rightmost simple selector. `circle` is a deliberately
+        # irrelevant rule that the index should exclude as a candidate for a <rect>.
+        rules = [
+            CssRule(selector="*", props={"opacity": "0.5"}, specificity=(0, 0, 0), order=0),
+            CssRule(selector="rect", props={"fill": "blue"}, specificity=(0, 0, 1), order=1),
+            CssRule(selector=".special", props={"fill": "red"}, specificity=(0, 1, 0), order=2),
+            CssRule(selector="#exact", props={"stroke": "black"}, specificity=(1, 0, 0), order=3),
+            CssRule(selector="g.theme > rect", props={"fill": "green"}, specificity=(0, 2, 1), order=4),
+            CssRule(selector="circle", props={"fill": "yellow"}, specificity=(0, 0, 1), order=5),
+        ]
+        rule_index = index_css_rules(rules)
+        elem = ET.fromstring('<rect id="exact" class="special" />')
+        ancestors = [("g", {"theme"})]
+
+        without_index = apply_css(elem, rules, "rect", ancestors=ancestors)
+        with_index = apply_css(elem, rules, "rect", ancestors=ancestors, rule_index=rule_index)
+
+        self.assertEqual(with_index, without_index)
+        self.assertEqual(with_index["fill"], "green")
+        self.assertEqual(with_index["stroke"], "black")
+        self.assertEqual(with_index["opacity"], "0.5")
 
     def test_root_pseudo_class_variable_is_resolved_but_other_pseudo_classes_are_ignored(self) -> None:
         svg = """

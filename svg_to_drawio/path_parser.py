@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable, Iterator
 
 from .path_arcs import arc_to_bezier
@@ -37,6 +38,7 @@ def _iter_svg_commands(path_data: str | None) -> Iterator[tuple]:
     sx, sy = 0.0, 0.0
     last_cubic_cp: tuple[float, float] | None = None  # reflected by S/s
     last_quad_cp: tuple[float, float] | None = None  # reflected by T/t
+    malformed = False
 
     while i < len(tokens):
         token = tokens[i]
@@ -176,6 +178,15 @@ def _iter_svg_commands(path_data: str | None) -> Iterator[tuple]:
                     i += 1
             except (IndexError, ValueError):
                 i += 1
+                malformed = True
+
+    if malformed:
+        warnings.warn(
+            "SVG path data contained malformed or truncated token(s) that were skipped; "
+            "the resulting geometry may be incomplete.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 def path_points(path_data: str | None) -> Iterator[Point2D]:

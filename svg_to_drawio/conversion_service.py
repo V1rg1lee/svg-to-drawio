@@ -18,6 +18,7 @@ from . import __version__
 from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
 from .diagnostics import ConversionReport
+from .issue_codes import CONVERSION_FAILED
 from .rendering_options import RenderingOptions
 
 Reporter = Callable[["ConversionEvent"], None]
@@ -375,7 +376,7 @@ class ConversionService:
                 failed += 1
                 report = ConversionReport(source_path=job.source_path, output_path=job.output_path)
                 report.add_issue(
-                    "conversion-failed",
+                    CONVERSION_FAILED,
                     "error",
                     f"Conversion failed: {exc}",
                 )
@@ -573,7 +574,7 @@ class ConversionService:
                 )
             except Exception as exc:  # pragma: no cover - user-facing
                 report = ConversionReport(source_path=job.source_path, output_path=job.output_path)
-                report.add_issue("conversion-failed", "error", f"Conversion failed: {exc}")
+                report.add_issue(CONVERSION_FAILED, "error", f"Conversion failed: {exc}")
                 with lock:
                     counts["done"] += 1
                     counts["failed"] += 1

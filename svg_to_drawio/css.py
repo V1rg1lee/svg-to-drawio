@@ -296,6 +296,88 @@ def collect_css(svg_root: Element) -> list[CssRule]:
     return rules
 
 
+CssRuleIndex = dict[tuple[str, str], list[CssRule]]
+_UNIVERSAL_INDEX_KEY: tuple[str, str] = ("*", "*")
+
+
+def _subject_selector(selector: str) -> str:
+    """Return the rightmost simple selector: the part that must match the current element.
+
+    For combinator selectors (`a > b`, `a b`) only this trailing part is matched against
+    the element itself; the rest is matched against ancestors. It is therefore the only
+    part that can drive a cheap necessary-condition index for the element being styled.
+    """
+    selector = selector.strip()
+    if ">" in selector:
+        return selector.rsplit(">", 1)[-1].strip()
+    if " " in selector:
+        return selector.rsplit(None, 1)[-1].strip()
+    return selector
+
+
+def _subject_index_key(subject: str) -> tuple[str, str]:
+    """Return a cheap necessary-condition key for one rule's subject selector.
+
+    Any element that could possibly match *subject* must satisfy this single condition
+    (have this id, have this class, or have this tag name), so grouping rules by it lets
+    `apply_css` skip rules that cannot possibly match instead of testing every rule's full
+    selector against every element. Falls back to a universal bucket for selectors with no
+    id/class/tag component (`*`, bare attribute selectors, unsupported pseudo-classes).
+    """
+    id_match = re.search(r"#([\w-]+)", subject)
+    if id_match:
+        return ("id", id_match.group(1))
+    class_match = re.search(r"\.([\w-]+)", subject)
+    if class_match:
+        return ("class", class_match.group(1))
+    if subject == ":root":
+        return ("tag", "svg")
+    tag_match = re.match(r"^([a-zA-Z][a-zA-Z0-9-]*)", subject)
+    if tag_match:
+        return ("tag", tag_match.group(1))
+    return _UNIVERSAL_INDEX_KEY
+
+
+def index_css_rules(css_rules: Sequence[CssRule]) -> CssRuleIndex:
+    """Bucket *css_rules* by `_subject_index_key` for fast per-element candidate lookup.
+
+    Build this once per document (alongside `collect_css`) and pass it to every
+    `apply_css` call as `rule_index` to turn the per-element rule scan from O(rules) into
+    roughly O(candidate rules), which matters on large SVGs styled by a sizeable
+    stylesheet (e.g. Figma/Illustrator exports with hundreds of class rules).
+    """
+    index: CssRuleIndex = {}
+    for rule in css_rules:
+        key = _subject_index_key(_subject_selector(rule.selector))
+        index.setdefault(key, []).append(rule)
+    return index
+
+
+def _candidate_rules(
+    css_rules: Sequence[CssRule],
+    rule_index: CssRuleIndex | None,
+    tag: str,
+    elem_id: str,
+    elem_classes: set[str],
+) -> Sequence[CssRule]:
+    """Return the reduced set of rules that could possibly match, given *rule_index*.
+
+    Each rule lives in exactly one bucket (see `_subject_index_key`), so concatenating
+    the relevant buckets cannot yield duplicates. Falls back to the full rule list when
+    no index was provided, preserving the older, unindexed behavior exactly.
+    """
+    if rule_index is None:
+        return css_rules
+
+    candidates: list[CssRule] = list(rule_index.get(_UNIVERSAL_INDEX_KEY, ()))
+    candidates.extend(rule_index.get(("tag", tag), ()))
+    for elem_class in elem_classes:
+        candidates.extend(rule_index.get(("class", elem_class), ()))
+    if elem_id:
+        candidates.extend(rule_index.get(("id", elem_id), ()))
+    return candidates
+
+
 def apply_css(
     elem: Element,
     css_rules: Sequence[CssRule],
@@ -305,6 +387,7 @@ def apply_css(
     *,
     custom_props: dict[str, str] | None = None,
     _match_cache: dict | None = None,
+    rule_index: CssRuleIndex | None = None,
 ) -> dict[str, str]:
     """Compute the effective style dictionary for an element.
 
@@ -315,6 +398,8 @@ def apply_css(
     Pass *_match_cache* (a plain dict) to cache selector-match results across elements with the
     same tag/id/class combination - only effective for simple selectors without combinators or
     attribute tests.
+    Pass *rule_index* (from `index_css_rules`, built once per document) to scan only the rules
+    that could possibly match this element instead of the full rule list.
     """
     inherited = inherited_styles or {}
     computed = dict(inherited)
@@ -333,7 +418,7 @@ def apply_css(
     # (e.g. --color defined on .my-class rather than only on :root).
     element_custom_props = dict(custom_props or {})
     matched_rules: list[CssRule] = []
-    for rule in css_rules:
+    for rule in _candidate_rules(css_rules, rule_index, tag, elem_id, elem_classes):
         sel = rule.selector
         if _match_cache is not None and ">" not in sel and "[" not in sel and " " not in sel.strip():
             cache_key = (sel, tag, elem_id, frozenset(elem_classes))

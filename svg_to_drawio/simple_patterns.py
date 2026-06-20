@@ -10,6 +10,7 @@ from .cell_factory import make_bounds_vertex
 from .drawio_model import Cell, group_bbox, shift_cells
 from .elements.shapes import emit_circle, emit_line, emit_rect
 from .emitter_context import EmitterContext
+from .issue_codes import PATTERN_SIMPLIFIED_NATIVE
 from .rendering_options import normalize_filter_ref
 from .transforms import Matrix
 from .utils import parse_length, parse_style_attr, strip_ns
@@ -18,6 +19,25 @@ _PATTERN_MAX_CHILDREN = 240
 _EPSILON = 1e-6
 _SUPPORTED_PATTERN_TAGS: frozenset[str] = frozenset({"rect", "line", "circle"})
 _IGNORED_PATTERN_TAGS: frozenset[str] = frozenset({"title", "desc", "metadata"})
+
+
+def _resolve_pattern_dimension(raw: str | None, *, reference: float, is_bbox: bool) -> float:
+    """Resolve one pattern tile width/height, honoring `patternUnits="objectBoundingBox"`.
+
+    Under `objectBoundingBox`, the raw value is a fraction (or percentage) of *reference*
+    (the filled element's own width/height) rather than an absolute length.
+    """
+    if not is_bbox:
+        return parse_length(raw)
+    text = (raw or "").strip()
+    if not text:
+        return 0.0
+    try:
+        if text.endswith("%"):
+            return float(text[:-1]) / 100.0 * reference
+        return float(text) * reference
+    except ValueError:
+        return 0.0
 
 
 def emit_simple_pattern_fill(
@@ -40,13 +60,24 @@ def emit_simple_pattern_fill(
     pattern_elem = _pattern_element(ctx, fill_value)
     if pattern_elem is None:
         return False
-    if (pattern_elem.get("patternUnits") or "objectBoundingBox").strip() != "userSpaceOnUse":
+    pattern_units = (pattern_elem.get("patternUnits") or "objectBoundingBox").strip()
+    if pattern_units not in {"userSpaceOnUse", "objectBoundingBox"}:
         return False
     if (pattern_elem.get("patternContentUnits") or "userSpaceOnUse").strip() != "userSpaceOnUse":
         return False
 
-    width = parse_length(pattern_elem.get("width"))
-    height = parse_length(pattern_elem.get("height"))
+    target_x = parse_length(elem.get("x"))
+    target_y = parse_length(elem.get("y"))
+    target_width = parse_length(elem.get("width"))
+    target_height = parse_length(elem.get("height"))
+    if target_width <= 0 or target_height <= 0:
+        return False
+
+    # `objectBoundingBox` (the SVG spec default) expresses the tile's width/height as
+    # fractions of the filled element's own bounding box rather than absolute lengths.
+    is_bbox_units = pattern_units == "objectBoundingBox"
+    width = _resolve_pattern_dimension(pattern_elem.get("width"), reference=target_width, is_bbox=is_bbox_units)
+    height = _resolve_pattern_dimension(pattern_elem.get("height"), reference=target_height, is_bbox=is_bbox_units)
     if width <= 0 or height <= 0:
         return False
 
@@ -64,13 +95,6 @@ def emit_simple_pattern_fill(
         return False
 
     if not (_is_simple_line_pattern(motif_children) or _is_simple_dot_pattern(motif_children)):
-        return False
-
-    target_x = parse_length(elem.get("x"))
-    target_y = parse_length(elem.get("y"))
-    target_width = parse_length(elem.get("width"))
-    target_height = parse_length(elem.get("height"))
-    if target_width <= 0 or target_height <= 0:
         return False
 
     child_cells: list[Cell] = []
@@ -127,7 +151,7 @@ def emit_simple_pattern_fill(
         ctx.add(cell)
 
     ctx.report.add_issue(
-        "pattern-simplified-native",
+        PATTERN_SIMPLIFIED_NATIVE,
         "warning",
         "A simple repeating SVG pattern was expanded into editable draw.io geometry.",
         element_tag=strip_ns(elem.tag),

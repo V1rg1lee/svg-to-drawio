@@ -89,6 +89,23 @@ class FuzzTests(unittest.TestCase):
         )
         self.assertIn("mxCell", xml)
 
+    def test_use_self_reference_does_not_recurse_forever(self) -> None:
+        xml = _convert(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
+            '<g id="a"><use href="#a"/><rect width="10" height="10"/></g>'
+            "</svg>"
+        )
+        self.assertIn("<mxGraphModel", xml)
+
+    def test_use_indirect_cycle_does_not_recurse_forever(self) -> None:
+        xml = _convert(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
+            '<g id="a"><use href="#b"/><rect width="10" height="10"/></g>'
+            '<g id="b"><use href="#a"/><rect width="10" height="10"/></g>'
+            "</svg>"
+        )
+        self.assertIn("<mxGraphModel", xml)
+
     def test_display_none_skips_element(self) -> None:
         xml = _convert(
             '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'

@@ -9,6 +9,12 @@ from ..cell_factory import make_bounds_vertex
 from ..compatibility import note_text_backend
 from ..drawio_model import Cell, group_bbox, shift_cells
 from ..emitter_context import EmitterContext
+from ..issue_codes import (
+    DOMINANT_BASELINE_APPROXIMATED,
+    LETTER_SPACING_APPROXIMATED,
+    TEXT_LENGTH_APPROXIMATED,
+    TEXT_PATH_APPROXIMATED,
+)
 from ..style_builder import StyleBuilder
 from ..styles import VisualStyle, font_style_flag, get_visual, opacity_pct
 from ..text_metrics import measure_text, measure_text_detailed
@@ -519,7 +525,9 @@ def _tspan_visual(
     if ctx is not None:
         from ..css import apply_css
 
-        computed = apply_css(tspan, ctx.css_rules, "tspan", parent_css, custom_props=ctx.custom_props)
+        computed = apply_css(
+            tspan, ctx.css_rules, "tspan", parent_css, custom_props=ctx.custom_props, rule_index=ctx.rule_index
+        )
     else:
         computed = dict(parent_css or {})
         computed.update(parse_style_attr(tspan.get("style", "")))
@@ -547,7 +555,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
 
     if abs(_letter_spacing_px(visual)) > 1e-6:
         ctx.report.add_issue(
-            "letter-spacing-approximated",
+            LETTER_SPACING_APPROXIMATED,
             "warning",
             "Letter spacing was approximated with positioned editable glyphs.",
             element_tag=strip_ns(elem.tag),
@@ -556,7 +564,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
 
     if visual.get("text_length") is not None:
         ctx.report.add_issue(
-            "text-length-approximated",
+            TEXT_LENGTH_APPROXIMATED,
             "warning",
             "SVG textLength constraints were approximated with positioned editable glyphs.",
             element_tag=strip_ns(elem.tag),
@@ -566,7 +574,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     dominant_baseline = str(visual.get("dominant_baseline") or "alphabetic").strip().lower()
     if dominant_baseline not in {"", "auto", "alphabetic", "baseline"}:
         ctx.report.add_issue(
-            "dominant-baseline-approximated",
+            DOMINANT_BASELINE_APPROXIMATED,
             "warning",
             "Dominant-baseline alignment was approximated for editable draw.io text.",
             element_tag=strip_ns(elem.tag),
@@ -579,7 +587,7 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         if not any(run.content.strip() for run in runs):
             return
         ctx.report.add_issue(
-            "text-path-approximated",
+            TEXT_PATH_APPROXIMATED,
             "warning",
             "Text on a path was approximated with rotated editable glyphs placed along the source path.",
             element_tag=strip_ns(elem.tag),

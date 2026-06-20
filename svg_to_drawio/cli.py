@@ -23,6 +23,7 @@ from .conversion_service import (
 )
 from .converter import Converter
 from .diagnostics import ConversionReport
+from .issue_codes import ANALYSIS_FAILED
 from .quality_gates import QualityGateOptions, evaluate_quality_gates, validate_required_capabilities
 from .rendering_options import (
     RenderingOptions,
@@ -280,7 +281,7 @@ def run(
                     output_path=job.output_path,
                     analyze_only=True,
                 )
-                file_report.add_issue("analysis-failed", "error", f"Analysis failed: {exc}")
+                file_report.add_issue(ANALYSIS_FAILED, "error", f"Analysis failed: {exc}")
             reports.append(file_report)
             print(f"{job.source_path}: {file_report.short_status()}")
             _print_compatibility(file_report, show_all_rows=True)
