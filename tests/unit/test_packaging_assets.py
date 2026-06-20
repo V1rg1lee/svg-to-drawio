@@ -65,6 +65,10 @@ class PackagingAssetTests(unittest.TestCase):
         self.assertIn('if [[ ! -s "$mount_dir/.DS_Store" ]]', script)
         self.assertIn("Finder styling via osascript failed", script)
         self.assertIn("detach_with_retry", script)
+        self.assertIn('mounted_device=""', script)
+        self.assertIn('awk -v mount_point="$mount_dir"', script)
+        self.assertIn('detach_with_retry "${mounted_device:-$mounted_volume}"', script)
+        self.assertIn('hdiutil detach -force "$detach_target"', script)
         self.assertIn("-format UDZO", script)
 
     def test_macos_dmg_build_preserves_both_custom_icon_mechanisms(self) -> None:

@@ -32,14 +32,17 @@ staging_dir="$work_root/staging"
 read_write_dmg="$work_root/svg-to-drawio-rw.dmg"
 mount_dir="$work_root/mount"
 mounted_volume=""
+mounted_device=""
 
 cleanup() {
     local exit_status=$?
+    local detach_target
 
     if [[ -n "$mounted_volume" ]]; then
         echo "Cleaning up mounted DMG at $mounted_volume" >&2
-        if ! hdiutil detach -force "$mounted_volume" -quiet >/dev/null 2>&1; then
-            echo "Warning: unable to force-detach $mounted_volume during cleanup." >&2
+        detach_target="${mounted_device:-$mounted_volume}"
+        if ! hdiutil detach -force "$detach_target" -quiet >/dev/null 2>&1; then
+            echo "Warning: unable to force-detach $detach_target during cleanup." >&2
         fi
     fi
 
@@ -71,6 +74,7 @@ detach_with_retry() {
     for ((attempt = 1; attempt <= max_attempts; attempt++)); do
         if hdiutil detach "$detach_target" -quiet >/dev/null 2>&1; then
             mounted_volume=""
+            mounted_device=""
             return 0
         fi
 
@@ -80,7 +84,14 @@ detach_with_retry() {
         fi
     done
 
-    echo "Unable to detach the writable DMG after $max_attempts attempts." >&2
+    echo "Normal detach attempts exhausted; trying a forced detach for $detach_target..."
+    if hdiutil detach -force "$detach_target" -quiet >/dev/null 2>&1; then
+        mounted_volume=""
+        mounted_device=""
+        return 0
+    fi
+
+    echo "Unable to detach the writable DMG after $max_attempts attempts and a forced detach." >&2
     return 1
 }
 
@@ -137,15 +148,31 @@ hdiutil create \
 
 if [[ -f "$DMG_BACKGROUND_PATH" || -f "$DMG_ICON_PATH" ]]; then
     mkdir -p "$mount_dir"
-    if ! hdiutil attach \
+    attach_output=""
+    if ! attach_output="$(hdiutil attach \
         "$read_write_dmg" \
         -readwrite \
         -noverify \
         -noautoopen \
-        -mountpoint "$mount_dir" >/dev/null; then
+        -mountpoint "$mount_dir")"; then
         echo "Warning: unable to mount the writable DMG; volume customization was skipped." >&2
     else
         mounted_volume="$mount_dir"
+        mounted_device="$(
+            printf '%s\n' "$attach_output" \
+                | awk -v mount_point="$mount_dir" '$NF == mount_point && $1 ~ /^\/dev\// { print $1; exit }'
+        )"
+        if [[ -z "$mounted_device" ]]; then
+            mounted_device="$(
+                printf '%s\n' "$attach_output" \
+                    | awk '$1 ~ /^\/dev\// { device = $1 } END { print device }'
+            )"
+        fi
+        if [[ -n "$mounted_device" ]]; then
+            echo "Mounted writable DMG as $mounted_device at $mounted_volume"
+        else
+            echo "Warning: unable to identify the mounted DMG device; detach will use the mount point." >&2
+        fi
 
         # Install the mounted-volume icon directly on the writable filesystem.
         # Copying it after attach avoids losing hidden/custom-icon metadata while
@@ -225,7 +252,8 @@ APPLESCRIPT
         fi
 
         sync
-        detach_with_retry "$mounted_volume"
+        sleep 2
+        detach_with_retry "${mounted_device:-$mounted_volume}"
     fi
 fi
 
