@@ -180,30 +180,6 @@ if [[ -f "$DMG_BACKGROUND_PATH" || -f "$DMG_ICON_PATH" ]]; then
             echo "Warning: unable to identify the mounted DMG device; detach will use the mount point." >&2
         fi
 
-        # Install the mounted-volume icon directly on the writable filesystem.
-        # Copying it after attach avoids losing hidden/custom-icon metadata while
-        # hdiutil creates the intermediate image from the staging directory.
-        if [[ -f "$DMG_ICON_PATH" ]]; then
-            if cp "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"; then
-                echo "Added mounted-volume icon as .VolumeIcon.icns"
-                if [[ -n "$SETFILE_BIN" ]]; then
-                    if ! "$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"; then
-                        echo "Warning: unable to set the icon creator code on .VolumeIcon.icns." >&2
-                    fi
-                    if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
-                        echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
-                    fi
-                    if ! "$SETFILE_BIN" -a C "$mount_dir"; then
-                        echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
-                    fi
-                else
-                    echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
-                fi
-            else
-                echo "Warning: unable to copy .VolumeIcon.icns to the mounted volume." >&2
-            fi
-        fi
-
         if [[ -f "$DMG_BACKGROUND_PATH" ]]; then
             if ! command -v osascript >/dev/null 2>&1; then
                 echo "Warning: osascript is unavailable; DMG will lack custom Finder layout." >&2
@@ -254,6 +230,30 @@ APPLESCRIPT
             sync
             if [[ ! -s "$mount_dir/.DS_Store" ]]; then
                 echo "Warning: Finder layout metadata (.DS_Store) is missing or empty; DMG may lack custom layout." >&2
+            fi
+        fi
+
+        # Install the mounted-volume icon only after Finder has finished writing
+        # the window layout. Finder may rebuild hidden volume metadata while the
+        # window is open, so applying the icon last prevents it from being removed.
+        if [[ -f "$DMG_ICON_PATH" ]]; then
+            if cp -f "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"; then
+                echo "Added mounted-volume icon as .VolumeIcon.icns"
+                if [[ -n "$SETFILE_BIN" ]]; then
+                    if ! "$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to set the icon creator code on .VolumeIcon.icns." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a C "$mount_dir"; then
+                        echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
+                    fi
+                else
+                    echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
+                fi
+            else
+                echo "Warning: unable to copy .VolumeIcon.icns to the mounted volume." >&2
             fi
         fi
 

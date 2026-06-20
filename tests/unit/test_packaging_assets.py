@@ -80,7 +80,10 @@ class PackagingAssetTests(unittest.TestCase):
         """Mounted-volume and DMG-file icons should both remain configured."""
         script = MACOS_DMG_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn('cp "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"', script)
+        finder_close = script.index("close volumeWindow")
+        volume_icon_copy = script.index('cp -f "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"')
+
+        self.assertGreater(volume_icon_copy, finder_close)
         self.assertIn('"$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"', script)
         self.assertIn('"$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"', script)
         self.assertIn('"$SETFILE_BIN" -a C "$mount_dir"', script)
