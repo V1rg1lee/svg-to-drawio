@@ -53,6 +53,8 @@ from svg_to_drawio.rendering_options import (
     rendering_preset_options,
 )
 
+from .app_settings import parse_bool_setting, parse_int_setting
+from .cli_command import CliCommandOptions, build_equivalent_cli_command
 from .compatibility_view import build_feature_dialog_text, render_compatibility_html
 from .pages import ConvertPage, PreviewPage, ResultsPage, SettingsPage
 from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon, load_brand_pixmap
@@ -277,6 +279,16 @@ class MainWindow(QMainWindow):
         start_action.triggered.connect(self._start_conversion)
         self.addAction(start_action)
 
+        cancel_action = QAction(self)
+        cancel_action.setShortcut("Esc")
+        cancel_action.triggered.connect(self._cancel_via_shortcut)
+        self.addAction(cancel_action)
+
+    def _cancel_via_shortcut(self) -> None:
+        """Cancel the active run when Escape is pressed, if a conversion is in progress."""
+        if self._worker is not None and self.results_page.cancel_button.isEnabled():
+            self._request_cancel()
+
     def _goto_page(self, index: int) -> None:
         """Switch the visible page and keep the nav bar in sync."""
         self.stack.setCurrentIndex(index)
@@ -340,7 +352,12 @@ class MainWindow(QMainWindow):
         )
 
     def _force_close_application(self) -> None:
-        """Force the process to exit immediately as a last-resort escape hatch."""
+        """Force the process to exit as a last-resort escape hatch.
+
+        Cancellation is cooperative, so the worker thread gets a brief bounded window to
+        finish writing its current output file before the hard exit below. Without this,
+        `os._exit` can kill the process mid-write and leave a truncated `.drawio` file.
+        """
         self._close_after_run = False
         try:
             self._save_settings()
@@ -351,6 +368,8 @@ class MainWindow(QMainWindow):
                 self._worker.request_cancel()
             except Exception:
                 pass
+        if self._thread is not None:
+            self._thread.wait(2000)
         app = QApplication.instance()
         if isinstance(app, QApplication):
             app.quit()
@@ -424,16 +443,11 @@ class MainWindow(QMainWindow):
 
     def _setting_bool(self, key: str, *, default: bool = False) -> bool:
         """Read one persisted boolean setting with tolerant string parsing."""
-        raw = self._settings.value(key, default)
-        return str(raw).lower() in {"1", "true", "yes"}
+        return parse_bool_setting(self._settings.value(key, default))
 
     def _setting_int(self, key: str, *, default: int) -> int:
         """Read one persisted integer setting with a safe fallback."""
-        raw = self._settings.value(key, default)
-        try:
-            return int(str(raw))
-        except (TypeError, ValueError):
-            return default
+        return parse_int_setting(self._settings.value(key, default), default=default)
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: str) -> None:
@@ -476,6 +490,7 @@ class MainWindow(QMainWindow):
             self._save_settings()
         self._sync_rendering_preset_label()
         self._update_preflight_summary()
+        self._update_preview_panel()
 
     def _mark_rendering_preset_custom(self, *_: object) -> None:
         """Switch the preset selector to a named preset or to Custom after manual tweaks."""
@@ -485,6 +500,7 @@ class MainWindow(QMainWindow):
         del blocker
         self._sync_rendering_preset_label()
         self._update_preflight_summary()
+        self._update_preview_panel()
 
     def _sync_rendering_preset_label(self) -> None:
         """Refresh the preset combo tooltip so the current choice reads clearly."""
@@ -631,48 +647,24 @@ class MainWindow(QMainWindow):
         if directory:
             self.convert_page.output_dir_edit.setText(directory)
 
-    @staticmethod
-    def _quote_cli_arg(value: str) -> str:
-        """Quote one CLI argument conservatively for copy-paste use."""
-        escaped = value.replace('"', '\\"')
-        return f'"{escaped}"'
-
     def _build_equivalent_cli_command(self) -> str:
         """Build a copy-paste-friendly CLI command matching the current desktop settings."""
         cp = self.convert_page
-        sp = self.settings_page
-        args = ["svg-to-drawio"]
-        args.extend(self._quote_cli_arg(source) for source in self._sources())
         output_dir = cp.output_dir_edit.text().strip()
-        if output_dir:
-            args.extend(["--output-dir", self._quote_cli_arg(path.abspath(output_dir))])
-        if cp.recursive_checkbox.isChecked():
-            args.append("--recursive")
-        if cp.overwrite_checkbox.isChecked():
-            args.append("--overwrite")
-        if cp.flatten_checkbox.isChecked():
-            args.append("--flatten")
-        if cp.watch_checkbox.isChecked():
-            args.append("--watch")
-        if not cp.cache_checkbox.isChecked():
-            args.append("--no-cache")
-        if cp.max_elements_checkbox.isChecked():
-            args.extend(["--max-elements", str(cp.max_elements_spinbox.value())])
-        if cp.workers_spinbox.value() > 1 and not cp.watch_checkbox.isChecked():
-            args.extend(["--workers", str(cp.workers_spinbox.value())])
-
-        preset = str(sp.preset_combo.currentData())
-        rendering_options = self._current_rendering_options()
-        if preset not in {"custom", "balanced"}:
-            args.extend(["--rendering-preset", preset])
-        else:
-            if rendering_options.gradient_policy != "auto":
-                args.extend(["--gradient-policy", rendering_options.gradient_policy])
-            if rendering_options.filter_policy != "auto":
-                args.extend(["--filter-policy", rendering_options.filter_policy])
-            if rendering_options.text_metrics_policy != "auto":
-                args.extend(["--text-metrics-policy", rendering_options.text_metrics_policy])
-        return " ".join(args)
+        options = CliCommandOptions(
+            sources=tuple(self._sources()),
+            output_dir=path.abspath(output_dir) if output_dir else None,
+            recursive=cp.recursive_checkbox.isChecked(),
+            overwrite=cp.overwrite_checkbox.isChecked(),
+            flatten=cp.flatten_checkbox.isChecked(),
+            watch=cp.watch_checkbox.isChecked(),
+            use_cache=cp.cache_checkbox.isChecked(),
+            max_elements=cp.max_elements_spinbox.value() if cp.max_elements_checkbox.isChecked() else None,
+            workers=cp.workers_spinbox.value(),
+            preset=str(self.settings_page.preset_combo.currentData()),
+            rendering_options=self._current_rendering_options(),
+        )
+        return build_equivalent_cli_command(options)
 
     def _copy_equivalent_cli_command(self) -> None:
         """Copy the matching CLI command for the current desktop configuration."""
@@ -961,6 +953,7 @@ class MainWindow(QMainWindow):
             svg_path=source_path,
             file_label=f"{file_label} - {active_report.short_status()}",
             annotations=active_report.preview_annotations,
+            text_metrics_policy=self._current_rendering_options().text_metrics_policy,
         )
 
     def _sync_preview_file_selector(self) -> None:

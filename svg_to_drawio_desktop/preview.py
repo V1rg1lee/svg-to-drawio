@@ -238,7 +238,9 @@ def _strip_style_elements(root: ET.Element) -> bool:
     return changed
 
 
-def _prepare_preview_svg(svg_path: str) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
+def _prepare_preview_svg(
+    svg_path: str, text_metrics_policy: str = "auto"
+) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
     """Normalize local image references so Qt can render the preview more faithfully."""
     svg_file = Path(svg_path).resolve()
     try:
@@ -264,7 +266,7 @@ def _prepare_preview_svg(svg_path: str) -> tuple[str, tempfile.TemporaryDirector
         changed = True
 
     changed |= _inline_preview_styles(root)
-    changed |= rewrite_advanced_preview_text(root)
+    changed |= rewrite_advanced_preview_text(root, text_metrics_policy)
     changed |= _strip_style_elements(root)
 
     if not changed:
@@ -319,8 +321,17 @@ class SvgPreviewWidget(QWidget):
         self.reset_view()
         self.update()
 
-    def set_preview(self, svg_path: str | None, annotations: list[PreviewAnnotation] | None = None) -> None:
-        """Load one SVG file and the overlay annotations to display on top of it."""
+    def set_preview(
+        self,
+        svg_path: str | None,
+        annotations: list[PreviewAnnotation] | None = None,
+        text_metrics_policy: str = "auto",
+    ) -> None:
+        """Load one SVG file and the overlay annotations to display on top of it.
+
+        `text_metrics_policy` should match the user's selected rendering policy so the
+        preview's text layout uses the same font-metrics backend as the real conversion.
+        """
         self._annotations = list(annotations or [])
         self._mapped_annotations = []
         self.reset_view()
@@ -340,7 +351,7 @@ class SvgPreviewWidget(QWidget):
             self._preview_temp_dir = None
 
         renderer = QSvgRenderer(self)
-        preview_path, temp_dir = _prepare_preview_svg(str(svg_file))
+        preview_path, temp_dir = _prepare_preview_svg(str(svg_file), text_metrics_policy)
         if not renderer.load(preview_path):
             if temp_dir is not None:
                 temp_dir.cleanup()

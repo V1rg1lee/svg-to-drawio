@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import tempfile
+import time
 import unittest
+from pathlib import Path
+
+_MINIMAL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
 
 
 def _pyside6_available() -> bool:
@@ -89,3 +94,39 @@ class DesktopAppSmokeTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].textFormat(), Qt.TextFormat.PlainText)
         self.assertEqual(captured[0].text(), svg_derived_text)
+
+    def test_conversion_runs_through_worker_thread_and_updates_ui(self) -> None:
+        """Drive a real conversion through the worker thread and Qt signal pipeline.
+
+        Everything else in this file only checks that the window constructs. This
+        exercises the path most likely to silently regress: the worker thread emits
+        signals from a background `QThread`, and the GUI thread must drain its event
+        loop (`processEvents`) for `_handle_event`/`_handle_finished` to ever run.
+        """
+        from PySide6.QtWidgets import QApplication
+        from svg_to_drawio_desktop.app import MainWindow
+
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            source_path = Path(tmp_dir) / "sample.svg"
+            source_path.write_text(_MINIMAL_SVG, encoding="utf-8")
+            output_dir = Path(tmp_dir) / "out"
+            output_dir.mkdir()
+
+            window._add_paths([str(source_path)])
+            window.convert_page.output_dir_edit.setText(str(output_dir))
+            window._start_conversion()
+
+            deadline = time.monotonic() + 10.0
+            while window._worker is not None or window._thread is not None:
+                if time.monotonic() > deadline:
+                    self.fail("Conversion did not finish through the worker thread in time")
+                QApplication.processEvents()
+
+            self.assertEqual(window._converted, 1)
+            self.assertEqual(window._failed, 0)
+            self.assertEqual(len(window._last_reports), 1)
+            self.assertIn("1 converted", window.results_page.summary_label.text())
+            self.assertTrue((output_dir / "sample.drawio").is_file())

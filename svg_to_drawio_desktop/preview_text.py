@@ -20,7 +20,6 @@ from svg_to_drawio.utils import parse_length, strip_ns
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
-PREVIEW_TEXT_METRICS_POLICY = "system"
 _TEXT_CONTAINER_ATTRS = ("transform", "filter", "clip-path", "mask")
 
 
@@ -58,6 +57,7 @@ def _letter_spacing_px(visual: VisualStyle) -> float:
 def _glyph_run_layout(
     content: str,
     visual: VisualStyle,
+    text_metrics_policy: str,
 ) -> tuple[list[str], list[float], float, float]:
     """Return per-glyph widths, effective gap spacing, and total advance."""
     font_size = max(visual["font_size"], 6.0)
@@ -71,7 +71,7 @@ def _glyph_run_layout(
             glyph if glyph.strip() else " ",
             font_size,
             font_family,
-            policy=PREVIEW_TEXT_METRICS_POLICY,
+            policy=text_metrics_policy,
             **_font_kwargs(visual),
         )[0]
         for glyph in glyphs
@@ -192,7 +192,7 @@ def _collect_text_path_runs(text_path: Element, visual: VisualStyle) -> list[Pre
     return runs
 
 
-def _rewrite_positioned_glyph_text(elem: Element) -> Element | None:
+def _rewrite_positioned_glyph_text(elem: Element, text_metrics_policy: str) -> Element | None:
     """Rewrite one textLength or letter-spacing text node into positioned glyphs."""
     if any(strip_ns(child.tag) == "tspan" for child in elem):
         return None
@@ -205,7 +205,7 @@ def _rewrite_positioned_glyph_text(elem: Element) -> Element | None:
     if not content:
         return None
 
-    glyphs, glyph_widths, gap_spacing, total_width = _glyph_run_layout(content, visual)
+    glyphs, glyph_widths, gap_spacing, total_width = _glyph_run_layout(content, visual, text_metrics_policy)
     if not glyphs:
         return None
 
@@ -234,7 +234,7 @@ def _rewrite_positioned_glyph_text(elem: Element) -> Element | None:
     return group if emitted else None
 
 
-def _rewrite_text_path(elem: Element, defs: DefsIndex) -> Element | None:
+def _rewrite_text_path(elem: Element, defs: DefsIndex, text_metrics_policy: str) -> Element | None:
     """Rewrite one textPath element into rotated positioned glyphs."""
     text_path = _first_text_path_child(elem)
     if text_path is None:
@@ -272,7 +272,7 @@ def _rewrite_text_path(elem: Element, defs: DefsIndex) -> Element | None:
     emitted_content = False
 
     for run in runs:
-        glyphs, glyph_widths, gap_spacing, total_width = _glyph_run_layout(run.content, run.visual)
+        glyphs, glyph_widths, gap_spacing, total_width = _glyph_run_layout(run.content, run.visual, text_metrics_policy)
         emitted_content = emitted_content or any(glyph.strip() for glyph in glyphs)
         run_layouts.append((run, glyphs, glyph_widths, gap_spacing, total_width))
         total_advance += run.dx + total_width
@@ -329,16 +329,21 @@ def _rewrite_text_path(elem: Element, defs: DefsIndex) -> Element | None:
     return group if emitted else None
 
 
-def _rewrite_text_element(elem: Element, defs: DefsIndex) -> Element | None:
+def _rewrite_text_element(elem: Element, defs: DefsIndex, text_metrics_policy: str) -> Element | None:
     """Return a preview-safe replacement for one advanced text element if needed."""
-    replacement = _rewrite_text_path(elem, defs)
+    replacement = _rewrite_text_path(elem, defs, text_metrics_policy)
     if replacement is not None:
         return replacement
-    return _rewrite_positioned_glyph_text(elem)
+    return _rewrite_positioned_glyph_text(elem, text_metrics_policy)
 
 
-def rewrite_advanced_preview_text(root: Element) -> bool:
-    """Rewrite advanced SVG text features into simpler preview-friendly glyph nodes."""
+def rewrite_advanced_preview_text(root: Element, text_metrics_policy: str = "auto") -> bool:
+    """Rewrite advanced SVG text features into simpler preview-friendly glyph nodes.
+
+    `text_metrics_policy` should match the user's selected rendering policy ("auto",
+    "system", or "heuristic") so the preview's glyph layout uses the same font-metrics
+    backend as the actual conversion, instead of always measuring with system fonts.
+    """
     defs = DefsIndex()
     defs.index(root)
     changed = False
@@ -352,7 +357,7 @@ def rewrite_advanced_preview_text(root: Element) -> bool:
         for index, child in enumerate(children):
             if strip_ns(child.tag) != "text":
                 continue
-            replacement = _rewrite_text_element(child, defs)
+            replacement = _rewrite_text_element(child, defs, text_metrics_policy)
             if replacement is None:
                 continue
             parent.remove(child)
