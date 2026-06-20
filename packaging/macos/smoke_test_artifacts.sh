@@ -14,6 +14,7 @@ APP_BUNDLE_NAME="SVG to draw.io.app"
 APP_EXECUTABLE_NAME="SVG to draw.io"
 APP_EXECUTABLE="$REPO_ROOT/dist/desktop/$APP_BUNDLE_NAME/Contents/MacOS/$APP_EXECUTABLE_NAME"
 DMG_BACKGROUND_SOURCE="$REPO_ROOT/svg_to_drawio_desktop/assets/dmg_background.png"
+DMG_ICON_SOURCE="$REPO_ROOT/svg_to_drawio_desktop/assets/VolumeIcon.icns"
 
 if [[ ! -x "$APP_EXECUTABLE" || ! -f "$DMG_PATH" ]]; then
     echo "macOS smoke-test artifacts are incomplete." >&2
@@ -39,4 +40,9 @@ if [[ -f "$DMG_BACKGROUND_SOURCE" ]]; then
     if [[ ! -f "$mount_point/.DS_Store" ]]; then
         echo "Warning: the packaged DMG is missing the Finder layout metadata." >&2
     fi
+fi
+
+if [[ -f "$DMG_ICON_SOURCE" && ! -s "$mount_point/.VolumeIcon.icns" ]]; then
+    echo "The packaged DMG is missing its mounted-volume icon." >&2
+    exit 1
 fi

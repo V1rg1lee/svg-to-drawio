@@ -107,15 +107,10 @@ fi
 # are independent. The file-level resource must be applied after hdiutil
 # convert, otherwise conversion can discard it.
 if [[ -f "$DMG_ICON_PATH" ]]; then
+    # Include the icon bytes when hdiutil sizes the writable image. The file is
+    # copied again after mounting, where its Finder metadata can be applied
+    # reliably to the actual volume filesystem.
     cp "$DMG_ICON_PATH" "$staging_dir/.VolumeIcon.icns"
-    echo "Added mounted-volume icon as .VolumeIcon.icns"
-
-    if [[ -n "$SETFILE_BIN" ]]; then
-        "$SETFILE_BIN" -a C "$staging_dir" || true
-        "$SETFILE_BIN" -a V "$staging_dir/.VolumeIcon.icns" || true
-    else
-        echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
-    fi
 else
     echo "DMG volume icon not found at $DMG_ICON_PATH; continuing without a custom icon."
 fi
@@ -140,37 +135,50 @@ hdiutil create \
     -format UDRW \
     "$read_write_dmg" >/dev/null
 
-if [[ -f "$DMG_BACKGROUND_PATH" ]]; then
-    if ! command -v osascript >/dev/null 2>&1; then
-        echo "Warning: osascript is unavailable; DMG will lack custom Finder layout." >&2
+if [[ -f "$DMG_BACKGROUND_PATH" || -f "$DMG_ICON_PATH" ]]; then
+    mkdir -p "$mount_dir"
+    if ! hdiutil attach \
+        "$read_write_dmg" \
+        -readwrite \
+        -noverify \
+        -noautoopen \
+        -mountpoint "$mount_dir" >/dev/null; then
+        echo "Warning: unable to mount the writable DMG; volume customization was skipped." >&2
     else
-        mkdir -p "$mount_dir"
-        if ! hdiutil attach \
-            "$read_write_dmg" \
-            -readwrite \
-            -noverify \
-            -noautoopen \
-            -mountpoint "$mount_dir" >/dev/null; then
-            echo "Warning: unable to mount the writable DMG; custom Finder layout was skipped." >&2
-        else
-            mounted_volume="$mount_dir"
+        mounted_volume="$mount_dir"
 
-            # Reapply the mounted-volume flags to the writable filesystem. They are
-            # normally preserved from staging, but setting them after mounting makes
-            # the intended volume metadata explicit before the final conversion.
-            if [[ -f "$mount_dir/.VolumeIcon.icns" && -n "$SETFILE_BIN" ]]; then
-                if ! "$SETFILE_BIN" -a C "$mount_dir"; then
-                    echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
+        # Install the mounted-volume icon directly on the writable filesystem.
+        # Copying it after attach avoids losing hidden/custom-icon metadata while
+        # hdiutil creates the intermediate image from the staging directory.
+        if [[ -f "$DMG_ICON_PATH" ]]; then
+            if cp "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"; then
+                echo "Added mounted-volume icon as .VolumeIcon.icns"
+                if [[ -n "$SETFILE_BIN" ]]; then
+                    if ! "$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to set the icon creator code on .VolumeIcon.icns." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a C "$mount_dir"; then
+                        echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
+                    fi
+                else
+                    echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
                 fi
-                if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
-                    echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
-                fi
+            else
+                echo "Warning: unable to copy .VolumeIcon.icns to the mounted volume." >&2
             fi
+        fi
 
+        if [[ -f "$DMG_BACKGROUND_PATH" ]]; then
+            if ! command -v osascript >/dev/null 2>&1; then
+                echo "Warning: osascript is unavailable; DMG will lack custom Finder layout." >&2
+            else
             # Finder owns the .DS_Store format. Target the exact POSIX mount point
             # instead of looking up a disk by name, which avoids collisions with
             # another mounted volume using the same display name.
-            if ! DMG_MOUNT_POINT="$mount_dir" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT'
+                if ! DMG_MOUNT_POINT="$mount_dir" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT'
 set mountPoint to system attribute "DMG_MOUNT_POINT"
 set appName to system attribute "DMG_APP_NAME"
 set mountedVolume to POSIX file mountPoint as alias
@@ -203,18 +211,21 @@ end tell
 
 delay 2
 APPLESCRIPT
-            then
-                echo "Warning: Finder styling via osascript failed; DMG will lack custom layout." >&2
-            else
-                echo "Applied Finder background, window layout, and icon positions."
+                then
+                    echo "Warning: Finder styling via osascript failed; DMG will lack custom layout." >&2
+                else
+                    echo "Applied Finder background, window layout, and icon positions."
+                fi
             fi
 
             sync
             if [[ ! -s "$mount_dir/.DS_Store" ]]; then
                 echo "Warning: Finder layout metadata (.DS_Store) is missing or empty; DMG may lack custom layout." >&2
             fi
-            detach_with_retry "$mounted_volume"
         fi
+
+        sync
+        detach_with_retry "$mounted_volume"
     fi
 fi
 

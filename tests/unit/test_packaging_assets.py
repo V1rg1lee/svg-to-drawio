@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ICON_PNG = REPO_ROOT / "svg_to_drawio_desktop" / "assets" / "app_logo_256x256.png"
+MACOS_DMG_BACKGROUND_PNG = REPO_ROOT / "svg_to_drawio_desktop" / "assets" / "dmg_background.png"
 MACOS_DMG_SCRIPT = REPO_ROOT / "packaging" / "macos" / "build_dmg.sh"
 
 
@@ -37,6 +38,14 @@ class PackagingAssetTests(unittest.TestCase):
         self.assertTrue(APP_ICON_PNG.is_file(), f"Missing packaging icon: {APP_ICON_PNG}")
         self.assertEqual(_read_png_size(APP_ICON_PNG), (256, 256))
 
+    def test_macos_dmg_background_matches_finder_window_size(self) -> None:
+        """The Finder background should use the same 660x400 pixel canvas as its window."""
+        self.assertTrue(
+            MACOS_DMG_BACKGROUND_PNG.is_file(),
+            f"Missing DMG background: {MACOS_DMG_BACKGROUND_PNG}",
+        )
+        self.assertEqual(_read_png_size(MACOS_DMG_BACKGROUND_PNG), (660, 400))
+
     def test_macos_dmg_build_uses_native_writable_styling_flow(self) -> None:
         """The DMG script should style a writable image before producing UDZO."""
         script = MACOS_DMG_SCRIPT.read_text(encoding="utf-8")
@@ -62,8 +71,10 @@ class PackagingAssetTests(unittest.TestCase):
         """Mounted-volume and DMG-file icons should both remain configured."""
         script = MACOS_DMG_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn('"$staging_dir/.VolumeIcon.icns"', script)
-        self.assertIn('"$SETFILE_BIN" -a V "$staging_dir/.VolumeIcon.icns"', script)
+        self.assertIn('cp "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"', script)
+        self.assertIn('"$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"', script)
+        self.assertIn('"$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"', script)
+        self.assertIn('"$SETFILE_BIN" -a C "$mount_dir"', script)
         self.assertIn('"$DEREZ_BIN" -only icns', script)
         self.assertIn('"$REZ_BIN" -append', script)
         self.assertIn('"$SETFILE_BIN" -a C "$OUTPUT_DMG"', script)
