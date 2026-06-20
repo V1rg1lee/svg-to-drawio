@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_ICON_PNG = REPO_ROOT / "svg_to_drawio_desktop" / "assets" / "app_logo_256x256.png"
+MACOS_DMG_SCRIPT = REPO_ROOT / "packaging" / "macos" / "build_dmg.sh"
 
 
 def _read_png_size(path: Path) -> tuple[int, int]:
@@ -35,6 +36,38 @@ class PackagingAssetTests(unittest.TestCase):
         """The Linux application icon must be a real 256x256 PNG for AppStream/Flatpak."""
         self.assertTrue(APP_ICON_PNG.is_file(), f"Missing packaging icon: {APP_ICON_PNG}")
         self.assertEqual(_read_png_size(APP_ICON_PNG), (256, 256))
+
+    def test_macos_dmg_build_uses_native_writable_styling_flow(self) -> None:
+        """The DMG script should style a writable image before producing UDZO."""
+        script = MACOS_DMG_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("-format UDRW", script)
+        self.assertIn("osascript <<'APPLESCRIPT'", script)
+        self.assertIn(".background/dmg_background.png", script)
+        self.assertIn('DMG_MOUNT_POINT="$mount_dir"', script)
+        self.assertIn("set mountedVolume to POSIX file mountPoint as alias", script)
+        self.assertIn(
+            'set backgroundImage to POSIX file (mountPoint & "/.background/dmg_background.png") as alias',
+            script,
+        )
+        self.assertIn("set background picture of viewOptions to backgroundImage", script)
+        self.assertIn("set position of item appName of mountedVolume", script)
+        self.assertIn('set position of item "Applications" of mountedVolume', script)
+        self.assertIn('if [[ ! -s "$mount_dir/.DS_Store" ]]', script)
+        self.assertIn("Finder styling via osascript failed", script)
+        self.assertIn("detach_with_retry", script)
+        self.assertIn("-format UDZO", script)
+
+    def test_macos_dmg_build_preserves_both_custom_icon_mechanisms(self) -> None:
+        """Mounted-volume and DMG-file icons should both remain configured."""
+        script = MACOS_DMG_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('"$staging_dir/.VolumeIcon.icns"', script)
+        self.assertIn('"$SETFILE_BIN" -a V "$staging_dir/.VolumeIcon.icns"', script)
+        self.assertIn('"$DEREZ_BIN" -only icns', script)
+        self.assertIn('"$REZ_BIN" -append', script)
+        self.assertIn('"$SETFILE_BIN" -a C "$OUTPUT_DMG"', script)
+        self.assertIn("find_xcode_tool GetFileInfo", script)
 
 
 if __name__ == "__main__":

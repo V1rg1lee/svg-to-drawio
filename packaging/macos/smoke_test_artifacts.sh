@@ -13,6 +13,7 @@ DMG_PATH="$REPO_ROOT/dist/release/svg-to-drawio-$VERSION-macos.dmg"
 APP_BUNDLE_NAME="SVG to draw.io.app"
 APP_EXECUTABLE_NAME="SVG to draw.io"
 APP_EXECUTABLE="$REPO_ROOT/dist/desktop/$APP_BUNDLE_NAME/Contents/MacOS/$APP_EXECUTABLE_NAME"
+DMG_BACKGROUND_SOURCE="$REPO_ROOT/svg_to_drawio_desktop/assets/dmg_background.png"
 
 if [[ ! -x "$APP_EXECUTABLE" || ! -f "$DMG_PATH" ]]; then
     echo "macOS smoke-test artifacts are incomplete." >&2
@@ -30,3 +31,12 @@ trap cleanup EXIT
 
 hdiutil attach "$DMG_PATH" -nobrowse -readonly -mountpoint "$mount_point" >/dev/null
 "$mount_point/$APP_BUNDLE_NAME/Contents/MacOS/$APP_EXECUTABLE_NAME" --smoke-test
+
+if [[ -f "$DMG_BACKGROUND_SOURCE" ]]; then
+    if [[ ! -f "$mount_point/.background/dmg_background.png" ]]; then
+        echo "Warning: the packaged DMG is missing its Finder background image." >&2
+    fi
+    if [[ ! -f "$mount_point/.DS_Store" ]]; then
+        echo "Warning: the packaged DMG is missing the Finder layout metadata." >&2
+    fi
+fi
