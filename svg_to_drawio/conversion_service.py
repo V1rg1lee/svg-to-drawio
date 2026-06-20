@@ -14,6 +14,7 @@ from os import PathLike, makedirs, path
 from threading import Event, Lock
 from typing import Any, Literal
 
+from . import __version__
 from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
 from .diagnostics import ConversionReport
@@ -231,8 +232,13 @@ class ConversionService:
 
     @staticmethod
     def _options_signature(options: ConversionOptions) -> str:
-        """Return the content-affecting option signature for cache invalidation."""
+        """Return the content-affecting option signature for cache invalidation.
+
+        Includes the package version so upgrading the engine invalidates old cache
+        entries automatically, even when none of the other signature fields changed.
+        """
         payload = {
+            "engine_version": __version__,
             "flatten": options.flatten,
             "max_elements": options.max_elements,
             "rendering": options.rendering.to_dict(),

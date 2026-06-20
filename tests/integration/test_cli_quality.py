@@ -73,6 +73,45 @@ class CliQualityTests(SvgTestCase):
         self.assertEqual(code, 1)
         self.assertIn("QUALITY GATE:", stdout.getvalue())
 
+    def test_cli_require_native_before_the_input_path_does_not_swallow_it(self) -> None:
+        # argparse footgun regression: --require-native and the input_path positional both
+        # used to accept any number of values, so "--require-native text file.svg" would
+        # silently consume file.svg into --require-native instead of leaving it as input_path.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main.main(["--overwrite", "--require-native", "clipping", svg_path])
+
+            self.assertEqual(code, 0)
+            self.assertTrue(path.isfile(path.splitext(svg_path)[0] + ".drawio"))
+
+    def test_cli_require_native_accepts_comma_separated_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">'
+                    '<defs><clipPath id="cut"><circle cx="40" cy="40" r="20" /></clipPath></defs>'
+                    '<rect x="10" y="10" width="60" height="60" fill="red" '
+                    'stroke="black" stroke-width="2" clip-path="url(#cut)" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main.main([svg_path, "--overwrite", "--fail-on-fallback", "--require-native", "clipping,text"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("QUALITY GATE:", stdout.getvalue())
+
     def test_cli_fail_on_warning_surfaces_a_quality_gate_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             svg_path = path.join(tmpdir, "diagram.svg")

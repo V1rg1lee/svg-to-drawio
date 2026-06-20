@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from os import PathLike, path
@@ -48,6 +49,18 @@ def _compatibility_score(value: str) -> int:
     if not 0 <= parsed <= 100:
         raise argparse.ArgumentTypeError(f"must be between 0 and 100, got {parsed}")
     return parsed
+
+
+def _capability_list(value: str) -> list[str]:
+    """argparse type: split one --require-native value on commas/whitespace into capability keys.
+
+    `--require-native` uses `action="append"` (one value consumed per flag occurrence)
+    rather than `nargs="*"`, because two `nargs="*"` arguments in the same parser
+    (this one and the `input_path` positional) are ambiguous: `--require-native text
+    file.svg` would silently swallow `file.svg` into `--require-native` instead of
+    `input_path`. Splitting on commas keeps "multiple keys in one flag" ergonomic.
+    """
+    return [item for item in re.split(r"[,\s]+", value.strip()) if item]
 
 
 def _print_compatibility(report: ConversionReport, *, show_all_rows: bool) -> None:
@@ -158,6 +171,30 @@ def run(
     )
 
     if stdout:
+        conflicting_flags = []
+        if analyze:
+            conflicting_flags.append("--analyze")
+        if watch:
+            conflicting_flags.append("--watch")
+        if report_json is not None:
+            conflicting_flags.append("--report-json")
+        if quality_options.fail_on_warning:
+            conflicting_flags.append("--fail-on-warning")
+        if quality_options.fail_on_fallback:
+            conflicting_flags.append("--fail-on-fallback")
+        if quality_options.min_score is not None:
+            conflicting_flags.append("--min-score")
+        if quality_options.require_native:
+            conflicting_flags.append("--require-native")
+        if conflicting_flags:
+            print(
+                "Error: --stdout cannot be combined with "
+                + ", ".join(conflicting_flags)
+                + " (stdout mode writes one file's XML and skips reports/quality gates).",
+                file=sys.stderr,
+            )
+            return 1
+
         if len(resolved_inputs) != 1 or path.isdir(resolved_inputs[0]):
             print("Error: --stdout requires exactly one SVG file, not multiple inputs or a directory.", file=sys.stderr)
             return 1
@@ -213,6 +250,8 @@ def run(
         print(f"Report written to: {target}")
 
     if analyze:
+        if workers > 1:
+            print("Note: --workers is ignored in --analyze mode; files are analyzed sequentially.", file=sys.stderr)
         service = ConversionService()
         jobs = service.plan(resolved_inputs, options)
         reports: list[ConversionReport] = []
@@ -271,6 +310,11 @@ def run(
     if watch:
         from .conversion_service import watch_svg_files
 
+        if workers > 1:
+            print(
+                "Note: --workers is ignored in --watch mode; changes are processed sequentially as they arrive.",
+                file=sys.stderr,
+            )
         resolved_watch_backend = cast(Literal["auto", "poll", "event"], watch_backend)
         backend_name = resolve_watch_backend(resolved_watch_backend)
         watched_label = resolved_inputs[0] if len(resolved_inputs) == 1 else f"{len(resolved_inputs)} input path(s)"
@@ -382,11 +426,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--require-native",
-        nargs="*",
-        default=(),
+        action="append",
+        type=_capability_list,
+        default=None,
         metavar="CAPABILITY",
         help=(
-            f"Require selected capability families to remain fully native. Valid keys: {', '.join(capability_keys())}"
+            "Require selected capability families to remain fully native. Comma-separate "
+            f"multiple keys or repeat the flag. Valid keys: {', '.join(capability_keys())}"
         ),
     )
     parser.set_defaults(use_cache=True)
@@ -397,7 +443,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point used by the console script and local wrappers."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    input_path = args.input_path or [input("Enter SVG file or folder path: ").strip()]
+
+    input_path = args.input_path
+    if not input_path:
+        if not sys.stdin.isatty():
+            print("Error: no input path provided.", file=sys.stderr)
+            return 1
+        input_path = [input("Enter SVG file or folder path: ").strip()]
+
+    require_native = [key for group in (args.require_native or []) for key in group]
     return run(
         input_path,
         output_dir=args.output_dir,
@@ -417,7 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         fail_on_warning=args.fail_on_warning,
         fail_on_fallback=args.fail_on_fallback,
         min_score=args.min_score,
-        require_native=args.require_native,
+        require_native=require_native,
         workers=args.workers,
         watch_backend=args.watch_backend,
     )

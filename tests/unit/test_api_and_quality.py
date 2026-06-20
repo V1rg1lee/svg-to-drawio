@@ -121,6 +121,18 @@ class ApiAndQualityTests(SvgTestCase):
         self.assertIsInstance(xml, str)
         self.assertIn("<mxfile>", xml)
 
+    def test_convert_svg_bytes_honors_a_non_utf8_xml_encoding_declaration(self) -> None:
+        # Forcing a UTF-8 decode before parsing would raise UnicodeDecodeError here;
+        # the parser must honor the declared/BOM-detected encoding instead.
+        svg_text = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20">'
+            '<rect x="0" y="0" width="40" height="20" fill="#ef4444" /></svg>'
+        )
+        xml = convert_svg_bytes(svg_text.encode("utf-16"), title="utf16-test")
+        self.assertIsInstance(xml, str)
+        self.assertIn("<mxfile>", xml)
+
     def test_plain_analyze_file_returns_a_conversion_report_not_a_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             svg_path = path.join(tmpdir, "diagram.svg")

@@ -299,16 +299,15 @@ class Converter:
         rendering_options: RenderingOptions | None = None,
     ) -> ConversionResult:
         """Convert SVG markup already loaded in memory and return a rich conversion result."""
-        self.reset()
-        self._flatten = flatten
-        self._max_elements = max_elements
-        self.rendering_options = rendering_options or RenderingOptions()
-        root = ET.fromstring(svg_text)
-        memory_source = source_label or f"memory:{title}.svg"
-        xml = self._convert_root(
-            root, title, source_path=memory_source, base_dir=fspath(base_dir) if base_dir else None
+        return self._convert_parsed_root_result(
+            ET.fromstring(svg_text),
+            base_dir=base_dir,
+            title=title,
+            source_label=source_label,
+            flatten=flatten,
+            max_elements=max_elements,
+            rendering_options=rendering_options,
         )
-        return self._build_result(xml, source_path=memory_source, output_path=None)
 
     def convert_svg_bytes_result(
         self,
@@ -321,9 +320,15 @@ class Converter:
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
     ) -> ConversionResult:
-        """Convert SVG bytes already loaded in memory and return a rich conversion result."""
-        return self.convert_svg_string_result(
-            svg_bytes.decode("utf-8"),
+        """Convert SVG bytes already loaded in memory and return a rich conversion result.
+
+        Parses the raw bytes directly so an `<?xml encoding="..."?>` declaration (or a
+        UTF-16 BOM) is honored by the XML parser, the same way `ET.parse` already honors
+        it for file-path-based conversions. Forcing a UTF-8 decode first would raise a raw
+        `UnicodeDecodeError` on a validly-encoded non-UTF-8 SVG instead of parsing it.
+        """
+        return self._convert_parsed_root_result(
+            ET.fromstring(svg_bytes),
             base_dir=base_dir,
             title=title,
             source_label=source_label,
@@ -331,6 +336,28 @@ class Converter:
             max_elements=max_elements,
             rendering_options=rendering_options,
         )
+
+    def _convert_parsed_root_result(
+        self,
+        root: Element,
+        *,
+        base_dir: str | PathLike[str] | None,
+        title: str,
+        source_label: str | None,
+        flatten: bool,
+        max_elements: int | None,
+        rendering_options: RenderingOptions | None,
+    ) -> ConversionResult:
+        """Shared in-memory conversion path for an already-parsed SVG root element."""
+        self.reset()
+        self._flatten = flatten
+        self._max_elements = max_elements
+        self.rendering_options = rendering_options or RenderingOptions()
+        memory_source = source_label or f"memory:{title}.svg"
+        xml = self._convert_root(
+            root, title, source_path=memory_source, base_dir=fspath(base_dir) if base_dir else None
+        )
+        return self._build_result(xml, source_path=memory_source, output_path=None)
 
     def analyze_file(
         self,

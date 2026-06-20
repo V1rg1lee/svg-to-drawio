@@ -8,6 +8,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from contextlib import redirect_stderr, redirect_stdout
 from os import makedirs, path
+from unittest.mock import patch
 
 import main
 
@@ -56,6 +57,53 @@ class CliTests(SvgTestCase):
             self.assertEqual(code, 1)
             self.assertEqual(stdout.getvalue(), "")
             self.assertIn("Error:", stderr.getvalue())
+
+    def test_cli_stdout_rejects_being_combined_with_analyze_and_quality_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = main.run(svg_path, stdout=True, analyze=True, fail_on_warning=True)
+
+            self.assertEqual(code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("--analyze", stderr.getvalue())
+            self.assertIn("--fail-on-warning", stderr.getvalue())
+
+    def test_cli_workers_is_ignored_with_a_note_in_analyze_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = main.run(svg_path, analyze=True, workers=4)
+
+            self.assertEqual(code, 0)
+            self.assertIn("--workers is ignored in --analyze mode", stderr.getvalue())
+
+    def test_cli_main_reports_a_clean_error_when_no_input_and_stdin_is_not_interactive(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with patch("sys.stdin.isatty", return_value=False), redirect_stdout(stdout), redirect_stderr(stderr):
+            code = main.main([])
+
+        self.assertEqual(code, 1)
+        self.assertIn("Error: no input path provided.", stderr.getvalue())
 
     def test_cli_overwrite_flag_controls_existing_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -25,13 +25,15 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--fail-on-warning` | Exit with code 1 if any converted file reports a warning |
 | `--fail-on-fallback` | Exit with code 1 if any file uses embedded SVG fallback |
 | `--min-score N` | Exit with code 1 if any file scores below N compatibility points (0-100) |
-| `--require-native CAPABILITY...` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native |
+| `--require-native CAPABILITY` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native. Comma-separate multiple keys (`text,gradients`) or repeat the flag |
 
 The event-driven `--watch-backend event` mode requires the optional `watchdog` dependency (`pip install "svg-to-drawio[watch]"`); `auto` falls back to polling when it is not installed.
 
 `--fail-on-warning`, `--fail-on-fallback`, `--min-score`, and `--require-native` are quality gates for CI: see [Quality gates](python-api.md#quality-gates-for-ci) for the equivalent Python API.
 
 `--rendering-preset` is the quickest way to match the desktop app's preset choices from the terminal. Individual flags such as `--gradient-policy` or `--text-metrics-policy` still override the preset when you need a custom mix.
+
+`--stdout` writes one file's XML to standard output and nothing else, so it cannot be combined with `--analyze`, `--watch`, `--report-json`, or any quality-gate flag (`--fail-on-warning`, `--fail-on-fallback`, `--min-score`, `--require-native`); combining them is an error rather than a silently ignored flag. `--workers` is similarly a no-op (with a printed note) under `--watch` and `--analyze`, since both process files sequentially.
 
 ## Examples
 
