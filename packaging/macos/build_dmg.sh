@@ -32,14 +32,18 @@ staging_dir="$work_root/staging"
 read_write_dmg="$work_root/svg-to-drawio-rw.dmg"
 mount_dir="$work_root/mount"
 mounted_volume=""
+mounted_device=""
+mounted_partition=""
 
 cleanup() {
     local exit_status=$?
+    local detach_target
 
     if [[ -n "$mounted_volume" ]]; then
         echo "Cleaning up mounted DMG at $mounted_volume" >&2
-        if ! hdiutil detach -force "$mounted_volume" -quiet >/dev/null 2>&1; then
-            echo "Warning: unable to force-detach $mounted_volume during cleanup." >&2
+        detach_target="${mounted_device:-$mounted_volume}"
+        if ! hdiutil detach -force "$detach_target" -quiet >/dev/null 2>&1; then
+            echo "Warning: unable to force-detach $detach_target during cleanup." >&2
         fi
     fi
 
@@ -71,6 +75,8 @@ detach_with_retry() {
     for ((attempt = 1; attempt <= max_attempts; attempt++)); do
         if hdiutil detach "$detach_target" -quiet >/dev/null 2>&1; then
             mounted_volume=""
+            mounted_device=""
+            mounted_partition=""
             return 0
         fi
 
@@ -80,7 +86,15 @@ detach_with_retry() {
         fi
     done
 
-    echo "Unable to detach the writable DMG after $max_attempts attempts." >&2
+    echo "Normal detach attempts exhausted; trying a forced detach for $detach_target..."
+    if hdiutil detach -force "$detach_target" -quiet >/dev/null 2>&1; then
+        mounted_volume=""
+        mounted_device=""
+        mounted_partition=""
+        return 0
+    fi
+
+    echo "Unable to detach the writable DMG after $max_attempts attempts and a forced detach." >&2
     return 1
 }
 
@@ -107,15 +121,10 @@ fi
 # are independent. The file-level resource must be applied after hdiutil
 # convert, otherwise conversion can discard it.
 if [[ -f "$DMG_ICON_PATH" ]]; then
+    # Include the icon bytes when hdiutil sizes the writable image. The file is
+    # copied again after mounting, where its Finder metadata can be applied
+    # reliably to the actual volume filesystem.
     cp "$DMG_ICON_PATH" "$staging_dir/.VolumeIcon.icns"
-    echo "Added mounted-volume icon as .VolumeIcon.icns"
-
-    if [[ -n "$SETFILE_BIN" ]]; then
-        "$SETFILE_BIN" -a C "$staging_dir" || true
-        "$SETFILE_BIN" -a V "$staging_dir/.VolumeIcon.icns" || true
-    else
-        echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
-    fi
 else
     echo "DMG volume icon not found at $DMG_ICON_PATH; continuing without a custom icon."
 fi
@@ -140,37 +149,45 @@ hdiutil create \
     -format UDRW \
     "$read_write_dmg" >/dev/null
 
-if [[ -f "$DMG_BACKGROUND_PATH" ]]; then
-    if ! command -v osascript >/dev/null 2>&1; then
-        echo "Warning: osascript is unavailable; DMG will lack custom Finder layout." >&2
+if [[ -f "$DMG_BACKGROUND_PATH" || -f "$DMG_ICON_PATH" ]]; then
+    mkdir -p "$mount_dir"
+    attach_output=""
+    if ! attach_output="$(hdiutil attach \
+        "$read_write_dmg" \
+        -readwrite \
+        -noverify \
+        -noautoopen \
+        -mountpoint "$mount_dir")"; then
+        echo "Warning: unable to mount the writable DMG; volume customization was skipped." >&2
     else
-        mkdir -p "$mount_dir"
-        if ! hdiutil attach \
-            "$read_write_dmg" \
-            -readwrite \
-            -noverify \
-            -noautoopen \
-            -mountpoint "$mount_dir" >/dev/null; then
-            echo "Warning: unable to mount the writable DMG; custom Finder layout was skipped." >&2
+        mounted_volume="$mount_dir"
+        mounted_partition="$(
+            printf '%s\n' "$attach_output" \
+                | awk -v mount_point="$mount_dir" '$NF == mount_point && $1 ~ /^\/dev\// { print $1; exit }'
+        )"
+        if [[ -n "$mounted_partition" ]]; then
+            mounted_device="$(printf '%s\n' "$mounted_partition" | sed -E 's/s[0-9]+$//')"
+        fi
+        if [[ -z "$mounted_device" ]]; then
+            mounted_device="$(
+                printf '%s\n' "$attach_output" \
+                    | awk '$1 ~ /^\/dev\/disk[0-9]+$/ { device = $1 } END { print device }'
+            )"
+        fi
+        if [[ -n "$mounted_device" ]]; then
+            echo "Mounted writable DMG as ${mounted_partition:-unknown partition} on $mounted_device at $mounted_volume"
         else
-            mounted_volume="$mount_dir"
+            echo "Warning: unable to identify the mounted DMG device; detach will use the mount point." >&2
+        fi
 
-            # Reapply the mounted-volume flags to the writable filesystem. They are
-            # normally preserved from staging, but setting them after mounting makes
-            # the intended volume metadata explicit before the final conversion.
-            if [[ -f "$mount_dir/.VolumeIcon.icns" && -n "$SETFILE_BIN" ]]; then
-                if ! "$SETFILE_BIN" -a C "$mount_dir"; then
-                    echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
-                fi
-                if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
-                    echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
-                fi
-            fi
-
+        if [[ -f "$DMG_BACKGROUND_PATH" ]]; then
+            if ! command -v osascript >/dev/null 2>&1; then
+                echo "Warning: osascript is unavailable; DMG will lack custom Finder layout." >&2
+            else
             # Finder owns the .DS_Store format. Target the exact POSIX mount point
             # instead of looking up a disk by name, which avoids collisions with
             # another mounted volume using the same display name.
-            if ! DMG_MOUNT_POINT="$mount_dir" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT'
+                if ! DMG_MOUNT_POINT="$mount_dir" DMG_APP_NAME="$APP_NAME" osascript <<'APPLESCRIPT'
 set mountPoint to system attribute "DMG_MOUNT_POINT"
 set appName to system attribute "DMG_APP_NAME"
 set mountedVolume to POSIX file mountPoint as alias
@@ -203,18 +220,50 @@ end tell
 
 delay 2
 APPLESCRIPT
-            then
-                echo "Warning: Finder styling via osascript failed; DMG will lack custom layout." >&2
-            else
-                echo "Applied Finder background, window layout, and icon positions."
+                then
+                    echo "Warning: Finder styling via osascript failed; DMG will lack custom layout." >&2
+                else
+                    echo "Applied Finder background, window layout, and icon positions."
+                fi
             fi
 
             sync
             if [[ ! -s "$mount_dir/.DS_Store" ]]; then
                 echo "Warning: Finder layout metadata (.DS_Store) is missing or empty; DMG may lack custom layout." >&2
             fi
-            detach_with_retry "$mounted_volume"
         fi
+
+        # Install the mounted-volume icon only after Finder has finished writing
+        # the window layout. Finder may rebuild hidden volume metadata while the
+        # window is open, so applying the icon last prevents it from being removed.
+        if [[ -f "$DMG_ICON_PATH" ]]; then
+            if cp -f "$DMG_ICON_PATH" "$mount_dir/.VolumeIcon.icns"; then
+                echo "Added mounted-volume icon as .VolumeIcon.icns"
+                if [[ -n "$SETFILE_BIN" ]]; then
+                    if ! "$SETFILE_BIN" -c icnC "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to set the icon creator code on .VolumeIcon.icns." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a V "$mount_dir/.VolumeIcon.icns"; then
+                        echo "Warning: unable to hide .VolumeIcon.icns on the mounted volume." >&2
+                    fi
+                    if ! "$SETFILE_BIN" -a C "$mount_dir"; then
+                        echo "Warning: unable to set the custom-icon flag on the mounted volume." >&2
+                    fi
+                else
+                    echo "Warning: SetFile is unavailable; volume icon attributes were not applied." >&2
+                fi
+            else
+                echo "Warning: unable to copy .VolumeIcon.icns to the mounted volume." >&2
+            fi
+        fi
+
+        sync
+        if [[ -f "$DMG_ICON_PATH" && ! -s "$mount_dir/.VolumeIcon.icns" ]]; then
+            echo "The writable DMG lost .VolumeIcon.icns before detachment." >&2
+            exit 1
+        fi
+        sleep 2
+        detach_with_retry "${mounted_device:-$mounted_volume}"
     fi
 fi
 
