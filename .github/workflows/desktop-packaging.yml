@@ -11,6 +11,10 @@ on:
         description: "Upload build artifacts and attach them to a GitHub release."
         type: boolean
         default: false
+      release_tag:
+        description: "Release tag name forwarded by the caller workflow."
+        type: string
+        default: ""
     secrets:
       RELEASE_GPG_PRIVATE_KEY:
         required: false
@@ -107,10 +111,11 @@ jobs:
           echo "value=$(dpkg --print-architecture)" >> "$GITHUB_OUTPUT"
 
       - name: Verify release tag matches package version
-        if: inputs.publish && github.event_name == 'release'
+        if: inputs.publish && inputs.release_tag != ''
         shell: bash
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${{ inputs.release_tag }}"
+          TAG_VERSION="${TAG_VERSION#v}"
           if [[ "$TAG_VERSION" != "${{ steps.version.outputs.value }}" ]]; then
             echo "Release tag version ($TAG_VERSION) does not match package version (${{ steps.version.outputs.value }})." >&2
             exit 1

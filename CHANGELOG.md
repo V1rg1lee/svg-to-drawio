@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-06-20
+
+### Changed
+
+- macOS DMG builds now keep the app icon and DMG icon separate, and also attempt to apply the dedicated `dmg_volume.icns` icon to the DMG file itself, not just the mounted volume contents.
+
 ## [3.8.0] - 2026-06-20
 
 ### Changed
@@ -148,7 +154,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release: SVG to draw.io conversion engine.
 
-[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.0...HEAD
+[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.1...HEAD
+[3.8.1]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.0...v3.8.1
 [3.8.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.5.1...v3.6.0

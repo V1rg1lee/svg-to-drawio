@@ -18,6 +18,7 @@ jobs:
     uses: ./.github/workflows/desktop-packaging.yml
     with:
       publish: true
+      release_tag: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
     secrets:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}

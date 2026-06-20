@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from os import PathLike
 
-__version__ = "3.8.0"
+__version__ = "3.8.1"
 
 from .capabilities import all_capabilities, capability_descriptor, capability_keys, rendering_preflight_lines
 from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
