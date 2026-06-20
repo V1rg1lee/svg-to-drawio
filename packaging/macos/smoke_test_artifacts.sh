@@ -64,6 +64,23 @@ if [[ -f "$DMG_ICON_SOURCE" && ! -s "$mount_point/.VolumeIcon.icns" ]]; then
 fi
 
 if [[ -f "$DMG_ICON_SOURCE" ]]; then
+    if ! command -v sips >/dev/null 2>&1; then
+        echo "sips is required to validate the packaged DMG volume icon." >&2
+        exit 1
+    fi
+
+    icon_format_output=""
+    if ! icon_format_output="$(sips -g format "$mount_point/.VolumeIcon.icns" 2>&1)"; then
+        echo "The packaged DMG volume icon could not be decoded by sips." >&2
+        echo "$icon_format_output" >&2
+        exit 1
+    fi
+    if [[ "$icon_format_output" != *"format: icns"* ]]; then
+        echo "The packaged DMG volume icon is not recognized as ICNS." >&2
+        echo "$icon_format_output" >&2
+        exit 1
+    fi
+
     GETFILEINFO_BIN=""
     if ! GETFILEINFO_BIN="$(find_xcode_tool GetFileInfo 2>/dev/null)"; then
         echo "GetFileInfo is required to validate the packaged DMG volume icon." >&2
@@ -91,5 +108,5 @@ if [[ -f "$DMG_ICON_SOURCE" ]]; then
         exit 1
     fi
 
-    echo "Verified mounted-volume icon metadata: invisible V, creator icnC, custom-volume C."
+    echo "Verified mounted-volume icon: decodable ICNS, invisible V, creator icnC, custom-volume C."
 fi

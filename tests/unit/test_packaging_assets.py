@@ -98,6 +98,8 @@ class PackagingAssetTests(unittest.TestCase):
 
         self.assertIn('! -s "$mount_point/.VolumeIcon.icns"', script)
         self.assertIn('ls -laO "$mount_point"', script)
+        self.assertIn('sips -g format "$mount_point/.VolumeIcon.icns"', script)
+        self.assertIn('"format: icns"', script)
         self.assertIn("find_xcode_tool GetFileInfo", script)
         self.assertIn('"$GETFILEINFO_BIN" -a "$mount_point/.VolumeIcon.icns"', script)
         self.assertIn('"$GETFILEINFO_BIN" -c "$mount_point/.VolumeIcon.icns"', script)
