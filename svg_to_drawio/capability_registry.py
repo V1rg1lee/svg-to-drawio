@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from . import issue_codes as codes
+
 CompatibilityStatus = Literal["native", "approximate", "fallback", "ignored"]
 
 
@@ -284,99 +286,104 @@ _PUBLIC_CAPABILITY_KEYS: tuple[str, ...] = (
 )
 
 _ISSUE_MAP: dict[str, tuple[str, CompatibilityStatus, str | None]] = {
-    "clip-path-simplified-native": (
+    codes.CLIP_PATH_SIMPLIFIED_NATIVE: (
         "clipping",
         "approximate",
         "Simple clip paths were rewritten into editable replacement shapes.",
     ),
-    "mask-simplified-native": (
+    codes.MASK_SIMPLIFIED_NATIVE: (
         "clipping",
         "approximate",
         "Simple masks were rewritten into editable replacement shapes.",
     ),
-    "pattern-simplified-native": (
+    codes.PATTERN_SIMPLIFIED_NATIVE: (
         "patterns",
         "approximate",
         "Simple repeating patterns were expanded into editable draw.io geometry.",
     ),
-    "clip-path-fallback": ("clipping", "fallback", "Clip paths were preserved as embedded SVG."),
-    "mask-fallback": ("clipping", "fallback", "Masks were preserved as embedded SVG."),
-    "pattern-fallback": ("patterns", "fallback", "Pattern fills were preserved as embedded SVG."),
-    "filter-fallback": ("filters", "fallback", "Filter effects were preserved as embedded SVG."),
-    "filter-ignored-for-editability": (
+    codes.CLIP_PATH_FALLBACK: ("clipping", "fallback", "Clip paths were preserved as embedded SVG."),
+    codes.MASK_FALLBACK: ("clipping", "fallback", "Masks were preserved as embedded SVG."),
+    codes.PATTERN_FALLBACK: ("patterns", "fallback", "Pattern fills were preserved as embedded SVG."),
+    codes.FILTER_FALLBACK: ("filters", "fallback", "Filter effects were preserved as embedded SVG."),
+    codes.FILTER_IGNORED_FOR_EDITABILITY: (
         "filters",
         "approximate",
         "Unsupported filters were dropped to keep nearby shapes editable.",
     ),
-    "filter-simplified-native": (
+    codes.FILTER_SIMPLIFIED_NATIVE: (
         "filters",
         "approximate",
         None,
     ),
-    "multi-stop-gradient-fallback": (
+    codes.MULTI_STOP_GRADIENT_FALLBACK: (
         "gradients",
         "fallback",
         "Complex gradients were preserved as embedded SVG.",
     ),
-    "multi-stop-gradient-reduced": (
+    codes.MULTI_STOP_GRADIENT_REDUCED: (
         "gradients",
         "approximate",
         "Complex gradients were simplified to stay editable.",
     ),
-    "text-backend-heuristic": (
+    codes.TEXT_BACKEND_HEURISTIC: (
         "text",
         "approximate",
         "Text box sizes were estimated with the built-in heuristic.",
     ),
-    "text-backend-system": (
+    codes.TEXT_BACKEND_SYSTEM: (
         "text",
         "native",
         "Text box sizes were measured with a real system font backend.",
     ),
-    "text-path-approximated": (
+    codes.TEXT_PATH_APPROXIMATED: (
         "text",
         "approximate",
         "Text on a path was approximated with rotated editable glyphs.",
     ),
-    "dominant-baseline-approximated": (
+    codes.DOMINANT_BASELINE_APPROXIMATED: (
         "text",
         "approximate",
         "Dominant-baseline alignment was approximated.",
     ),
-    "letter-spacing-ignored": (
+    codes.LETTER_SPACING_IGNORED: (
         "text",
         "ignored",
         "Letter spacing is not preserved natively in draw.io text.",
     ),
-    "letter-spacing-approximated": (
+    codes.LETTER_SPACING_APPROXIMATED: (
         "text",
         "approximate",
         "Letter spacing was approximated with editable positioned glyphs.",
     ),
-    "text-length-approximated": (
+    codes.TEXT_LENGTH_APPROXIMATED: (
         "text",
         "approximate",
         "Text length constraints were approximated with editable positioned glyphs.",
     ),
-    "image-shear-approximated": (
+    codes.IMAGE_SHEAR_APPROXIMATED: (
         "images",
         "approximate",
         "Sheared images were placed using their transformed bounding box.",
     ),
-    "image-remote-linked": (
+    codes.IMAGE_REMOTE_LINKED: (
         "images",
         "approximate",
         "Remote images stay linked instead of being embedded locally.",
     ),
-    "max-elements-truncated": (
+    codes.MAX_ELEMENTS_TRUNCATED: (
         "limits",
         "ignored",
         "The element limit was reached, so the output was truncated.",
     ),
-    "fallback-bounds-missing": (
+    codes.FALLBACK_BOUNDS_MISSING: (
         "limits",
         "ignored",
         "One SVG fallback fragment could not be positioned safely.",
+    ),
+    codes.USE_CYCLE_DETECTED: (
+        "references",
+        "ignored",
+        "A circular <use> reference was detected and skipped.",
     ),
 }
 
@@ -434,9 +441,9 @@ def issue_observation_payload(
     if mapped is not None:
         feature_key, status, detail = mapped
         return feature_key, status, detail or message
-    if code == "ignored-unsupported-element":
+    if code == codes.IGNORED_UNSUPPORTED_ELEMENT:
         detail = f"The SVG uses <{element_tag}> which is not supported natively." if element_tag else message
         return "unsupported", "ignored", detail
-    if code in {"conversion-failed", "analysis-failed"}:
+    if code in {codes.CONVERSION_FAILED, codes.ANALYSIS_FAILED}:
         return "unsupported", "ignored", message
     return None

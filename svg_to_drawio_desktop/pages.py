@@ -409,6 +409,7 @@ class PreviewPage(QWidget):
         self._current_svg_path: str | None = None
         self._current_file_label = "The selected processed SVG file will appear here."
         self._current_annotations: list[PreviewAnnotation] = []
+        self._text_metrics_policy = "auto"
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 24)
         layout.setSpacing(16)
@@ -574,14 +575,22 @@ class PreviewPage(QWidget):
         finally:
             self.preview_file_combo.blockSignals(blocker)
 
-    def set_preview(self, *, svg_path: str | None, file_label: str, annotations: list[PreviewAnnotation]) -> None:
+    def set_preview(
+        self,
+        *,
+        svg_path: str | None,
+        file_label: str,
+        annotations: list[PreviewAnnotation],
+        text_metrics_policy: str = "auto",
+    ) -> None:
         """Show one converted file in the side-by-side preview panes."""
         self._current_svg_path = svg_path
         self._current_file_label = file_label
         self._current_annotations = list(annotations)
+        self._text_metrics_policy = text_metrics_policy
 
         self.source_caption_label.setText(self._current_file_label)
-        self.source_preview.set_preview(self._current_svg_path, [])
+        self.source_preview.set_preview(self._current_svg_path, [], self._text_metrics_policy)
         self._refresh_preview_state()
 
         if not svg_path:
@@ -634,7 +643,7 @@ class PreviewPage(QWidget):
         total_approximate_count = sum(1 for annotation in self._current_annotations if annotation.status != "fallback")
         visible_fallback_count = sum(1 for annotation in visible_annotations if annotation.status == "fallback")
         visible_approximate_count = sum(1 for annotation in visible_annotations if annotation.status != "fallback")
-        self.impact_preview.set_preview(self._current_svg_path, visible_annotations)
+        self.impact_preview.set_preview(self._current_svg_path, visible_annotations, self._text_metrics_policy)
         self._set_legend_counts(
             visible_fallback_count,
             visible_approximate_count,

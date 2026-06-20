@@ -12,7 +12,7 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QTransform, QWheelEvent
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QToolTip, QWidget
-from svg_to_drawio.css import AncestorInfo, apply_css, collect_css, extract_custom_props
+from svg_to_drawio.css import AncestorInfo, apply_css, collect_css, extract_custom_props, index_css_rules
 from svg_to_drawio.diagnostics import PreviewAnnotation
 from svg_to_drawio.styles import get_visual, normalize_color
 from svg_to_drawio.utils import format_style_attr, parse_style_attr, strip_ns
@@ -206,6 +206,7 @@ def _inline_preview_styles(root: ET.Element) -> bool:
     css_rules = collect_css(root)
     custom_props = extract_custom_props(css_rules)
     match_cache: dict = {}
+    rule_index = index_css_rules(css_rules)
 
     def visit(elem: ET.Element, inherited: dict[str, str], ancestors: list[AncestorInfo]) -> bool:
         tag = strip_ns(elem.tag)
@@ -217,6 +218,7 @@ def _inline_preview_styles(root: ET.Element) -> bool:
             ancestors=ancestors,
             custom_props=custom_props,
             _match_cache=match_cache,
+            rule_index=rule_index,
         )
         changed_here = _normalize_element_style(elem, computed)
         next_ancestors = [*ancestors, (tag, set((elem.get("class") or "").split()))]
@@ -238,7 +240,9 @@ def _strip_style_elements(root: ET.Element) -> bool:
     return changed
 
 
-def _prepare_preview_svg(svg_path: str) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
+def _prepare_preview_svg(
+    svg_path: str, text_metrics_policy: str = "auto"
+) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
     """Normalize local image references so Qt can render the preview more faithfully."""
     svg_file = Path(svg_path).resolve()
     try:
@@ -264,7 +268,7 @@ def _prepare_preview_svg(svg_path: str) -> tuple[str, tempfile.TemporaryDirector
         changed = True
 
     changed |= _inline_preview_styles(root)
-    changed |= rewrite_advanced_preview_text(root)
+    changed |= rewrite_advanced_preview_text(root, text_metrics_policy)
     changed |= _strip_style_elements(root)
 
     if not changed:
@@ -319,8 +323,17 @@ class SvgPreviewWidget(QWidget):
         self.reset_view()
         self.update()
 
-    def set_preview(self, svg_path: str | None, annotations: list[PreviewAnnotation] | None = None) -> None:
-        """Load one SVG file and the overlay annotations to display on top of it."""
+    def set_preview(
+        self,
+        svg_path: str | None,
+        annotations: list[PreviewAnnotation] | None = None,
+        text_metrics_policy: str = "auto",
+    ) -> None:
+        """Load one SVG file and the overlay annotations to display on top of it.
+
+        `text_metrics_policy` should match the user's selected rendering policy so the
+        preview's text layout uses the same font-metrics backend as the real conversion.
+        """
         self._annotations = list(annotations or [])
         self._mapped_annotations = []
         self.reset_view()
@@ -340,7 +353,7 @@ class SvgPreviewWidget(QWidget):
             self._preview_temp_dir = None
 
         renderer = QSvgRenderer(self)
-        preview_path, temp_dir = _prepare_preview_svg(str(svg_file))
+        preview_path, temp_dir = _prepare_preview_svg(str(svg_file), text_metrics_policy)
         if not renderer.load(preview_path):
             if temp_dir is not None:
                 temp_dir.cleanup()

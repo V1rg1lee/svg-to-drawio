@@ -9,6 +9,7 @@ from xml.etree.ElementTree import Element
 from ..cell_factory import make_bounds_vertex
 from ..compatibility import note_filter_usage
 from ..emitter_context import EmitterContext
+from ..issue_codes import FILTER_SIMPLIFIED_NATIVE
 from ..style_builder import StyleBuilder
 from ..styles import GradientStyle, gradient_entries
 from ..utils import link_value, tooltip_value
@@ -41,7 +42,7 @@ def add_filter_styles(
 
     if resolution.approximated:
         ctx.report.add_issue(
-            "filter-simplified-native",
+            FILTER_SIMPLIFIED_NATIVE,
             "warning",
             resolution.detail,
             element_tag=elem.tag.rsplit("}", 1)[-1],

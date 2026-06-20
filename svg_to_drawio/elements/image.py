@@ -13,6 +13,7 @@ from ..cell_factory import make_box_vertex
 from ..compatibility import note_image_usage
 from ..element_geometry import BoundsBox, has_shear, image_bounds
 from ..emitter_context import EmitterContext
+from ..issue_codes import IMAGE_REMOTE_LINKED, IMAGE_SHEAR_APPROXIMATED
 from ..style_builder import StyleBuilder
 from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix
@@ -114,7 +115,7 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         mime = mimetypes.guess_type(href)[0] or ""
         ctx.report.add_asset(href=href, status="remote", mime_type=mime or None)
         ctx.report.add_issue(
-            "image-remote-linked",
+            IMAGE_REMOTE_LINKED,
             "warning",
             "Remote image URLs stay linked instead of being embedded into the draw.io document.",
             element_tag="image",
@@ -186,7 +187,7 @@ def emit_image(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str
 
     if has_shear(matrix):
         ctx.report.add_issue(
-            "image-shear-approximated",
+            IMAGE_SHEAR_APPROXIMATED,
             "warning",
             "A sheared image was approximated with its transformed bounding box because draw.io images do not skew.",
             element_tag="image",

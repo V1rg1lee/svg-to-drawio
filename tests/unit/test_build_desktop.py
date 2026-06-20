@@ -41,7 +41,7 @@ class BuildDesktopTests(unittest.TestCase):
             assets_dir.mkdir()
             bundle_icon = assets_dir / "app_bundle.icns"
             bundle_icon.write_bytes(b"icns")
-            (assets_dir / "dmg_volume.icns").write_bytes(b"dmg")
+            (assets_dir / "VolumeIcon.icns").write_bytes(b"dmg")
 
             resolved = build_desktop._resolve_macos_app_icon_path(assets_dir, build_root)
 

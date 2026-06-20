@@ -66,3 +66,12 @@ Use that archive only if you want artifact-by-artifact verification instead of t
 - AppImages can also carry an embedded GPG signature when signing is enabled in the release workflow.
 - These checks improve provenance and integrity verification, but they do not replace Windows Authenticode / SmartScreen trust or macOS notarization.
 - `.deb`, `.rpm`, and `.flatpak` are published as standalone release files here, not through a full package repository or app store.
+
+## Windows SmartScreen and macOS Gatekeeper warnings
+
+The Windows installer/executable is **not** Authenticode-signed, and the macOS app is **not** notarized by Apple. This is a deliberate trade-off, not an oversight: code-signing certificates and Apple Developer Program membership both cost money on an ongoing basis, which this single-maintainer, donation-free project does not currently have. The [Sigstore/GPG verification flow](#release-verification) above is offered as a free, OS-independent alternative, but it does not suppress OS-level warnings.
+
+Expect to see, and have to dismiss, the following on a first run:
+
+- **Windows:** SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**. This appears because the binary is unsigned, not because it was flagged as malware. Sometimes Windows Defender will also show a warning, you have to open Windows Security in the page "App & browser control → Intelligent App Control" and choose **Off** to allow the app to run. You can turn this back on after the run.
+- **macOS:** Gatekeeper reports the app is "damaged" or "cannot be opened because the developer cannot be verified". Right-click (or Control-click) the app and choose **Open**, then confirm in the dialog. On recent macOS versions you may instead need **System Settings → Privacy & Security → Open Anyway**.

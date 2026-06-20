@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from .defs import DefsIndex
@@ -12,7 +12,24 @@ from .drawio_model import Cell
 from .rendering_options import RenderingOptions
 
 if TYPE_CHECKING:
-    from .css import CssRule
+    from .css import CssRule, CssRuleIndex
+
+
+@dataclass(frozen=True)
+class TraversalMode:
+    """Conversion-pass switches that always change together as one unit.
+
+    `allow_fallback`, `record_issues`, and `enforce_max_elements` are all turned off
+    together for the lightweight bounds-estimation pass (re-emitting a subtree into a
+    throwaway context just to measure it, with no side effects), and all on for normal
+    emission - there is no combination in between. Grouping them here avoids threading
+    three separate boolean parameters through every recursive `_convert`/`_convert_group`/
+    `_resolve_use` call.
+    """
+
+    allow_fallback: bool = True
+    record_issues: bool = True
+    enforce_max_elements: bool = True
 
 
 @dataclass(frozen=True)
@@ -34,6 +51,8 @@ class EmitterContext:
     rendering_options: RenderingOptions
     add_cell: Callable[[Cell], None]
     next_id_callback: Callable[[], str]
+    rule_index: CssRuleIndex | None = field(default=None)
+    mode: TraversalMode = field(default_factory=TraversalMode)
 
     def add(self, cell: Cell) -> None:
         """Append a generated draw.io cell to the output document."""
@@ -50,3 +69,7 @@ class EmitterContext:
     def with_link(self, link_url: str) -> EmitterContext:
         """Return a copy of the context scoped to a different active link URL."""
         return replace(self, link_url=link_url)
+
+    def with_mode(self, mode: TraversalMode) -> EmitterContext:
+        """Return a copy of the context using a different traversal mode."""
+        return replace(self, mode=mode)

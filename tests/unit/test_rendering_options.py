@@ -125,6 +125,50 @@ class RenderingOptionsTests(SvgTestCase):
         self.assertEqual(report.fallback_count, 0)
         self.assertIn("filter-ignored-for-editability", {issue.code for issue in report.issues})
 
+    def test_subtree_bounds_estimation_is_cached_for_repeated_policy_notes_on_one_element(self) -> None:
+        # A single element with both an ignored filter and a reduced gradient triggers two
+        # separate policy-note annotations in _record_policy_notes, each of which previously
+        # re-ran a full flatten-mode emit-and-discard pass just to estimate the same bbox.
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="180" height="120">
+          <defs>
+            <filter id="blur"><feGaussianBlur stdDeviation="8" /></filter>
+            <radialGradient id="multi">
+              <stop offset="0%" stop-color="#e53935" />
+              <stop offset="35%" stop-color="#fb8c00" />
+              <stop offset="70%" stop-color="#fdd835" />
+              <stop offset="100%" stop-color="#1e88e5" />
+            </radialGradient>
+          </defs>
+          <path
+            d="M 20 70 C 30 20 85 10 110 40 C 135 15 165 35 155 72 C 145 102 90 110 60 95 C 35 88 16 88 20 70 Z"
+            fill="url(#multi)"
+            filter="url(#blur)"
+            stroke="#263238"
+            stroke-width="2"
+          />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "double-policy-note.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+
+            converter = Converter()
+            with patch.object(
+                Converter, "_compute_subtree_bounds", wraps=converter._compute_subtree_bounds, autospec=False
+            ) as compute_spy:
+                converter.convert_to_string(
+                    svg_path,
+                    rendering_options=RenderingOptions(filter_policy="prefer-native", gradient_policy="prefer-native"),
+                )
+            report = converter.get_report()
+
+        issue_codes = {issue.code for issue in report.issues}
+        self.assertIn("filter-ignored-for-editability", issue_codes)
+        self.assertIn("multi-stop-gradient-reduced", issue_codes)
+        self.assertEqual(compute_spy.call_count, 1)
+
     def test_light_blur_filter_uses_svg_fallback_in_auto_mode(self) -> None:
         svg = """
         <svg xmlns="http://www.w3.org/2000/svg" width="120" height="80">

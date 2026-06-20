@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.9.0] - 2026-06-20
+
+### Added
+
+- macOS DMG releases now include a custom Finder background, arranged application and `/Applications` icons, a dedicated mounted-volume icon, and a custom icon for the `.dmg` file itself.
+- The desktop app can now cancel an active conversion with the Escape key and generates its equivalent CLI command through a dedicated, testable command builder.
+- CI now detects whether desktop-related files changed before running the expensive cross-platform desktop packaging jobs.
+- Diagnostic issue codes are now centralized, with additional regression coverage for converter state isolation, CSS indexing, malformed paths, rendering caches, CLI validation, desktop conversion, and DMG packaging.
+
+### Changed
+
+- CSS rules are indexed before style application, reducing repeated selector scans while preserving the existing cascade behavior.
+- Converter internals were reorganized to reduce duplicated rendering-policy logic and improve repeated bounds and compatibility calculations.
+- `--require-native` now accepts comma-separated capability names or repeated flags without accidentally consuming the input SVG path.
+- Desktop preview rendering now follows the selected text metrics policy more consistently.
+- Development tools are pinned to the same Ruff and mypy versions used by pre-commit, while desktop dependencies now use bounded major-version ranges.
+
+### Fixed
+
+- `--stdout` now rejects incompatible analysis, watch, report, and quality-gate options instead of silently ignoring them.
+- Non-interactive CLI execution without an input path now exits with a clear error instead of attempting to prompt.
+- The CLI now explains when `--workers` is ignored in sequential analysis or watch modes.
+- Forced desktop shutdown now gives cooperative cancellation a short opportunity to finish, reducing the risk of truncated output files.
+- macOS DMG styling failures now degrade gracefully with explicit warnings, use the actual mount point instead of an assumed volume name, verify Finder metadata, and retry detachment while Finder flushes `.DS_Store`.
+
 ## [3.8.1] - 2026-06-20
 
 ### Changed
