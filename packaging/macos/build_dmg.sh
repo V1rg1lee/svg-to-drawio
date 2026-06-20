@@ -33,6 +33,7 @@ read_write_dmg="$work_root/svg-to-drawio-rw.dmg"
 mount_dir="$work_root/mount"
 mounted_volume=""
 mounted_device=""
+mounted_partition=""
 
 cleanup() {
     local exit_status=$?
@@ -75,6 +76,7 @@ detach_with_retry() {
         if hdiutil detach "$detach_target" -quiet >/dev/null 2>&1; then
             mounted_volume=""
             mounted_device=""
+            mounted_partition=""
             return 0
         fi
 
@@ -88,6 +90,7 @@ detach_with_retry() {
     if hdiutil detach -force "$detach_target" -quiet >/dev/null 2>&1; then
         mounted_volume=""
         mounted_device=""
+        mounted_partition=""
         return 0
     fi
 
@@ -158,18 +161,21 @@ if [[ -f "$DMG_BACKGROUND_PATH" || -f "$DMG_ICON_PATH" ]]; then
         echo "Warning: unable to mount the writable DMG; volume customization was skipped." >&2
     else
         mounted_volume="$mount_dir"
-        mounted_device="$(
+        mounted_partition="$(
             printf '%s\n' "$attach_output" \
                 | awk -v mount_point="$mount_dir" '$NF == mount_point && $1 ~ /^\/dev\// { print $1; exit }'
         )"
+        if [[ -n "$mounted_partition" ]]; then
+            mounted_device="$(printf '%s\n' "$mounted_partition" | sed -E 's/s[0-9]+$//')"
+        fi
         if [[ -z "$mounted_device" ]]; then
             mounted_device="$(
                 printf '%s\n' "$attach_output" \
-                    | awk '$1 ~ /^\/dev\// { device = $1 } END { print device }'
+                    | awk '$1 ~ /^\/dev\/disk[0-9]+$/ { device = $1 } END { print device }'
             )"
         fi
         if [[ -n "$mounted_device" ]]; then
-            echo "Mounted writable DMG as $mounted_device at $mounted_volume"
+            echo "Mounted writable DMG as ${mounted_partition:-unknown partition} on $mounted_device at $mounted_volume"
         else
             echo "Warning: unable to identify the mounted DMG device; detach will use the mount point." >&2
         fi
@@ -252,6 +258,10 @@ APPLESCRIPT
         fi
 
         sync
+        if [[ -f "$DMG_ICON_PATH" && ! -s "$mount_dir/.VolumeIcon.icns" ]]; then
+            echo "The writable DMG lost .VolumeIcon.icns before detachment." >&2
+            exit 1
+        fi
         sleep 2
         detach_with_retry "${mounted_device:-$mounted_volume}"
     fi

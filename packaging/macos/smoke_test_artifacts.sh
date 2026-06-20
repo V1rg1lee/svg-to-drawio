@@ -44,5 +44,7 @@ fi
 
 if [[ -f "$DMG_ICON_SOURCE" && ! -s "$mount_point/.VolumeIcon.icns" ]]; then
     echo "The packaged DMG is missing its mounted-volume icon." >&2
+    echo "Mounted DMG root contents:" >&2
+    ls -laO "$mount_point" >&2
     exit 1
 fi
