@@ -68,6 +68,24 @@ def _resolve_macos_target_arch(target_arch: str) -> str | None:
     return "universal2"
 
 
+def _resolve_macos_app_icon_path(assets_dir: Path, build_root: Path) -> Path | None:
+    """Return the macOS app bundle icon path, generating one from PNG when needed."""
+    icns_path = assets_dir / "app_bundle.icns"
+    if icns_path.is_file():
+        return icns_path
+
+    png_path = assets_dir / "app_logo_256x256.png"
+    if png_path.is_file():
+        build_root.mkdir(parents=True, exist_ok=True)
+        generated = build_root / "app_logo.icns"
+        if _generate_icns(png_path, generated):
+            print(f"[build] Generated {generated}")
+            return generated
+        print("[build] Warning: could not generate .icns - app will use default icon.")
+
+    return None
+
+
 def _resolve_path(project_root: Path, raw_path: str) -> Path:
     """Resolve an absolute or repository-relative path."""
     path = Path(raw_path).expanduser()
@@ -153,20 +171,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.extend(["--icon", str(ico_path)])
 
     elif sys.platform == "darwin":
-        # macOS: .icns required.  Prefer a pre-built file; generate from PNG if absent.
-        icns_path = assets_dir / "app_logo.icns"
-        if not icns_path.is_file():
-            png_path = assets_dir / "app_logo_256x256.png"
-            if png_path.is_file():
-                build_root.mkdir(parents=True, exist_ok=True)
-                generated = build_root / "app_logo.icns"
-                if _generate_icns(png_path, generated):
-                    icns_path = generated
-                    print(f"[build] Generated {icns_path}")
-                else:
-                    print("[build] Warning: could not generate .icns - app will use default icon.")
-                    icns_path = None
-        if icns_path and icns_path.is_file():
+        # macOS: .icns required. Keep the app bundle icon separate from any DMG volume icon.
+        icns_path = _resolve_macos_app_icon_path(assets_dir, build_root)
+        if icns_path is not None and icns_path.is_file():
             args.extend(["--icon", str(icns_path)])
         args.extend(["--osx-bundle-identifier", "io.github.v1rg1lee.svg-to-drawio"])
         if macos_target_arch is not None:
