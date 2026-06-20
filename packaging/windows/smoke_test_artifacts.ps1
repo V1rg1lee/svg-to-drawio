@@ -28,28 +28,23 @@ function Invoke-SmokeTestExecutable {
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $releaseDir = Join-Path $repoRoot "dist\release"
-$zipPath = Join-Path $releaseDir "svg-to-drawio-$Version-windows-$PackageArchitecture.zip"
+$portableExePath = Join-Path $releaseDir "svg-to-drawio-$Version-windows-$PackageArchitecture.exe"
 $setupPath = Join-Path $releaseDir "svg-to-drawio-$Version-windows-$PackageArchitecture-setup.exe"
 
-if (-not (Test-Path $zipPath)) {
-    throw "Windows ZIP artifact not found: $zipPath"
+if (-not (Test-Path $portableExePath)) {
+    throw "Windows portable executable artifact not found: $portableExePath"
 }
 if (-not (Test-Path $setupPath)) {
     throw "Windows setup artifact not found: $setupPath"
 }
 
-$extractRoot = Join-Path $env:RUNNER_TEMP "svg-to-drawio-zip-$PackageArchitecture"
 $installRoot = Join-Path $env:RUNNER_TEMP "svg-to-drawio-installed-$PackageArchitecture"
 
-if (Test-Path $extractRoot) {
-    Remove-Item -LiteralPath $extractRoot -Recurse -Force
-}
 if (Test-Path $installRoot) {
     Remove-Item -LiteralPath $installRoot -Recurse -Force
 }
 
-Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
-Invoke-SmokeTestExecutable -ExecutablePath (Join-Path $extractRoot "svg-to-drawio.exe")
+Invoke-SmokeTestExecutable -ExecutablePath $portableExePath
 
 $installer = Start-Process `
     -FilePath $setupPath `

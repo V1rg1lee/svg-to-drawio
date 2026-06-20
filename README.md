@@ -79,21 +79,21 @@ For anyone who would rather drag, drop, and click than type commands. The deskto
 
 Download a release artifact from the [Releases page](https://github.com/V1rg1lee/svg-to-drawio/releases):
 
-- Windows: `x64` and `ARM64` builds, each available as a `Setup.exe` installer or a plain `.zip`
+- Windows: `x64` and `ARM64` builds, each available as a `Setup.exe` installer or a direct portable `.exe`
 - Linux: `x64` and `ARM64` builds across `.deb`, `.rpm`, `.flatpak`, portable `.AppImage`, and plain `.tar.gz`
-- macOS: `.zip` archive of the app bundle
+- macOS: universal2 `.dmg` disk image for Apple Silicon and Intel Macs
 
 | Platform | Architecture | Recommended download | Other available formats |
 |---|---|---|---|
-| Windows | `x64` | `windows-x64-setup.exe` | `windows-x64.zip` |
-| Windows | `ARM64` | `windows-arm64-setup.exe` | `windows-arm64.zip` |
+| Windows | `x64` | `windows-x64-setup.exe` | `windows-x64.exe` |
+| Windows | `ARM64` | `windows-arm64-setup.exe` | `windows-arm64.exe` |
 | Linux (Debian / Ubuntu family) | `x64` | `linux-amd64.deb` | `linux-x86_64.flatpak`, `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (Debian / Ubuntu family) | `ARM64` | `linux-arm64.deb` | `linux-aarch64.flatpak`, `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | Linux (Fedora / openSUSE / RHEL-like) | `x64` | `linux-x86_64.rpm` | `linux-x86_64.flatpak`, `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (Fedora / openSUSE / RHEL-like) | `ARM64` | `linux-aarch64.rpm` | `linux-aarch64.flatpak`, `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | Linux (cross-distro) | `x64` | `linux-x86_64.flatpak` | `linux-x64.AppImage`, `linux-x64.tar.gz` |
 | Linux (cross-distro) | `ARM64` | `linux-aarch64.flatpak` | `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
-| macOS | bundled app archive | `macos.zip` | none |
+| macOS | `universal2` | `macos.dmg` | none |
 
 Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
@@ -450,9 +450,9 @@ This produces:
 
 - `dist/desktop/svg-to-drawio.exe` on Windows
 - `dist/desktop/svg-to-drawio` on Linux
-- `dist/desktop/svg-to-drawio.app` on macOS
+- `dist/desktop/SVG to draw.io.app` on macOS
 
-On Windows, the plain `.zip` archive keeps this default portable `onefile` build. The `Setup.exe` installer uses a separate `onedir` bundle so the installed app starts faster once deployed.
+On Windows, the portable release asset is the default `onefile` executable directly. The `Setup.exe` installer uses a separate `onedir` bundle so the installed app starts faster once deployed.
 
 Extra packaging layers are built on top of that base bundle:
 
@@ -461,7 +461,7 @@ Extra packaging layers are built on top of that base bundle:
 - Linux RPM package: `packaging/linux/build_rpm_in_fedora_container.sh` + `packaging/linux/build_rpm.sh`
 - Linux Flatpak bundle: `packaging/linux/build_flatpak.sh`
 - Linux AppImage: `packaging/linux/build_appimage.sh`
-- macOS: archive only for now
+- macOS DMG: `packaging/macos/build_dmg.sh`
 
 **Windows installer**
 
@@ -649,6 +649,24 @@ The recommended Linux download depends on the distro:
 - Use `.flatpak` when you want the same install flow across many different distros
 - Use `.AppImage` when you prefer a portable single-file app
 - Use `.tar.gz` only if you specifically want the raw bundle
+
+**macOS DMG**
+
+Build the base app bundle first, then wrap it in a disk image:
+
+```bash
+python -m pip install -r requirements-desktop.txt
+python build_desktop.py
+VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
+bash packaging/macos/build_dmg.sh \
+  "dist/desktop/SVG to draw.io.app" \
+  "$VERSION" \
+  "dist/release/svg-to-drawio-${VERSION}-macos.dmg"
+```
+
+This produces a universal2 macOS app bundle wrapped in a DMG:
+
+- `dist/release/svg-to-drawio-<version>-macos.dmg`
 
 Release assets now spell out the CPU family in the filename as well, for example `windows-x64`, `windows-arm64`, `linux-amd64`, `linux-arm64`, `linux-x86_64`, or `linux-aarch64` depending on the native package format.
 
