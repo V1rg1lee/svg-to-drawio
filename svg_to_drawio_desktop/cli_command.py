@@ -32,6 +32,11 @@ class CliCommandOptions:
     workers: int
     preset: str
     rendering_options: RenderingOptions
+    merge: str | None = None
+    merge_output: str | None = None
+    grid_columns: int | None = None
+    legend: bool = False
+    background_color: str | None = None
 
 
 def build_equivalent_cli_command(options: CliCommandOptions) -> str:
@@ -54,6 +59,16 @@ def build_equivalent_cli_command(options: CliCommandOptions) -> str:
         args.extend(["--max-elements", str(options.max_elements)])
     if options.workers > 1 and not options.watch:
         args.extend(["--workers", str(options.workers)])
+    if options.merge:
+        args.extend(["--merge", options.merge])
+        if options.merge_output:
+            args.extend(["--merge-output", quote_cli_arg(options.merge_output)])
+        if options.grid_columns is not None:
+            args.extend(["--grid-columns", str(options.grid_columns)])
+    if options.legend:
+        args.append("--legend")
+    if options.background_color:
+        args.extend(["--background-color", quote_cli_arg(options.background_color)])
 
     rendering_options = options.rendering_options
     if options.preset not in {"custom", "balanced"}:

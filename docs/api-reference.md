@@ -13,6 +13,7 @@ Auto-generated from the docstrings in `svg_to_drawio`. See [Python API](python-a
 ::: svg_to_drawio.convert_svg_string_result
 ::: svg_to_drawio.convert_svg_bytes_result
 ::: svg_to_drawio.analyze_file
+::: svg_to_drawio.merge_files
 
 ## Conversion result
 
@@ -48,6 +49,10 @@ Auto-generated from the docstrings in `svg_to_drawio`. See [Python API](python-a
 ::: svg_to_drawio.ConversionOptions
 ::: svg_to_drawio.ConversionSummary
 ::: svg_to_drawio.CancellationToken
+
+## Post-processing
+
+::: svg_to_drawio.PostProcessOptions
 
 ## Diagnostics and compatibility
 

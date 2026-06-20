@@ -19,11 +19,13 @@ from .conversion_service import (
     ConversionOptions,
     ConversionService,
     ConversionSummary,
+    resolve_merge_output_path,
     resolve_watch_backend,
 )
 from .converter import Converter
 from .diagnostics import ConversionReport
 from .issue_codes import ANALYSIS_FAILED
+from .post_process import PostProcessOptions
 from .quality_gates import QualityGateOptions, evaluate_quality_gates, validate_required_capabilities
 from .rendering_options import (
     RenderingOptions,
@@ -129,6 +131,11 @@ def run(
     require_native: Sequence[str] = (),
     workers: int = 1,
     watch_backend: str = "auto",
+    merge: str | None = None,
+    merge_output: str | PathLike[str] | None = None,
+    grid_columns: int | None = None,
+    legend: bool = False,
+    background_color: str | None = None,
 ) -> int:
     """Run the conversion CLI logic and return an exit code (0 = success, 1 = error)."""
     if input_path is None:
@@ -170,6 +177,9 @@ def run(
         min_score=min_score,
         require_native=required_native,
     )
+    post_process = (
+        PostProcessOptions(legend=legend, background=background_color) if (legend or background_color) else None
+    )
 
     if stdout:
         conflicting_flags = []
@@ -177,6 +187,8 @@ def run(
             conflicting_flags.append("--analyze")
         if watch:
             conflicting_flags.append("--watch")
+        if merge is not None:
+            conflicting_flags.append("--merge")
         if report_json is not None:
             conflicting_flags.append("--report-json")
         if quality_options.fail_on_warning:
@@ -206,6 +218,7 @@ def run(
                 flatten=flatten,
                 max_elements=max_elements,
                 rendering_options=rendering_options,
+                post_process=post_process,
             )
         except Exception as exc:
             print(f'Error: failed to convert "{resolved_inputs[0]}": {exc}', file=sys.stderr)
@@ -220,6 +233,7 @@ def run(
         flatten=flatten,
         max_elements=max_elements,
         use_cache=use_cache,
+        post_process=post_process,
         rendering=rendering_options,
     )
 
@@ -249,6 +263,63 @@ def run(
         with open(target, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
         print(f"Report written to: {target}")
+
+    def emit_progress(event: ConversionEvent) -> None:
+        if event.kind in {
+            ConversionEventKind.CONVERTED,
+            ConversionEventKind.SKIPPED,
+            ConversionEventKind.FAILED,
+            ConversionEventKind.CANCELLED,
+        }:
+            print(event.message)
+            if event.report and event.report.issues:
+                print(f"  Diagnostics: {event.report.short_status()}")
+            if event.report and event.kind in {ConversionEventKind.CONVERTED, ConversionEventKind.SKIPPED}:
+                _print_compatibility(event.report, show_all_rows=False)
+
+    if merge is not None:
+        conflicting_flags = []
+        if analyze:
+            conflicting_flags.append("--analyze")
+        if watch:
+            conflicting_flags.append("--watch")
+        if conflicting_flags:
+            print(
+                "Error: --merge cannot be combined with "
+                + ", ".join(conflicting_flags)
+                + " (merge mode writes one combined file from the whole batch).",
+                file=sys.stderr,
+            )
+            return 1
+        if merge_output is None:
+            print("Error: --merge requires --merge-output PATH.", file=sys.stderr)
+            return 1
+        if workers > 1:
+            print("Note: --workers is ignored in --merge mode; files are converted sequentially.", file=sys.stderr)
+
+        resolved_merge_output = resolve_merge_output_path(merge_output, output_dir=resolved_output_dir)
+        service = ConversionService()
+        _print_rendering_selection(rendering_options)
+        print(f"Merging into one {merge}-mode .drawio file: {resolved_merge_output}")
+        summary = service.merge(
+            resolved_inputs,
+            options,
+            mode=cast(Literal["pages", "grid"], merge),
+            output_path=resolved_merge_output,
+            columns=grid_columns,
+            reporter=emit_progress,
+        )
+        write_report(batch_payload("merge", summary.reports, summary))
+        if summary.total == 0:
+            print("No SVG files found.")
+            return 0
+
+        print(summary.to_status_line())
+        print(f"Merged output written to: {resolved_merge_output}")
+        violations = evaluate_quality_gates(summary.reports, quality_options)
+        for violation in violations:
+            print(f"QUALITY GATE: {violation.message}")
+        return 1 if summary.failed or violations else 0
 
     if analyze:
         if workers > 1:
@@ -294,19 +365,6 @@ def run(
             print(f"QUALITY GATE: {violation.message}")
         write_report(batch_payload("analyze", reports))
         return 1 if failures or violations else 0
-
-    def emit_progress(event: ConversionEvent) -> None:
-        if event.kind in {
-            ConversionEventKind.CONVERTED,
-            ConversionEventKind.SKIPPED,
-            ConversionEventKind.FAILED,
-            ConversionEventKind.CANCELLED,
-        }:
-            print(event.message)
-            if event.report and event.report.issues:
-                print(f"  Diagnostics: {event.report.short_status()}")
-            if event.report and event.kind in {ConversionEventKind.CONVERTED, ConversionEventKind.SKIPPED}:
-                _print_compatibility(event.report, show_all_rows=False)
 
     if watch:
         from .conversion_service import watch_svg_files
@@ -436,6 +494,39 @@ def build_parser() -> argparse.ArgumentParser:
             f"multiple keys or repeat the flag. Valid keys: {', '.join(capability_keys())}"
         ),
     )
+    parser.add_argument(
+        "--merge",
+        choices=("pages", "grid"),
+        default=None,
+        help="Combine every input SVG into one .drawio file: one page per SVG, or a labeled tile grid",
+    )
+    parser.add_argument(
+        "--merge-output",
+        metavar="PATH",
+        help=(
+            "Path of the combined .drawio file written by --merge (required with --merge). "
+            "A relative path is resolved against --output-dir (or the current directory); "
+            "the .drawio extension is added automatically if missing."
+        ),
+    )
+    parser.add_argument(
+        "--grid-columns",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="Number of columns in the --merge grid layout (default: auto, roughly square)",
+    )
+    parser.add_argument(
+        "--legend",
+        action="store_true",
+        help="Add a 'Notes' layer summarizing the conversion report to the output",
+    )
+    parser.add_argument(
+        "--background-color",
+        metavar="VALUE",
+        default=None,
+        help="Set the draw.io page background color (e.g. #FFFFFF)",
+    )
     parser.set_defaults(use_cache=True)
     return parser
 
@@ -475,6 +566,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_native=require_native,
         workers=args.workers,
         watch_backend=args.watch_backend,
+        merge=args.merge,
+        merge_output=args.merge_output,
+        grid_columns=args.grid_columns,
+        legend=args.legend,
+        background_color=args.background_color,
     )
 
 

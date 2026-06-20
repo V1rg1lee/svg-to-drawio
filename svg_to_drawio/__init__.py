@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
-from os import PathLike
+from collections.abc import Sequence
+from os import PathLike, fspath, path
 
 __version__ = "3.9.1"
 
 from .capabilities import all_capabilities, capability_descriptor, capability_keys, rendering_preflight_lines
 from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
 from .conversion_result import ConversionResult
-from .conversion_service import CancellationToken, ConversionOptions, ConversionService, ConversionSummary
+from .conversion_service import (
+    CancellationToken,
+    ConversionOptions,
+    ConversionService,
+    ConversionSummary,
+    MergeMode,
+    resolve_merge_output_path,
+)
 from .converter import Converter
 from .diagnostics import REPORT_SCHEMA_VERSION, ConversionReport
+from .post_process import PostProcessOptions
 from .quality_gates import QualityGateOptions, QualityGateViolation, evaluate_quality_gates
 from .rendering_options import (
     RenderingOptions,
@@ -28,6 +37,7 @@ def convert_file(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> str:
     """Convert a single SVG file into a `.drawio` file and return the output path."""
     return Converter().convert_file(
@@ -36,6 +46,7 @@ def convert_file(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
     )
 
 
@@ -45,6 +56,7 @@ def convert_to_string(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> str:
     """Convert a single SVG file into draw.io XML and return the result as a string."""
     return Converter().convert_to_string(
@@ -52,6 +64,7 @@ def convert_to_string(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
     )
 
 
@@ -64,6 +77,7 @@ def convert_svg_string(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> str:
     """Convert SVG markup already loaded in memory into draw.io XML."""
     return (
@@ -76,6 +90,7 @@ def convert_svg_string(
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
+            post_process=post_process,
         )
         .xml
     )
@@ -90,6 +105,7 @@ def convert_svg_bytes(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> str:
     """Convert SVG bytes already loaded in memory into draw.io XML."""
     return (
@@ -102,6 +118,7 @@ def convert_svg_bytes(
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
+            post_process=post_process,
         )
         .xml
     )
@@ -114,6 +131,7 @@ def convert_file_result(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> ConversionResult:
     """Convert a single SVG file and return a rich conversion result."""
     return Converter().convert_file_result(
@@ -122,6 +140,7 @@ def convert_file_result(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
     )
 
 
@@ -131,6 +150,7 @@ def convert_to_string_result(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> ConversionResult:
     """Convert a single SVG file to XML and return a rich conversion result."""
     return Converter().convert_to_string_result(
@@ -138,6 +158,7 @@ def convert_to_string_result(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
     )
 
 
@@ -150,6 +171,7 @@ def convert_svg_string_result(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> ConversionResult:
     """Convert SVG markup already loaded in memory and return a rich conversion result."""
     return Converter().convert_svg_string_result(
@@ -160,6 +182,7 @@ def convert_svg_string_result(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
     )
 
 
@@ -172,6 +195,7 @@ def convert_svg_bytes_result(
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
 ) -> ConversionResult:
     """Convert SVG bytes already loaded in memory and return a rich conversion result."""
     return Converter().convert_svg_bytes_result(
@@ -182,6 +206,44 @@ def convert_svg_bytes_result(
         flatten=flatten,
         max_elements=max_elements,
         rendering_options=rendering_options,
+        post_process=post_process,
+    )
+
+
+def merge_files(
+    input_paths: Sequence[str | PathLike[str]],
+    output_path: str | PathLike[str],
+    *,
+    mode: MergeMode = "pages",
+    columns: int | None = None,
+    output_dir: str | PathLike[str] | None = None,
+    recursive: bool = False,
+    flatten: bool = False,
+    max_elements: int | None = None,
+    rendering_options: RenderingOptions | None = None,
+    post_process: PostProcessOptions | None = None,
+) -> ConversionSummary:
+    """Combine every SVG found in `input_paths` into one merged `.drawio` file.
+
+    `output_path` is resolved the same way the CLI's `--merge-output` is: a relative value
+    (or bare filename) is placed inside `output_dir` when given, the `.drawio` extension is
+    appended automatically if missing, and an absolute path is used as-is.
+    """
+    resolved_output_dir = path.abspath(fspath(output_dir)) if output_dir is not None else None
+    resolved_output_path = resolve_merge_output_path(output_path, output_dir=resolved_output_dir)
+    options = ConversionOptions(
+        recursive=recursive,
+        flatten=flatten,
+        max_elements=max_elements,
+        rendering=rendering_options or RenderingOptions(),
+        post_process=post_process,
+    )
+    return ConversionService().merge(
+        input_paths,
+        options,
+        mode=mode,
+        output_path=resolved_output_path,
+        columns=columns,
     )
 
 
@@ -216,6 +278,7 @@ __all__ = [
     "ConversionSummary",
     "Converter",
     "FeatureObservation",
+    "PostProcessOptions",
     "RenderingOptions",
     "all_capabilities",
     "analyze_file",
@@ -231,6 +294,7 @@ __all__ = [
     "convert_svg_string_result",
     "detect_rendering_preset",
     "evaluate_quality_gates",
+    "merge_files",
     "rendering_preflight_lines",
     "rendering_preset_label",
     "rendering_preset_options",

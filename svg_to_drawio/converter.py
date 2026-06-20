@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
 import warnings
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from os import PathLike, fspath, path
 from xml.etree.ElementTree import Element
 
+from .atomic_write import write_text_atomically
 from .cell_factory import make_bounds_vertex, make_layer_cell
 from .compatibility import note_reference_usage
 from .conversion_result import ConversionResult
@@ -42,6 +41,7 @@ from .issue_codes import (
     PATTERN_FALLBACK,
     USE_CYCLE_DETECTED,
 )
+from .post_process import PostProcessOptions, apply_post_process
 from .rendering_options import RenderingOptions, normalize_filter_ref
 from .simple_clipping import bounds_contains, local_shape_bounds, simple_clip_candidate, simple_mask_candidate
 from .simple_patterns import emit_simple_pattern_fill
@@ -117,27 +117,6 @@ def _inkscape_layer_label(elem: Element) -> str | None:
     return None
 
 
-def _write_output_atomically(output_path: str, xml: str) -> None:
-    """Write *xml* to *output_path* via a temp file + atomic rename.
-
-    Writing in place left a truncated `.drawio` file on disk if the process was
-    killed mid-write (e.g. the desktop app's force-close path), which a later
-    run's cache/overwrite logic could then mistake for a valid prior output.
-    """
-    output_dir = path.dirname(output_path) or "."
-    fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix=".svg-to-drawio-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(xml)
-        os.replace(tmp_path, output_path)
-    except BaseException:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
 class Converter:
     """Convert SVG files into draw.io XML by walking the SVG element tree."""
 
@@ -158,6 +137,7 @@ class Converter:
         self._element_count: int = 0
         self._flatten: bool = False
         self._max_elements: int | None = None
+        self._post_process: PostProcessOptions | None = None
         self._root: Element | None = None
         self._root_matrix: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
         self.rendering_options = RenderingOptions()
@@ -208,15 +188,26 @@ class Converter:
         self._custom_props = extract_custom_props(self.css_rules)
         self._root_matrix = viewbox_transform(root)
 
-    def _convert_root(self, root: Element, title: str, *, source_path: str | None, base_dir: str | None = None) -> str:
-        """Convert a parsed SVG root element into draw.io XML."""
+    def _convert_root_cells(self, root: Element, *, source_path: str | None, base_dir: str | None = None) -> None:
+        """Convert a parsed SVG root element into `self.cells`, without serializing to XML."""
         self._prepare_root(root, source_path=source_path, base_dir=base_dir)
         context = self._make_context()
         for child in root:
             self._convert(child, context, self._root_matrix, {}, ancestors=[])
-        xml = make_xml(self.cells, title)
         self.report.emitted_cells = len(self.cells)
-        return xml
+
+    def _finalize_cells(self, title: str) -> str:
+        """Apply any configured post-processing, then serialize `self.cells` into draw.io XML."""
+        cells = self.cells
+        background = self._post_process.background if self._post_process else None
+        if self._post_process is not None:
+            cells = apply_post_process(cells, self.report, options=self._post_process, title=title)
+        return make_xml(cells, title, background=background)
+
+    def _convert_root(self, root: Element, title: str, *, source_path: str | None, base_dir: str | None = None) -> str:
+        """Convert a parsed SVG root element into draw.io XML."""
+        self._convert_root_cells(root, source_path=source_path, base_dir=base_dir)
+        return self._finalize_cells(title)
 
     def _parse_and_convert(self, svg_path_str: str, title: str) -> str:
         """Parse an SVG file and return the draw.io XML as a string."""
@@ -236,6 +227,7 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> str:
         """Convert one SVG file into a `.drawio` file and return the output path."""
         return (
@@ -245,6 +237,7 @@ class Converter:
                 flatten=flatten,
                 max_elements=max_elements,
                 rendering_options=rendering_options,
+                post_process=post_process,
             ).output_path
             or ""
         )
@@ -257,18 +250,20 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert one SVG file, write it to disk, and return a rich conversion result."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
+        self._post_process = post_process
         self.rendering_options = rendering_options or RenderingOptions()
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
         xml = self._parse_and_convert(svg_path_str, title)
         output_path = fspath(out_path) if out_path is not None else path.splitext(svg_path_str)[0] + ".drawio"
-        _write_output_atomically(output_path, xml)
+        write_text_atomically(output_path, xml)
         self.report.output_path = output_path
         return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=output_path)
 
@@ -279,6 +274,7 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> str:
         """Convert one SVG file and return the draw.io XML as a string."""
         return self.convert_to_string_result(
@@ -286,6 +282,7 @@ class Converter:
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
+            post_process=post_process,
         ).xml
 
     def convert_to_string_result(
@@ -295,8 +292,34 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert one SVG file and return a rich in-memory conversion result."""
+        self.reset()
+        self._flatten = flatten
+        self._max_elements = max_elements
+        self._post_process = post_process
+        self.rendering_options = rendering_options or RenderingOptions()
+
+        svg_path_str = fspath(svg_path)
+        title = path.splitext(path.basename(svg_path_str))[0]
+        xml = self._parse_and_convert(svg_path_str, title)
+        return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=None)
+
+    def convert_file_for_merge(
+        self,
+        svg_path: str | PathLike[str],
+        *,
+        flatten: bool = False,
+        max_elements: int | None = None,
+        rendering_options: RenderingOptions | None = None,
+    ) -> tuple[str, list[Cell], ConversionReport]:
+        """Parse one SVG file into raw draw.io cells, without serializing or writing output.
+
+        Used by `ConversionService.merge()`: the combined `.drawio` document is built from
+        several files' cells at once, so post-processing (legend/background) is applied once
+        on the final merged result instead of once per source file.
+        """
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -304,8 +327,9 @@ class Converter:
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
-        xml = self._parse_and_convert(svg_path_str, title)
-        return self._build_result(xml, source_path=path.abspath(svg_path_str), output_path=None)
+        tree = ET.parse(svg_path_str)
+        self._convert_root_cells(tree.getroot(), source_path=path.abspath(svg_path_str))
+        return title, list(self.cells), self.get_report()
 
     def convert_svg_string_result(
         self,
@@ -317,6 +341,7 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert SVG markup already loaded in memory and return a rich conversion result."""
         return self._convert_parsed_root_result(
@@ -327,6 +352,7 @@ class Converter:
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
+            post_process=post_process,
         )
 
     def convert_svg_bytes_result(
@@ -339,6 +365,7 @@ class Converter:
         flatten: bool = False,
         max_elements: int | None = None,
         rendering_options: RenderingOptions | None = None,
+        post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert SVG bytes already loaded in memory and return a rich conversion result.
 
@@ -355,6 +382,7 @@ class Converter:
             flatten=flatten,
             max_elements=max_elements,
             rendering_options=rendering_options,
+            post_process=post_process,
         )
 
     def _convert_parsed_root_result(
@@ -367,11 +395,13 @@ class Converter:
         flatten: bool,
         max_elements: int | None,
         rendering_options: RenderingOptions | None,
+        post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Shared in-memory conversion path for an already-parsed SVG root element."""
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
+        self._post_process = post_process
         self.rendering_options = rendering_options or RenderingOptions()
         memory_source = source_label or f"memory:{title}.svg"
         xml = self._convert_root(

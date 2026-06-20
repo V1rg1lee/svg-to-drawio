@@ -15,14 +15,20 @@ from threading import Event, Lock
 from typing import Any, Literal
 
 from . import __version__
+from .atomic_write import write_text_atomically
 from .conversion_cache import ConversionCache, default_manifest_path
 from .converter import Converter
 from .diagnostics import ConversionReport
+from .drawio_model import Cell
+from .drawio_output import make_xml
 from .issue_codes import CONVERSION_FAILED
+from .merge import MERGED_DIAGRAM_TITLE, build_grid_cells, merge_pages
+from .post_process import PostProcessOptions, apply_post_process
 from .rendering_options import RenderingOptions
 
 Reporter = Callable[["ConversionEvent"], None]
 WatchBackend = Literal["auto", "poll", "event"]
+MergeMode = Literal["pages", "grid"]
 
 
 class ConversionEventKind(StrEnum):
@@ -48,6 +54,7 @@ class ConversionOptions:
     max_elements: int | None = None
     use_cache: bool = True
     rendering: RenderingOptions = field(default_factory=RenderingOptions)
+    post_process: PostProcessOptions | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +195,21 @@ def build_output_path(
     return path.join(output_dir, rel_base)
 
 
+def resolve_merge_output_path(value: str | PathLike[str], *, output_dir: str | None = None) -> str:
+    """Resolve a `--merge-output` value into an absolute `.drawio` file path.
+
+    A relative value (e.g. a bare filename) is resolved against `output_dir` when one is
+    set, otherwise against the current working directory - the same fallback `build_output_path`
+    uses. A missing `.drawio` extension is appended automatically.
+    """
+    candidate = os.fspath(value).strip()
+    if not candidate.lower().endswith(".drawio"):
+        candidate += ".drawio"
+    if path.isabs(candidate):
+        return path.abspath(candidate)
+    return path.abspath(path.join(output_dir or ".", candidate))
+
+
 def _input_namespace(input_path: str) -> str:
     """Return a stable per-input namespace for multi-root output folders."""
     basename = path.basename(path.normpath(input_path))
@@ -243,6 +265,7 @@ class ConversionService:
             "flatten": options.flatten,
             "max_elements": options.max_elements,
             "rendering": options.rendering.to_dict(),
+            "post_process": options.post_process.to_dict() if options.post_process else None,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -370,6 +393,7 @@ class ConversionService:
                     flatten=options.flatten,
                     max_elements=options.max_elements,
                     rendering_options=options.rendering,
+                    post_process=options.post_process,
                 )
                 report = converter.get_report()
             except Exception as exc:  # pragma: no cover - intentionally user-facing
@@ -548,6 +572,7 @@ class ConversionService:
                     flatten=options.flatten,
                     max_elements=options.max_elements,
                     rendering_options=options.rendering,
+                    post_process=options.post_process,
                 )
                 report = result.report
                 if options.use_cache:
@@ -619,6 +644,141 @@ class ConversionService:
             ConversionEventKind.COMPLETED,
             summary.to_status_line(),
             completed=counts["done"],
+            total=total,
+            summary=summary,
+        )
+        return summary
+
+    def merge(
+        self,
+        input_paths: Sequence[str | PathLike[str]],
+        options: ConversionOptions,
+        *,
+        mode: MergeMode,
+        output_path: str | PathLike[str],
+        columns: int | None = None,
+        reporter: Reporter | None = None,
+    ) -> ConversionSummary:
+        """Convert every planned SVG into one merged `.drawio` file (multi-page or grid layout)."""
+        resolved_inputs = [path.abspath(os.fspath(item)) for item in input_paths]
+        svg_paths: list[str] = []
+        for resolved_input in resolved_inputs:
+            svg_paths.extend(iter_svg_files(resolved_input, recursive=options.recursive))
+        total = len(svg_paths)
+
+        self._report(
+            reporter,
+            ConversionEventKind.DISCOVERED,
+            "No SVG files found." if total == 0 else f"Found {total} SVG file(s) to merge.",
+            completed=0,
+            total=total,
+        )
+
+        if total == 0:
+            summary = ConversionSummary(total=0, converted=0, skipped=0, failed=0, reports=[])
+            self._report(
+                reporter,
+                ConversionEventKind.COMPLETED,
+                summary.to_status_line(),
+                completed=0,
+                total=0,
+                summary=summary,
+            )
+            return summary
+
+        named_cells: list[tuple[str, list[Cell]]] = []
+        successful_reports: list[ConversionReport] = []
+        reports: list[ConversionReport] = []
+        converted = 0
+        failed = 0
+
+        for index, svg_path in enumerate(svg_paths, start=1):
+            self._report(
+                reporter,
+                ConversionEventKind.STARTED,
+                f"[{index}/{total}] Converting: {svg_path}",
+                completed=index - 1,
+                total=total,
+                source_path=svg_path,
+            )
+            try:
+                converter = self._converter_factory()
+                title, cells, report = converter.convert_file_for_merge(
+                    svg_path,
+                    flatten=options.flatten,
+                    max_elements=options.max_elements,
+                    rendering_options=options.rendering,
+                )
+            except Exception as exc:  # pragma: no cover - intentionally user-facing
+                failed += 1
+                report = ConversionReport(source_path=svg_path)
+                report.add_issue(CONVERSION_FAILED, "error", f"Conversion failed: {exc}")
+                reports.append(report)
+                self._report(
+                    reporter,
+                    ConversionEventKind.FAILED,
+                    f"Failed: {svg_path}  ({exc})",
+                    completed=index,
+                    total=total,
+                    source_path=svg_path,
+                    error=str(exc),
+                    report=report,
+                )
+                continue
+
+            converted += 1
+            reports.append(report)
+            successful_reports.append(report)
+            named_cells.append((title, cells))
+            self._report(
+                reporter,
+                ConversionEventKind.CONVERTED,
+                f"Converted: {svg_path}",
+                completed=index,
+                total=total,
+                source_path=svg_path,
+                report=report,
+            )
+
+        output_path_str = path.abspath(os.fspath(output_path))
+        out_dir = path.dirname(output_path_str)
+        if out_dir and not path.isdir(out_dir):
+            makedirs(out_dir, exist_ok=True)
+
+        background = options.post_process.background if options.post_process else None
+        if mode == "pages":
+            if options.post_process is not None:
+                named_cells = [
+                    (title, apply_post_process(cells, report, options=options.post_process, title=title))
+                    for (title, cells), report in zip(named_cells, successful_reports)
+                ]
+            xml = merge_pages(named_cells, background=background)
+        else:
+            grid_cells = build_grid_cells(named_cells, columns=columns)
+            if options.post_process is not None:
+                summary_report = ConversionReport(
+                    fallback_count=sum(report.fallback_count for report in successful_reports),
+                    issues=[issue for report in successful_reports for issue in report.issues],
+                )
+                grid_cells = apply_post_process(
+                    grid_cells, summary_report, options=options.post_process, title=MERGED_DIAGRAM_TITLE
+                )
+            xml = make_xml(grid_cells, MERGED_DIAGRAM_TITLE, background=background)
+
+        write_text_atomically(output_path_str, xml)
+
+        summary = ConversionSummary(
+            total=total,
+            converted=converted,
+            skipped=0,
+            failed=failed,
+            reports=reports,
+        )
+        self._report(
+            reporter,
+            ConversionEventKind.COMPLETED,
+            summary.to_status_line(),
+            completed=converted + failed,
             total=total,
             summary=summary,
         )

@@ -50,7 +50,7 @@ Download a release artifact from the [Releases page](https://github.com/V1rg1lee
 | Linux (cross-distro) | `ARM64` | `linux-aarch64.flatpak` | `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | macOS | `universal2` | `macos.dmg` | none |
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, merging multiple SVGs into one file (pages or tile grid) with an optional notes legend / page background, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
 Release downloads also include checksum and provenance material. See [Desktop downloads](release-downloads.md) for package recommendations and verification steps.
 

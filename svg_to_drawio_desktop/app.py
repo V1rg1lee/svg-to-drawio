@@ -10,7 +10,7 @@ import sys
 import traceback
 from datetime import datetime
 from os import path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import QSettings, QSignalBlocker, Qt, QThread, QUrl, qInstallMessageHandler
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QGuiApplication
@@ -42,8 +42,10 @@ from svg_to_drawio.conversion_service import (
     ConversionEventKind,
     ConversionOptions,
     ConversionSummary,
+    resolve_merge_output_path,
 )
 from svg_to_drawio.diagnostics import ConversionReport, PreviewAnnotation
+from svg_to_drawio.post_process import PostProcessOptions
 from svg_to_drawio.rendering_options import (
     as_filter_policy,
     as_gradient_policy,
@@ -59,7 +61,7 @@ from .compatibility_view import build_feature_dialog_text, render_compatibility_
 from .pages import ConvertPage, PreviewPage, ResultsPage, SettingsPage
 from .theme import DARK, LIGHT, build_stylesheet, detect_system_dark, load_app_icon, load_brand_pixmap
 from .widgets import NavBar
-from .worker import ConversionWorker, ParallelConversionWorker, WatchConversionWorker
+from .worker import ConversionWorker, MergeConversionWorker, ParallelConversionWorker, WatchConversionWorker
 
 APP_TITLE = "SVG to draw.io"
 GITHUB_URL = "https://github.com/V1rg1lee/svg-to-drawio"
@@ -155,6 +157,7 @@ class MainWindow(QMainWindow):
         self._failed = 0
         self._close_after_run = False
         self._last_openable_directory: str | None = None
+        self._last_output_paths: list[str] = []
         self._last_reports: list[ConversionReport] = []
         self._active_preview_report: ConversionReport | None = None
         self._preview_selected_report_index: int | None = None
@@ -211,13 +214,13 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.preview_page)
         self.stack.addWidget(self.settings_page)
 
-        scroll_area = QScrollArea()
-        scroll_area.setObjectName("mainScrollArea")
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setWidget(self.stack)
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setObjectName("mainScrollArea")
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setWidget(self.stack)
         self.stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.MinimumExpanding)
-        root_layout.addWidget(scroll_area, stretch=1)
+        root_layout.addWidget(self._scroll_area, stretch=1)
 
         self.setCentralWidget(central)
 
@@ -225,12 +228,16 @@ class MainWindow(QMainWindow):
         self.convert_page.add_folder_button.clicked.connect(self._choose_folder)
         self.convert_page.source_list.paths_dropped.connect(self._add_paths)
         self.convert_page.browse_output_button.clicked.connect(self._choose_output_dir)
+        self.convert_page.browse_merge_output_button.clicked.connect(self._choose_merge_output)
         self.convert_page.start_button.clicked.connect(self._start_conversion)
         self.convert_page.copy_cli_button.clicked.connect(self._copy_equivalent_cli_command)
         self.convert_page.watch_checkbox.toggled.connect(self._sync_runtime_option_state)
+        self.convert_page.merge_checkbox.toggled.connect(self._sync_runtime_option_state)
+        self.convert_page.merge_checkbox.toggled.connect(self._maybe_prefill_merge_output)
 
         self.results_page.cancel_button.clicked.connect(self._request_cancel)
         self.results_page.open_output_button.clicked.connect(self._open_output_directory)
+        self.results_page.open_result_button.clicked.connect(self._open_last_result)
         self.results_page.export_report_button.clicked.connect(self._export_last_report)
         self.results_page.log_output.anchorClicked.connect(self._on_log_link_clicked)
         self.results_page.compatibility_output.anchorClicked.connect(self._on_compatibility_link_clicked)
@@ -290,9 +297,15 @@ class MainWindow(QMainWindow):
             self._request_cancel()
 
     def _goto_page(self, index: int) -> None:
-        """Switch the visible page and keep the nav bar in sync."""
+        """Switch the visible page, keep the nav bar in sync, and reset the scroll position.
+
+        The scroll area otherwise keeps whatever offset the previous page was left at (e.g.
+        scrolled down to the Merge section), so the newly shown page could appear to open
+        mid-way down instead of at its top.
+        """
         self.stack.setCurrentIndex(index)
         self.nav_bar.set_current_page(index)
+        self._scroll_area.verticalScrollBar().setValue(0)
 
     # ----------------------------------------------------------- lifecycle
 
@@ -398,6 +411,12 @@ class MainWindow(QMainWindow):
         cp.workers_spinbox.setValue(self._setting_int("options/workers", default=1))
         cp.max_elements_checkbox.setChecked(self._setting_bool("options/max_enabled"))
         cp.max_elements_spinbox.setValue(self._setting_int("options/max_value", default=1000))
+        cp.merge_checkbox.setChecked(self._setting_bool("merge/enabled"))
+        self._set_combo_value(cp.merge_mode_combo, str(self._settings.value("merge/mode", "pages")))
+        cp.grid_columns_spinbox.setValue(self._setting_int("merge/grid_columns", default=1))
+        cp.merge_output_edit.setText(str(self._settings.value("merge/output_path", "") or ""))
+        cp.legend_checkbox.setChecked(self._setting_bool("post_process/legend"))
+        cp.background_color_edit.setText(str(self._settings.value("post_process/background", "") or ""))
 
         sp = self.settings_page
         preset_value = str(self._settings.value("rendering/preset", "balanced"))
@@ -435,6 +454,12 @@ class MainWindow(QMainWindow):
         self._settings.setValue("options/workers", cp.workers_spinbox.value())
         self._settings.setValue("options/max_enabled", cp.max_elements_checkbox.isChecked())
         self._settings.setValue("options/max_value", cp.max_elements_spinbox.value())
+        self._settings.setValue("merge/enabled", cp.merge_checkbox.isChecked())
+        self._settings.setValue("merge/mode", cp.merge_mode_combo.currentData())
+        self._settings.setValue("merge/grid_columns", cp.grid_columns_spinbox.value())
+        self._settings.setValue("merge/output_path", cp.merge_output_edit.text().strip())
+        self._settings.setValue("post_process/legend", cp.legend_checkbox.isChecked())
+        self._settings.setValue("post_process/background", cp.background_color_edit.text().strip())
         self._settings.setValue("rendering/preset", sp.preset_combo.currentData())
         self._settings.setValue("rendering/gradient_policy", sp.gradient_combo.currentData())
         self._settings.setValue("rendering/filter_policy", sp.filter_combo.currentData())
@@ -527,6 +552,7 @@ class MainWindow(QMainWindow):
         """Keep runtime-only options visually aligned with the selected mode."""
         cp = self.convert_page
         watch_enabled = cp.watch_checkbox.isChecked()
+        merge_enabled = cp.merge_checkbox.isChecked()
         tooltip = (
             "Watch mode processes changes sequentially as they arrive, so parallel workers are not used. "
             "Turn off Watch to enable multi-worker batch conversion."
@@ -534,12 +560,29 @@ class MainWindow(QMainWindow):
             else "Use multiple workers for one-shot batch conversions. "
             "Watch mode processes changes sequentially as they arrive."
         )
-        cp.workers_spinbox.setEnabled(not watch_enabled)
+        cp.workers_spinbox.setEnabled(not watch_enabled and not merge_enabled)
         cp.workers_spinbox.setToolTip(tooltip)
         cp.workers_label.setToolTip(tooltip)
         cp.workers_label.setText(
             "parallel workers  (disabled in watch mode)" if watch_enabled else "parallel workers  (1 = sequential)"
         )
+
+        # Merge writes one combined file from the whole batch, so it cannot run alongside
+        # watch mode (which re-converts files individually as they change).
+        cp.watch_checkbox.setEnabled(not merge_enabled)
+        cp.merge_checkbox.setEnabled(not watch_enabled)
+        merge_tooltip = (
+            "Merge combines the whole batch into one file, so it cannot run alongside watch mode."
+            if watch_enabled
+            else ""
+        )
+        cp.merge_checkbox.setToolTip(merge_tooltip)
+        watch_tooltip = (
+            "Watch re-converts files individually, so it cannot run alongside merge mode."
+            if merge_enabled
+            else "Re-convert SVG files automatically whenever they change on disk."
+        )
+        cp.watch_checkbox.setToolTip(watch_tooltip)
 
     # --------------------------------------------------------------- theme
 
@@ -647,10 +690,25 @@ class MainWindow(QMainWindow):
         if directory:
             self.convert_page.output_dir_edit.setText(directory)
 
+    def _choose_merge_output(self) -> None:
+        """Open a save-file picker for the combined --merge output path."""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Choose the combined .drawio file", "", "draw.io files (*.drawio)"
+        )
+        if file_path:
+            self.convert_page.merge_output_edit.setText(file_path)
+
+    def _maybe_prefill_merge_output(self, checked: bool) -> None:
+        """Suggest a default merged filename so a full path is never required to get started."""
+        if checked and not self.convert_page.merge_output_edit.text().strip():
+            self.convert_page.merge_output_edit.setText("merged.drawio")
+
     def _build_equivalent_cli_command(self) -> str:
         """Build a copy-paste-friendly CLI command matching the current desktop settings."""
         cp = self.convert_page
         output_dir = cp.output_dir_edit.text().strip()
+        merge_output = cp.merge_output_edit.text().strip()
+        grid_columns = cp.grid_columns_spinbox.value()
         options = CliCommandOptions(
             sources=tuple(self._sources()),
             output_dir=path.abspath(output_dir) if output_dir else None,
@@ -663,6 +721,11 @@ class MainWindow(QMainWindow):
             workers=cp.workers_spinbox.value(),
             preset=str(self.settings_page.preset_combo.currentData()),
             rendering_options=self._current_rendering_options(),
+            merge=str(cp.merge_mode_combo.currentData()) if cp.merge_checkbox.isChecked() else None,
+            merge_output=merge_output if cp.merge_checkbox.isChecked() and merge_output else None,
+            grid_columns=grid_columns if grid_columns > 1 else None,
+            legend=cp.legend_checkbox.isChecked(),
+            background_color=cp.background_color_edit.text().strip() or None,
         )
         return build_equivalent_cli_command(options)
 
@@ -682,6 +745,15 @@ class MainWindow(QMainWindow):
 
     # ----------------------------------------------------------- workflow
 
+    def _current_post_process(self) -> PostProcessOptions | None:
+        """Read the post-processing fields from the Convert page, if any are set."""
+        cp = self.convert_page
+        legend = cp.legend_checkbox.isChecked()
+        background = cp.background_color_edit.text().strip() or None
+        if not (legend or background):
+            return None
+        return PostProcessOptions(legend=legend, background=background)
+
     def _start_conversion(self) -> None:
         """Launch the worker thread for the current queue."""
         source_paths = self._sources()
@@ -690,6 +762,12 @@ class MainWindow(QMainWindow):
             return
 
         cp = self.convert_page
+        merge_enabled = cp.merge_checkbox.isChecked()
+        merge_output = cp.merge_output_edit.text().strip()
+        if merge_enabled and not merge_output:
+            QMessageBox.information(self, "Merge output required", "Choose a combined .drawio output path first.")
+            return
+
         output_dir = cp.output_dir_edit.text().strip() or None
         rendering_options = self._current_rendering_options()
         options = ConversionOptions(
@@ -700,15 +778,23 @@ class MainWindow(QMainWindow):
             max_elements=cp.max_elements_spinbox.value() if cp.max_elements_checkbox.isChecked() else None,
             use_cache=cp.cache_checkbox.isChecked(),
             rendering=rendering_options,
+            post_process=self._current_post_process(),
         )
 
         self._reset_run_state()
         self._goto_page(PAGE_RESULTS)
         live_watch = cp.watch_checkbox.isChecked()
         self._watch_mode_active = live_watch
-        self._set_running_state("Preparing watch queue..." if live_watch else "Preparing conversion queue...")
+        if merge_enabled:
+            running_state_text = "Preparing merge..."
+        elif live_watch:
+            running_state_text = "Preparing watch queue..."
+        else:
+            running_state_text = "Preparing conversion queue..."
+        self._set_running_state(running_state_text)
         self._append_log(
-            f"Starting {'watch session' if live_watch else 'batch'} with {len(source_paths)} source path(s).",
+            f"Starting {'merge' if merge_enabled else 'watch session' if live_watch else 'batch'} "
+            f"with {len(source_paths)} source path(s).",
             "info",
         )
         for line in rendering_preflight_lines(rendering_options):
@@ -716,7 +802,21 @@ class MainWindow(QMainWindow):
 
         self._thread = QThread(self)
         workers = cp.workers_spinbox.value()
-        if live_watch:
+        if merge_enabled:
+            grid_columns = cp.grid_columns_spinbox.value()
+            resolved_merge_output = resolve_merge_output_path(merge_output, output_dir=options.output_dir)
+            self._last_openable_directory = path.dirname(resolved_merge_output)
+            self._last_output_paths = [resolved_merge_output]
+            self.results_page.open_output_button.setEnabled(True)
+            self.results_page.open_result_button.setEnabled(True)
+            self._worker = MergeConversionWorker(
+                source_paths,
+                options,
+                mode=cast(Literal["pages", "grid"], cp.merge_mode_combo.currentData()),
+                output_path=resolved_merge_output,
+                columns=None if grid_columns <= 1 else grid_columns,
+            )
+        elif live_watch:
             self._worker = WatchConversionWorker(source_paths, options)
         elif workers > 1:
             self._worker = ParallelConversionWorker(source_paths, options, max_workers=workers)
@@ -759,12 +859,14 @@ class MainWindow(QMainWindow):
             if event.output_path:
                 self._last_openable_directory = path.dirname(event.output_path)
                 rp.open_output_button.setEnabled(True)
+                self._remember_output_path(event.output_path)
             self._append_log(event.message, "converted", link_path=event.output_path)
         elif event.kind == ConversionEventKind.SKIPPED:
             self._skipped += 1
             if event.output_path:
                 self._last_openable_directory = path.dirname(event.output_path)
                 rp.open_output_button.setEnabled(True)
+                self._remember_output_path(event.output_path)
             self._append_log(event.message, "skipped", link_path=event.output_path)
         elif event.kind == ConversionEventKind.FAILED:
             self._failed += 1
@@ -863,10 +965,12 @@ class MainWindow(QMainWindow):
         self._failed = 0
         self._warning_count = 0
         self._last_openable_directory = None
+        self._last_output_paths = []
         self._last_reports = []
         self._preview_selected_report_index = None
         rp = self.results_page
         rp.open_output_button.setEnabled(False)
+        rp.open_result_button.setEnabled(False)
         rp.export_report_button.setEnabled(False)
         rp.progress_bar.setValue(0)
         rp.summary_label.clear()
@@ -1074,13 +1178,55 @@ class MainWindow(QMainWindow):
 
     def _on_log_link_clicked(self, url: QUrl) -> None:
         """Open the file linked from a log line with the default OS application."""
-        QDesktopServices.openUrl(url)
+        self._open_with_default_app(url.toLocalFile())
 
     def _open_output_directory(self) -> None:
         """Open the most recently written output directory in the OS file manager."""
         if not self._last_openable_directory:
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(self._last_openable_directory))
+
+    def _open_with_default_app(self, file_path: str) -> None:
+        """Open one file with the OS default application, warning instead of failing silently.
+
+        `QDesktopServices.openUrl` returns `False` when no application is associated with the
+        file's type (a fresh system without draw.io desktop installed is the common case for a
+        `.drawio` file) - on some platforms (notably Linux without a configured MIME handler)
+        that failure is otherwise completely silent, so the click would appear to do nothing.
+        """
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(file_path)):
+            return
+        message = f"No application is associated with this file type: {file_path}"
+        if file_path.lower().endswith(".drawio"):
+            message += f" - use 'Open Output Folder' instead, or open draw.io online at {DRAWIO_URL}."
+        self.results_page.status_label.setText("No application is associated with this file type.")
+        self._append_log(message, "warning")
+
+    def _remember_output_path(self, output_path: str) -> None:
+        """Track one more converted file so "Open Result" can offer it, enabling the button."""
+        if output_path not in self._last_output_paths:
+            self._last_output_paths.append(output_path)
+        self.results_page.open_result_button.setEnabled(True)
+
+    def _open_last_result(self) -> None:
+        """Open the converted file with the OS default app (e.g. the draw.io desktop app).
+
+        With exactly one converted file, opens it directly. With several (a batch or a merge
+        run with per-file outputs), shows a picker instead of guessing which one to open.
+        """
+        if not self._last_output_paths:
+            return
+        if len(self._last_output_paths) == 1:
+            self._open_with_default_app(self._last_output_paths[0])
+            return
+
+        button = self.results_page.open_result_button
+        menu = QMenu(button)
+        for output_path in self._last_output_paths:
+            action = menu.addAction(path.basename(output_path))
+            action.setToolTip(output_path)
+            action.triggered.connect(lambda checked=False, p=output_path: self._open_with_default_app(p))
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def _export_last_report(self) -> None:
         """Write the latest structured diagnostics report to a JSON file."""

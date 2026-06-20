@@ -18,6 +18,7 @@ from svg_to_drawio import (
     convert_to_string,
     convert_to_string_result,
     evaluate_quality_gates,
+    merge_files,
 )
 
 from tests.helpers import FIXTURES_DIR, SvgTestCase
@@ -220,3 +221,20 @@ class ApiAndQualityTests(SvgTestCase):
     def test_quality_gate_options_rejects_a_non_int_min_score(self) -> None:
         with self.assertRaises(ValueError):
             QualityGateOptions(min_score="100")  # type: ignore[arg-type]
+
+    def test_merge_files_resolves_a_bare_output_name_and_writes_one_page_per_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("a.svg", "b.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" /></svg>'
+                    )
+
+            summary = merge_files([tmpdir], "merged", output_dir=tmpdir)
+
+            merged_path = path.join(tmpdir, "merged.drawio")
+            self.assertTrue(path.isfile(merged_path))
+            self.assertEqual(summary.converted, 2)
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read().count("<diagram"), 2)

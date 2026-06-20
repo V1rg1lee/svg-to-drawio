@@ -95,7 +95,7 @@ Download a release artifact from the [Releases page](https://github.com/V1rg1lee
 | Linux (cross-distro) | `ARM64` | `linux-aarch64.flatpak` | `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | macOS | `universal2` | `macos.dmg` | none |
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, merging multiple SVGs into one file (pages or tile grid) with an optional notes legend / page background, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
 GitHub Actions now also smoke-tests the produced desktop deliverables on Windows (`x64`, `ARM64`), Linux (`x64`, `ARM64`), and macOS so installer/archive regressions are caught earlier.
 
@@ -140,6 +140,11 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--fail-on-fallback` | Exit with code 1 if any file uses embedded SVG fallback |
 | `--min-score N` | Exit with code 1 if any file scores below N compatibility points (0-100) |
 | `--require-native CAPABILITY...` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native |
+| `--merge {pages,grid}` | Combine every input SVG into one `.drawio` file: one page per SVG, or a labeled tile grid |
+| `--merge-output PATH` | Path of the combined file written by `--merge` (required with `--merge`) |
+| `--grid-columns N` | Number of columns in the `--merge grid` layout (default: auto, roughly square) |
+| `--legend` | Add a "Notes" layer summarizing the conversion report to the output |
+| `--background-color VALUE` | Set the draw.io page background color (e.g. `#FFFFFF`) |
 
 </details>
 
@@ -172,6 +177,12 @@ svg-to-drawio diagram.svg --stdout > diagram.drawio
 
 # Flatten all groups into a single layer
 svg-to-drawio diagram.svg --flatten --overwrite
+
+# Combine a brand kit of logos into one file, one page per logo
+svg-to-drawio logos/ --merge pages --merge-output brand.drawio
+
+# Combine them into a single page, labeled tile grid, with a notes legend
+svg-to-drawio logos/ --merge grid --grid-columns 3 --merge-output brand-grid --legend
 ```
 
 During a normal conversion run, the CLI prints the active rendering plan in plain English, then a short compatibility summary that mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling.
@@ -242,6 +253,23 @@ summary = service.convert(
 )
 print(summary.to_status_line())
 ```
+
+To combine several SVGs into one `.drawio` file, with an optional notes legend / page background:
+
+```python
+from svg_to_drawio import PostProcessOptions, merge_files
+
+summary = merge_files(
+    ["logos/"],
+    "brand-grid",  # ".drawio" is appended automatically if missing
+    mode="grid",
+    columns=3,
+    post_process=PostProcessOptions(legend=True, background="#FFFFFF"),
+)
+print(summary.to_status_line())
+```
+
+`post_process` is also accepted by every `convert_*` function for ordinary (non-merge) conversions.
 
 For one-off diagnostics without writing output files:
 

@@ -20,6 +20,7 @@ from svg_to_drawio.conversion_service import (
     resolve_watch_backend,
     watch_svg_files,
 )
+from svg_to_drawio.post_process import PostProcessOptions
 
 from tests.helpers import SvgTestCase
 
@@ -120,6 +121,76 @@ class ConversionServiceTests(SvgTestCase):
             self.assertTrue(path.isfile(out_path))
             self.assertTrue(second.reports)
             self.assertTrue(second.reports[0].cached)
+
+    def test_merge_pages_writes_a_combined_file_and_emits_progress_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("one.svg", "two.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                        "</svg>"
+                    )
+            merged_path = path.join(tmpdir, "merged.drawio")
+            events: list[ConversionEvent] = []
+
+            summary = ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(),
+                mode="pages",
+                output_path=merged_path,
+                reporter=events.append,
+            )
+
+            self.assertEqual(summary.converted, 2)
+            self.assertEqual(summary.failed, 0)
+            self.assertTrue(path.isfile(merged_path))
+            self.assertIn(ConversionEventKind.COMPLETED, {event.kind for event in events})
+
+    def test_merge_grid_records_a_failure_without_aborting_the_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(path.join(tmpdir, "good.svg"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+            with open(path.join(tmpdir, "bad.svg"), "w", encoding="utf-8") as handle:
+                handle.write("<svg")
+            merged_path = path.join(tmpdir, "merged.drawio")
+
+            summary = ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(),
+                mode="grid",
+                output_path=merged_path,
+            )
+
+            self.assertEqual(summary.converted, 1)
+            self.assertEqual(summary.failed, 1)
+            self.assertTrue(path.isfile(merged_path))
+
+    def test_merge_grid_applies_post_process_once_to_the_combined_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("one.svg", "two.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                        "</svg>"
+                    )
+            merged_path = path.join(tmpdir, "merged.drawio")
+
+            ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(post_process=PostProcessOptions(legend=True)),
+                mode="grid",
+                output_path=merged_path,
+            )
+
+            with open(merged_path, encoding="utf-8") as handle:
+                xml_text = handle.read()
+            self.assertEqual(xml_text.count('value="Notes"'), 1)
 
 
 class WatchBackendResolutionTests(SvgTestCase):

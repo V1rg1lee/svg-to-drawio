@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `--merge {pages,grid}` combines every input SVG into one `.drawio` file - either one page per SVG or a single labeled tile grid - available in the CLI (`--merge`/`--merge-output`/`--grid-columns`), the Python API (`merge_files`, `ConversionService.merge`), and a new "Merge & extras" section in the desktop app.
+- `--legend` and `--background-color` add a lightweight post-conversion hook (`PostProcessOptions`): a "Notes" layer summarizing the conversion report and/or a draw.io page background color, available on both ordinary conversions and merges.
+
 ## [3.9.1] - 2026-06-20
 
 ### Fixed
