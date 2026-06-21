@@ -40,7 +40,14 @@ The event-driven `--watch-backend event` mode requires the optional `watchdog` d
 
 `--stdout` writes one file's XML to standard output and nothing else, so it cannot be combined with `--analyze`, `--watch`, `--report-json`, or any quality-gate flag (`--fail-on-warning`, `--fail-on-fallback`, `--min-score`, `--require-native`); combining them is an error rather than a silently ignored flag. `--workers` is similarly a no-op (with a printed note) under `--watch` and `--analyze`, since both process files sequentially.
 
-`--merge` writes a single combined file from the whole batch instead of one output per input, so it cannot be combined with `--stdout`, `--watch`, or `--analyze`; `--workers` is ignored (files are merged sequentially). `--merge-output` accepts a relative path, which is resolved against `--output-dir` (or the current directory) and gets a `.drawio` extension appended automatically if missing. `--legend` and `--background-color` also work on ordinary (non-merge) conversions.
+`--merge` writes a single combined file from the whole batch instead of one output per input, so it cannot be combined with `--stdout`, `--watch`, or `--analyze`; `--workers` is ignored (files are merged sequentially). `--merge-output` accepts a relative path, which is resolved against `--output-dir` (or the current directory) and gets a `.drawio` extension appended automatically if missing. Existing merged output is skipped unless `--overwrite` is set. `--legend` and `--background-color` also work on ordinary (non-merge) conversions.
+
+Watch mode preserves rendering policies, the notes legend, and the page background on every
+reconversion. When `--report-json` or quality-gate flags are used with `--watch`, reports are
+collected for the whole session and finalized after Ctrl+C stops the watcher.
+
+Quality gates fail closed if an existing output is skipped without a cached diagnostics report.
+Use `--overwrite` or `--analyze` when every input must be evaluated.
 
 ## Examples
 

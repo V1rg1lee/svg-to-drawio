@@ -84,6 +84,14 @@ _INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
 ElementEmitter = Callable[[EmitterContext, Element, Matrix, dict[str, str] | None], None]
 
 
+def _validate_max_elements(max_elements: int | None) -> None:
+    """Keep direct Python API validation aligned with the CLI and desktop controls."""
+    if max_elements is not None and (
+        not isinstance(max_elements, int) or isinstance(max_elements, bool) or max_elements <= 0
+    ):
+        raise ValueError(f"max_elements must be a positive integer, got {max_elements!r}.")
+
+
 def _emit_open_polyline(
     ctx: EmitterContext,
     elem: Element,
@@ -276,6 +284,7 @@ class Converter:
         post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert one SVG file, write it to disk, and return a rich conversion result."""
+        _validate_max_elements(max_elements)
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -318,6 +327,7 @@ class Converter:
         post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Convert one SVG file and return a rich in-memory conversion result."""
+        _validate_max_elements(max_elements)
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -343,6 +353,7 @@ class Converter:
         several files' cells at once, so post-processing (legend/background) is applied once
         on the final merged result instead of once per source file.
         """
+        _validate_max_elements(max_elements)
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -421,6 +432,7 @@ class Converter:
         post_process: PostProcessOptions | None = None,
     ) -> ConversionResult:
         """Shared in-memory conversion path for an already-parsed SVG root element."""
+        _validate_max_elements(max_elements)
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements
@@ -441,6 +453,7 @@ class Converter:
         rendering_options: RenderingOptions | None = None,
     ) -> ConversionReport:
         """Analyze one SVG file without writing output, returning its structured report."""
+        _validate_max_elements(max_elements)
         self.reset()
         self._flatten = flatten
         self._max_elements = max_elements

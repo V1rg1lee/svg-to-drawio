@@ -49,6 +49,11 @@ Auto-generated from the docstrings in `svg_to_drawio`. See [Python API](python-a
 ::: svg_to_drawio.ConversionOptions
 ::: svg_to_drawio.ConversionSummary
 ::: svg_to_drawio.CancellationToken
+::: svg_to_drawio.ConversionEvent
+::: svg_to_drawio.ConversionEventKind
+::: svg_to_drawio.watch_svg_files
+::: svg_to_drawio.resolve_watch_backend
+::: svg_to_drawio.event_watch_available
 
 ## Post-processing
 

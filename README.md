@@ -33,6 +33,7 @@ pip install svg-to-drawio
 - [Desktop app](#desktop-app)
 - [CLI reference](#cli-reference)
 - [Python API](#python-api)
+- [Interface parity](#interface-parity)
 - [Advanced rendering](#advanced-rendering)
 - [Development](#development)
 - [Release authenticity](#release-authenticity)
@@ -179,7 +180,7 @@ svg-to-drawio diagram.svg --stdout > diagram.drawio
 svg-to-drawio diagram.svg --flatten --overwrite
 
 # Combine a brand kit of logos into one file, one page per logo
-svg-to-drawio logos/ --merge pages --merge-output brand.drawio
+svg-to-drawio logos/ --merge pages --merge-output brand.drawio --overwrite
 
 # Combine them into a single page, labeled tile grid, with a notes legend
 svg-to-drawio logos/ --merge grid --grid-columns 3 --merge-output brand-grid --legend
@@ -264,6 +265,7 @@ summary = merge_files(
     "brand-grid",  # ".drawio" is appended automatically if missing
     mode="grid",
     columns=3,
+    overwrite=True,
     post_process=PostProcessOptions(legend=True, background="#FFFFFF"),
 )
 print(summary.to_status_line())
@@ -313,6 +315,17 @@ if violations:
 
 </details>
 
+## Interface parity
+
+The CLI, Python API, and desktop app use the same conversion, fallback, diagnostics, merge,
+watch, cache, and post-processing code paths. Their workflow-specific differences are
+intentional: the desktop owns the interactive preview, while the CLI/API expose automation
+features such as stdout XML and quality-gate exit codes.
+
+See the detailed [interface parity matrix](https://v1rg1lee.github.io/svg-to-drawio/interface-parity/)
+for the exact equivalent of each feature. The public API also exports `watch_svg_files(...)`,
+and merge operations now accept cooperative cancellation through `CancellationToken`.
+
 ## Advanced rendering
 
 The engine exposes a small set of rendering policies shared by the CLI, Python API, and desktop app:
@@ -346,6 +359,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 | `<polygon>` | Filled stencil shape |
 | `<path>` | Stencil; open unfilled paths with markers become edges; multi-stop linear gradients can be approximated natively |
 | `<text>` / `<tspan>` | Text cell |
+| textual `<foreignObject>` | XHTML text flattened into an editable text cell; complex HTML layout is simplified |
 | `<image>` | Image cell with embedded asset data |
 | `<g>` | Native draw.io group cell |
 | Inkscape layers (`<g inkscape:groupmode="layer">`) | draw.io layer cell |
@@ -379,6 +393,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
+- Remote `<image>` URLs stay linked and are reported as an approximation
 
 </details>
 
@@ -396,6 +411,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
+- SVG animation elements such as `<animate>` and `<animateTransform>` are not preserved; the static base geometry is converted.
 
 </details>
 

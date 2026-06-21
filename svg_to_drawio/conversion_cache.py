@@ -6,7 +6,9 @@ import hashlib
 import json
 from dataclasses import dataclass
 from os import path
+from threading import RLock
 
+from .atomic_write import write_text_atomically
 from .diagnostics import ConversionReport
 
 
@@ -52,6 +54,7 @@ class ConversionCache:
         self.manifest_path = manifest_path
         self._entries: dict[str, dict[str, object]] = {}
         self._loaded = False
+        self._lock = RLock()
 
     def _load(self) -> None:
         """Load the manifest file on first use."""
@@ -76,8 +79,7 @@ class ConversionCache:
         if manifest_dir and not path.isdir(manifest_dir):
             return
         payload = {"entries": self._entries}
-        with open(self.manifest_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+        write_text_atomically(self.manifest_path, json.dumps(payload, indent=2, sort_keys=True))
 
     @staticmethod
     def key_for(source_path: str, output_path: str) -> str:
@@ -92,43 +94,44 @@ class ConversionCache:
         options_signature: str,
     ) -> ConversionReport | None:
         """Return a cached report when the input, output, and dependencies are unchanged."""
-        self._load()
-        cache_key = self.key_for(source_path, output_path)
-        entry = self._entries.get(cache_key)
-        if not isinstance(entry, dict):
-            return None
-
-        if entry.get("options_signature") != options_signature:
-            return None
-        if not path.isfile(output_path):
-            return None
-
-        report_payload = entry.get("report")
-        if not isinstance(report_payload, dict):
-            return None
-
-        fingerprints = entry.get("fingerprints")
-        if not isinstance(fingerprints, list):
-            return None
-
-        expected: list[DependencyFingerprint] = []
-        for item in fingerprints:
-            if not isinstance(item, dict):
-                return None
-            fingerprint = DependencyFingerprint.from_dict(item)
-            if fingerprint is None:
-                return None
-            expected.append(fingerprint)
-
-        for fingerprint in expected:
-            current_hash = _sha256_file(fingerprint.file_path)
-            if current_hash != fingerprint.sha256:
+        with self._lock:
+            self._load()
+            cache_key = self.key_for(source_path, output_path)
+            entry = self._entries.get(cache_key)
+            if not isinstance(entry, dict):
                 return None
 
-        report = ConversionReport.from_dict(report_payload)
-        report.cached = True
-        report.output_path = output_path
-        return report
+            if entry.get("options_signature") != options_signature:
+                return None
+            if not path.isfile(output_path):
+                return None
+
+            report_payload = entry.get("report")
+            if not isinstance(report_payload, dict):
+                return None
+
+            fingerprints = entry.get("fingerprints")
+            if not isinstance(fingerprints, list):
+                return None
+
+            expected: list[DependencyFingerprint] = []
+            for item in fingerprints:
+                if not isinstance(item, dict):
+                    return None
+                fingerprint = DependencyFingerprint.from_dict(item)
+                if fingerprint is None:
+                    return None
+                expected.append(fingerprint)
+
+            for fingerprint in expected:
+                current_hash = _sha256_file(fingerprint.file_path)
+                if current_hash != fingerprint.sha256:
+                    return None
+
+            report = ConversionReport.from_dict(report_payload)
+            report.cached = True
+            report.output_path = output_path
+            return report
 
     def update(
         self,
@@ -139,22 +142,23 @@ class ConversionCache:
         report: ConversionReport,
     ) -> None:
         """Store or refresh the manifest entry for one successful conversion."""
-        self._load()
-        fingerprint_paths = [path.abspath(source_path), *[path.abspath(dep) for dep in report.dependencies]]
-        fingerprints: list[DependencyFingerprint] = []
-        for dependency_path in fingerprint_paths:
-            digest = _sha256_file(dependency_path)
-            if digest is None:
-                continue
-            fingerprints.append(DependencyFingerprint(file_path=dependency_path, sha256=digest))
+        with self._lock:
+            self._load()
+            fingerprint_paths = [path.abspath(source_path), *[path.abspath(dep) for dep in report.dependencies]]
+            fingerprints: list[DependencyFingerprint] = []
+            for dependency_path in fingerprint_paths:
+                digest = _sha256_file(dependency_path)
+                if digest is None:
+                    continue
+                fingerprints.append(DependencyFingerprint(file_path=dependency_path, sha256=digest))
 
-        cache_key = self.key_for(source_path, output_path)
-        self._entries[cache_key] = {
-            "options_signature": options_signature,
-            "fingerprints": [fingerprint.to_dict() for fingerprint in fingerprints],
-            "report": report.to_dict(),
-        }
-        self._save()
+            cache_key = self.key_for(source_path, output_path)
+            self._entries[cache_key] = {
+                "options_signature": options_signature,
+                "fingerprints": [fingerprint.to_dict() for fingerprint in fingerprints],
+                "report": report.to_dict(),
+            }
+            self._save()
 
 
 def default_manifest_path(output_path: str, output_dir: str | None) -> str:

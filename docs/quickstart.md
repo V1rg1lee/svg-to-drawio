@@ -65,4 +65,5 @@ python desktop_app.py
 
 - [CLI reference](cli.md) for every command-line option.
 - [Python API](python-api.md) to call the engine from your own code.
+- [Interface parity](interface-parity.md) to compare the CLI, API, and desktop workflows.
 - [Advanced rendering](advanced-rendering.md) for the shared presets and policy tradeoffs used by the CLI, API, and desktop app.

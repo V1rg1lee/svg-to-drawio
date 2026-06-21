@@ -18,6 +18,7 @@ Turn any SVG into a real, editable [draw.io](https://app.diagrams.net/) diagram.
 - [Desktop downloads](release-downloads.md) - choose the right desktop package and verify release assets.
 - [CLI reference](cli.md) - every command-line option, with examples.
 - [Python API](python-api.md) - use the conversion engine directly from your own code.
+- [Interface parity](interface-parity.md) - see which capabilities are shared and which differences are intentional.
 - [Advanced rendering](advanced-rendering.md) - trade fidelity against editability for gradients, filters, and text.
 - [Compatibility reference](reference.md) - exactly what SVG/CSS features are supported, approximated, or fall back to an embedded image.
 - [API reference](api-reference.md) - auto-generated reference for every public class and function.

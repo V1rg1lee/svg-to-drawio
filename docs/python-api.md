@@ -70,6 +70,28 @@ summary = service.convert(
 print(summary.to_status_line())
 ```
 
+## Watch files
+
+The same polling/event-driven watch engine used by the CLI and desktop app is public:
+
+```python
+from threading import Event
+
+from svg_to_drawio import ConversionOptions, watch_svg_files
+
+stop_event = Event()
+watch_svg_files(
+    ["assets/"],
+    ConversionOptions(output_dir="out/", recursive=True, overwrite=True),
+    reporter=lambda event: print(event.message),
+    stop_event=stop_event,
+    backend="auto",
+)
+```
+
+Install `svg-to-drawio[watch]` to make the event-driven backend available. `auto` otherwise
+falls back to polling. Rendering and `PostProcessOptions` are preserved on every reconversion.
+
 ## Post-processing hooks
 
 `post_process` is accepted by every top-level `convert_*`/`merge_files` function and by
@@ -96,6 +118,7 @@ summary = merge_files(
     "brand-grid",  # ".drawio" is appended automatically if missing
     mode="grid",
     columns=3,
+    overwrite=True,
     post_process=PostProcessOptions(legend=True, background="#FFFFFF"),
 )
 print(summary.to_status_line())
@@ -104,14 +127,16 @@ print(summary.to_status_line())
 `output_path` follows the same convention as the CLI's `--merge-output`: a relative value (or
 bare filename) is resolved against `output_dir` when given, otherwise the current directory,
 and the `.drawio` extension is added automatically if missing.
+Existing merged output is skipped unless `overwrite=True`.
 
 For progress reporting and cancellation during a merge, call `ConversionService.merge(...)`
 directly instead - `merge_files` is a thin convenience wrapper around it:
 
 ```python
-from svg_to_drawio import ConversionOptions, ConversionService
+from svg_to_drawio import CancellationToken, ConversionOptions, ConversionService
 
 service = ConversionService()
+token = CancellationToken()
 summary = service.merge(
     ["logos/"],
     ConversionOptions(),
@@ -119,8 +144,12 @@ summary = service.merge(
     output_path="brand-grid.drawio",
     columns=3,
     reporter=lambda event: print(event.message),
+    cancellation_token=token,
 )
 ```
+
+Calling `token.cancel()` stops the merge before the next source SVG and keeps any already
+converted sources in a valid partial merged output.
 
 ## Diagnostics without writing output
 

@@ -5,18 +5,23 @@ from __future__ import annotations
 from collections.abc import Sequence
 from os import PathLike, fspath, path
 
-__version__ = "3.9.1"
+__version__ = "3.10.0"
 
 from .capabilities import all_capabilities, capability_descriptor, capability_keys, rendering_preflight_lines
 from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
 from .conversion_result import ConversionResult
 from .conversion_service import (
     CancellationToken,
+    ConversionEvent,
+    ConversionEventKind,
     ConversionOptions,
     ConversionService,
     ConversionSummary,
     MergeMode,
+    event_watch_available,
     resolve_merge_output_path,
+    resolve_watch_backend,
+    watch_svg_files,
 )
 from .converter import Converter
 from .diagnostics import REPORT_SCHEMA_VERSION, ConversionReport
@@ -218,6 +223,7 @@ def merge_files(
     columns: int | None = None,
     output_dir: str | PathLike[str] | None = None,
     recursive: bool = False,
+    overwrite: bool = False,
     flatten: bool = False,
     max_elements: int | None = None,
     rendering_options: RenderingOptions | None = None,
@@ -227,12 +233,15 @@ def merge_files(
 
     `output_path` is resolved the same way the CLI's `--merge-output` is: a relative value
     (or bare filename) is placed inside `output_dir` when given, the `.drawio` extension is
-    appended automatically if missing, and an absolute path is used as-is.
+    appended automatically if missing, and an absolute path is used as-is. Existing output
+    is skipped unless `overwrite=True`.
     """
     resolved_output_dir = path.abspath(fspath(output_dir)) if output_dir is not None else None
     resolved_output_path = resolve_merge_output_path(output_path, output_dir=resolved_output_dir)
     options = ConversionOptions(
+        output_dir=resolved_output_dir,
         recursive=recursive,
+        overwrite=overwrite,
         flatten=flatten,
         max_elements=max_elements,
         rendering=rendering_options or RenderingOptions(),
@@ -273,6 +282,8 @@ __all__ = [
     "QualityGateOptions",
     "QualityGateViolation",
     "ConversionOptions",
+    "ConversionEvent",
+    "ConversionEventKind",
     "ConversionReport",
     "ConversionService",
     "ConversionSummary",
@@ -294,8 +305,11 @@ __all__ = [
     "convert_svg_string_result",
     "detect_rendering_preset",
     "evaluate_quality_gates",
+    "event_watch_available",
     "merge_files",
     "rendering_preflight_lines",
     "rendering_preset_label",
     "rendering_preset_options",
+    "resolve_watch_backend",
+    "watch_svg_files",
 ]

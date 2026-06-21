@@ -27,6 +27,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 | `<polygon>` | Filled stencil shape |
 | `<path>` | Stencil; open unfilled paths with markers become edges; multi-stop linear gradients can be approximated natively |
 | `<text>` / `<tspan>` | Text cell |
+| textual `<foreignObject>` | XHTML text flattened into an editable text cell; complex HTML layout is simplified |
 | `<image>` | Image cell with embedded asset data |
 | `<g>` | Native draw.io group cell |
 | Inkscape layers (`<g inkscape:groupmode="layer">`) | draw.io layer cell |
@@ -57,6 +58,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
+- Remote `<image>` URLs remain linked and are reported as an approximation because the output is not self-contained
 
 ## Limitations
 
@@ -71,6 +73,8 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
+- SVG animation elements such as `<animate>` and `<animateTransform>` are not preserved; conversion captures the static base geometry.
+- Unknown container elements are reported and skipped rather than recursively interpreted, so SVG features outside the documented element set may require an embedded fallback upstream.
 
 ## Transform rendering
 

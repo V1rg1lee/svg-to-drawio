@@ -56,6 +56,12 @@ class ConversionOptions:
     rendering: RenderingOptions = field(default_factory=RenderingOptions)
     post_process: PostProcessOptions | None = None
 
+    def __post_init__(self) -> None:
+        if self.max_elements is not None and (
+            not isinstance(self.max_elements, int) or isinstance(self.max_elements, bool) or self.max_elements <= 0
+        ):
+            raise ValueError(f"max_elements must be a positive integer, got {self.max_elements!r}.")
+
 
 @dataclass(frozen=True)
 class ConversionJob:
@@ -243,15 +249,17 @@ class ConversionService:
     def __init__(self, converter_factory: Callable[[], Converter] | None = None) -> None:
         self._converter_factory = converter_factory or Converter
         self._caches: dict[str, ConversionCache] = {}
+        self._cache_lock = Lock()
 
     def _cache_for(self, output_path: str, options: ConversionOptions) -> ConversionCache:
         """Return the persistent cache object for one output location."""
         manifest_path = default_manifest_path(output_path, options.output_dir)
-        cache = self._caches.get(manifest_path)
-        if cache is None:
-            cache = ConversionCache(manifest_path)
-            self._caches[manifest_path] = cache
-        return cache
+        with self._cache_lock:
+            cache = self._caches.get(manifest_path)
+            if cache is None:
+                cache = ConversionCache(manifest_path)
+                self._caches[manifest_path] = cache
+            return cache
 
     @staticmethod
     def _options_signature(options: ConversionOptions) -> str:
@@ -658,8 +666,14 @@ class ConversionService:
         output_path: str | PathLike[str],
         columns: int | None = None,
         reporter: Reporter | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> ConversionSummary:
         """Convert every planned SVG into one merged `.drawio` file (multi-page or grid layout)."""
+        if mode not in {"pages", "grid"}:
+            raise ValueError(f"Unsupported merge mode: {mode!r}. Expected 'pages' or 'grid'.")
+        if columns is not None and columns <= 0:
+            raise ValueError(f"columns must be a positive integer, got {columns}.")
+
         resolved_inputs = [path.abspath(os.fspath(item)) for item in input_paths]
         svg_paths: list[str] = []
         for resolved_input in resolved_inputs:
@@ -686,13 +700,41 @@ class ConversionService:
             )
             return summary
 
+        output_path_str = path.abspath(os.fspath(output_path))
+        if path.exists(output_path_str) and not options.overwrite:
+            for index, svg_path in enumerate(svg_paths, start=1):
+                self._report(
+                    reporter,
+                    ConversionEventKind.SKIPPED,
+                    f"Skipped because merged output already exists: {svg_path}  ->  {output_path_str}",
+                    completed=index,
+                    total=total,
+                    source_path=svg_path,
+                    output_path=output_path_str,
+                )
+            summary = ConversionSummary(total=total, converted=0, skipped=total, failed=0, reports=[])
+            self._report(
+                reporter,
+                ConversionEventKind.COMPLETED,
+                summary.to_status_line(),
+                completed=total,
+                total=total,
+                summary=summary,
+            )
+            return summary
+
         named_cells: list[tuple[str, list[Cell]]] = []
         successful_reports: list[ConversionReport] = []
         reports: list[ConversionReport] = []
         converted = 0
         failed = 0
+        cancelled = False
 
         for index, svg_path in enumerate(svg_paths, start=1):
+            if cancellation_token and cancellation_token.is_cancelled():
+                cancelled = True
+                break
+
             self._report(
                 reporter,
                 ConversionEventKind.STARTED,
@@ -740,38 +782,51 @@ class ConversionService:
                 report=report,
             )
 
-        output_path_str = path.abspath(os.fspath(output_path))
-        out_dir = path.dirname(output_path_str)
-        if out_dir and not path.isdir(out_dir):
-            makedirs(out_dir, exist_ok=True)
+        if cancellation_token and cancellation_token.is_cancelled():
+            cancelled = True
 
-        background = options.post_process.background if options.post_process else None
-        if mode == "pages":
-            if options.post_process is not None:
-                named_cells = [
-                    (title, apply_post_process(cells, report, options=options.post_process, title=title))
-                    for (title, cells), report in zip(named_cells, successful_reports)
-                ]
-            xml = merge_pages(named_cells, background=background)
-        else:
-            grid_cells = build_grid_cells(named_cells, columns=columns)
-            if options.post_process is not None:
-                summary_report = ConversionReport(
-                    fallback_count=sum(report.fallback_count for report in successful_reports),
-                    issues=[issue for report in successful_reports for issue in report.issues],
-                )
-                grid_cells = apply_post_process(
-                    grid_cells, summary_report, options=options.post_process, title=MERGED_DIAGRAM_TITLE
-                )
-            xml = make_xml(grid_cells, MERGED_DIAGRAM_TITLE, background=background)
+        if named_cells or not cancelled:
+            out_dir = path.dirname(output_path_str)
+            if out_dir and not path.isdir(out_dir):
+                makedirs(out_dir, exist_ok=True)
 
-        write_text_atomically(output_path_str, xml)
+            background = options.post_process.background if options.post_process else None
+            if mode == "pages":
+                if options.post_process is not None:
+                    named_cells = [
+                        (title, apply_post_process(cells, report, options=options.post_process, title=title))
+                        for (title, cells), report in zip(named_cells, successful_reports)
+                    ]
+                xml = merge_pages(named_cells, background=background)
+            else:
+                grid_cells = build_grid_cells(named_cells, columns=columns)
+                if options.post_process is not None:
+                    summary_report = ConversionReport(
+                        fallback_count=sum(report.fallback_count for report in successful_reports),
+                        issues=[issue for report in successful_reports for issue in report.issues],
+                    )
+                    grid_cells = apply_post_process(
+                        grid_cells, summary_report, options=options.post_process, title=MERGED_DIAGRAM_TITLE
+                    )
+                xml = make_xml(grid_cells, MERGED_DIAGRAM_TITLE, background=background)
+
+            write_text_atomically(output_path_str, xml)
+
+        if cancelled:
+            self._report(
+                reporter,
+                ConversionEventKind.CANCELLED,
+                f"Cancellation requested after {converted + failed} processed file(s).",
+                completed=converted + failed,
+                total=total,
+            )
 
         summary = ConversionSummary(
             total=total,
             converted=converted,
             skipped=0,
             failed=failed,
+            cancelled=cancelled,
             reports=reports,
         )
         self._report(
@@ -874,6 +929,7 @@ def _watch_svg_files_poll(
         max_elements=options.max_elements,
         use_cache=options.use_cache,
         rendering=options.rendering,
+        post_process=options.post_process,
     )
 
     # Initial conversion pass
@@ -902,6 +958,7 @@ def _watch_svg_files_poll(
                 max_elements=options.max_elements,
                 use_cache=options.use_cache,
                 rendering=options.rendering,
+                post_process=options.post_process,
             )
             service.convert(changed, single_opts, reporter=reporter)
 
@@ -928,6 +985,7 @@ def _watch_svg_files_event(
         max_elements=options.max_elements,
         use_cache=options.use_cache,
         rendering=options.rendering,
+        post_process=options.post_process,
     )
     service.convert(resolved_inputs, watch_opts, reporter=reporter)
 
@@ -979,6 +1037,7 @@ def _watch_svg_files_event(
                 max_elements=options.max_elements,
                 use_cache=options.use_cache,
                 rendering=options.rendering,
+                post_process=options.post_process,
             )
             service.convert(existing, single_opts, reporter=reporter)
     finally:  # pragma: no cover - watchdog lifecycle is runtime-specific

@@ -136,6 +136,7 @@ class MergeConversionWorker(QObject):
         self._mode = mode
         self._output_path = output_path
         self._columns = columns
+        self._token = CancellationToken()
 
     @Slot()
     def run(self) -> None:
@@ -154,6 +155,7 @@ class MergeConversionWorker(QObject):
                     output_path=self._output_path,
                     columns=self._columns,
                     reporter=self._emit_event,
+                    cancellation_token=self._token,
                 )
         except Exception as exc:  # pragma: no cover - driven by GUI interactions
             self.failed.emit(str(exc))
@@ -161,7 +163,8 @@ class MergeConversionWorker(QObject):
         self.finished.emit(summary)
 
     def request_cancel(self) -> None:
-        """No-op: merge mode does not support cooperative cancellation in this version."""
+        """Stop the merge before it starts converting the next source file."""
+        self._token.cancel()
 
     def _emit_event(self, event: ConversionEvent) -> None:
         """Forward service events through a Qt signal."""

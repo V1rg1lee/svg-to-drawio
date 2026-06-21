@@ -26,7 +26,12 @@ from .converter import Converter
 from .diagnostics import ConversionReport
 from .issue_codes import ANALYSIS_FAILED
 from .post_process import PostProcessOptions
-from .quality_gates import QualityGateOptions, evaluate_quality_gates, validate_required_capabilities
+from .quality_gates import (
+    QualityGateOptions,
+    QualityGateViolation,
+    evaluate_quality_gates,
+    validate_required_capabilities,
+)
 from .rendering_options import (
     RenderingOptions,
     as_filter_policy,
@@ -177,6 +182,12 @@ def run(
         min_score=min_score,
         require_native=required_native,
     )
+    quality_gates_enabled = bool(
+        quality_options.fail_on_warning
+        or quality_options.fail_on_fallback
+        or quality_options.min_score is not None
+        or quality_options.require_native
+    )
     post_process = (
         PostProcessOptions(legend=legend, background=background_color) if (legend or background_color) else None
     )
@@ -264,6 +275,22 @@ def run(
             json.dump(payload, handle, indent=2, sort_keys=True)
         print(f"Report written to: {target}")
 
+    def evaluate_summary_quality(summary: ConversionSummary) -> list[QualityGateViolation]:
+        """Evaluate reports and fail safely when skipped files have no cached diagnostics."""
+        violations = evaluate_quality_gates(summary.reports, quality_options)
+        processed = summary.converted + summary.skipped + summary.failed
+        if quality_gates_enabled and len(summary.reports) < processed:
+            violations.append(
+                QualityGateViolation(
+                    source_path="<batch>",
+                    message=(
+                        "Some existing outputs were skipped without cached diagnostics, so the quality gates "
+                        "could not evaluate every input. Re-run with --overwrite or use --analyze."
+                    ),
+                )
+            )
+        return violations
+
     def emit_progress(event: ConversionEvent) -> None:
         if event.kind in {
             ConversionEventKind.CONVERTED,
@@ -315,8 +342,11 @@ def run(
             return 0
 
         print(summary.to_status_line())
-        print(f"Merged output written to: {resolved_merge_output}")
-        violations = evaluate_quality_gates(summary.reports, quality_options)
+        if summary.converted == 0 and summary.skipped == summary.total:
+            print(f"Merged output already exists: {resolved_merge_output}")
+        else:
+            print(f"Merged output written to: {resolved_merge_output}")
+        violations = evaluate_summary_quality(summary)
         for violation in violations:
             print(f"QUALITY GATE: {violation.message}")
         return 1 if summary.failed or violations else 0
@@ -375,15 +405,49 @@ def run(
                 file=sys.stderr,
             )
         resolved_watch_backend = cast(Literal["auto", "poll", "event"], watch_backend)
-        backend_name = resolve_watch_backend(resolved_watch_backend)
+        try:
+            backend_name = resolve_watch_backend(resolved_watch_backend)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         watched_label = resolved_inputs[0] if len(resolved_inputs) == 1 else f"{len(resolved_inputs)} input path(s)"
+        watch_reports: list[ConversionReport] = []
+        watch_counts = {"converted": 0, "skipped": 0, "failed": 0}
+
+        def emit_watch_progress(event: ConversionEvent) -> None:
+            emit_progress(event)
+            if event.kind == ConversionEventKind.CONVERTED:
+                watch_counts["converted"] += 1
+            elif event.kind == ConversionEventKind.SKIPPED:
+                watch_counts["skipped"] += 1
+            elif event.kind == ConversionEventKind.FAILED:
+                watch_counts["failed"] += 1
+            if event.report is not None and event.kind in {
+                ConversionEventKind.CONVERTED,
+                ConversionEventKind.SKIPPED,
+                ConversionEventKind.FAILED,
+            }:
+                watch_reports.append(event.report)
+
         _print_rendering_selection(rendering_options)
         print(f'Watching "{watched_label}" for changes using the {backend_name} backend... (Ctrl+C to stop)')
         try:
-            watch_svg_files(resolved_inputs, options, reporter=emit_progress, backend=resolved_watch_backend)
+            watch_svg_files(resolved_inputs, options, reporter=emit_watch_progress, backend=resolved_watch_backend)
         except KeyboardInterrupt:
             print("\nWatch mode stopped.")
-        return 0
+        watch_summary = ConversionSummary(
+            total=sum(watch_counts.values()),
+            converted=watch_counts["converted"],
+            skipped=watch_counts["skipped"],
+            failed=watch_counts["failed"],
+            cancelled=True,
+            reports=watch_reports,
+        )
+        write_report(batch_payload("watch", watch_reports, watch_summary))
+        violations = evaluate_summary_quality(watch_summary)
+        for violation in violations:
+            print(f"QUALITY GATE: {violation.message}")
+        return 1 if watch_summary.failed or violations else 0
 
     service = ConversionService()
     _print_rendering_selection(rendering_options)
@@ -397,7 +461,7 @@ def run(
         return 0
 
     print(summary.to_status_line())
-    violations = evaluate_quality_gates(summary.reports, quality_options)
+    violations = evaluate_summary_quality(summary)
     for violation in violations:
         print(f"QUALITY GATE: {violation.message}")
     return 1 if summary.failed or violations else 0

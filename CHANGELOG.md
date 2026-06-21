@@ -4,10 +4,29 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-06-21
+
 ### Added
 
 - `--merge {pages,grid}` combines every input SVG into one `.drawio` file - either one page per SVG or a single labeled tile grid - available in the CLI (`--merge`/`--merge-output`/`--grid-columns`), the Python API (`merge_files`, `ConversionService.merge`), and a new "Merge & extras" section in the desktop app.
 - `--legend` and `--background-color` add a lightweight post-conversion hook (`PostProcessOptions`): a "Notes" layer summarizing the conversion report and/or a draw.io page background color, available on both ordinary conversions and merges.
+- Mermaid-style flowcharts now receive dedicated compatibility handling for root-scoped descendant CSS, nested transforms, recursive `<tspan>` structures, whitespace measurement, centered multi-run labels, and zero-size layout rectangles.
+- Textual XHTML inside `<foreignObject>` is flattened into editable draw.io labels, with structured compatibility reporting when complex HTML layout is simplified.
+- Mermaid and SVG triangle markers now retain filled arrowheads and marker-reference overhang, so arrow tips reach the same visual endpoint as in the source SVG.
+- Public watch helpers and an interface-parity guide now document the equivalent CLI, Python API, and desktop workflows.
+- The visual regression fixture now includes Mermaid flowchart and `<foreignObject>` examples.
+
+### Changed
+
+- The compatibility documentation now explicitly covers `<foreignObject>`, remote image links, unsupported animation elements, and intentional interface-specific features.
+
+### Fixed
+
+- Watch reconversions now preserve notes/background post-processing, and CLI watch sessions export reports and evaluate quality gates when stopped.
+- Merge now honors overwrite settings and supports cooperative cancellation in the Python API and desktop app.
+- Parallel conversions now update the shared persistent cache manifest atomically and without losing entries.
+- Quality gates now fail closed when an existing output is skipped without cached diagnostics instead of silently passing an incomplete batch.
+- Direct Python API calls now reject non-positive `max_elements` values consistently with the CLI and desktop app.
 
 ## [3.9.1] - 2026-06-20
 
