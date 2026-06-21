@@ -368,7 +368,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - Linear and radial gradients with `gradientTransform` and `xlink:href` inheritance
 - Multi-stop linear gradients on `<rect>`, `<circle>`, `<ellipse>`, and `<path>` approximated natively as stacked two-color gradient bands
 - Multi-stop radial gradients on `<rect>`, `<circle>`, and `<ellipse>` approximated as adaptive concentric rings
-- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
+- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, filled triangle detection, marker-tip positioning, plus simple custom endpoint shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
 - Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`, native approximation for `letter-spacing` and `textLength`
@@ -410,13 +410,17 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 | Combined `translate + rotate` | Native rotation with corrected center |
 | Nested groups | All transforms accumulated before rendering |
 
-Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable.
+Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable. Native triangle
+markers retain a filled arrow style, and their reference-point overhang is applied so the visible tip reaches
+the same endpoint as in the source SVG.
 
 </details>
 
 ## Tip: re-exporting to SVG from draw.io
 
-draw.io wraps text labels in `<foreignObject>` when exporting SVG, which many tools do not support. Before exporting:
+The converter now keeps common Mermaid and draw.io `<foreignObject>` text labels editable by flattening their
+XHTML text into draw.io labels. Complex HTML layout and mixed inline formatting may still be simplified. For the
+most faithful editable re-export from draw.io:
 
 1. **Edit -> Select All**
 2. In the right-hand panel, click **Convert labels to SVG**

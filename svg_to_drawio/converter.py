@@ -13,12 +13,22 @@ from .atomic_write import write_text_atomically
 from .cell_factory import make_bounds_vertex, make_layer_cell
 from .compatibility import note_reference_usage
 from .conversion_result import ConversionResult
-from .css import AncestorInfo, CssRule, CssRuleIndex, apply_css, collect_css, extract_custom_props, index_css_rules
+from .css import (
+    AncestorInfo,
+    CssRule,
+    CssRuleIndex,
+    ancestor_info,
+    apply_css,
+    collect_css,
+    extract_custom_props,
+    index_css_rules,
+)
 from .defs import DefsIndex
 from .diagnostics import ConversionReport
 from .drawio_model import Cell, group_bbox, shift_cells
 from .drawio_output import make_xml
 from .element_geometry import BoundsBox
+from .elements.foreign_object import emit_foreign_object
 from .elements.gradient_approx import is_multi_stop_gradient, supports_multi_stop_gradient_approximation
 from .elements.image import emit_embedded_image_uri, emit_image
 from .elements.path import emit_path
@@ -100,6 +110,7 @@ _DISPATCH: dict[str, ElementEmitter] = {
     "ellipse": emit_ellipse,
     "rect": emit_rect,
     "text": emit_text,
+    "foreignObject": emit_foreign_object,
     "polyline": _emit_open_polyline,
     "polygon": _emit_closed_polygon,
     "path": emit_path,
@@ -192,8 +203,20 @@ class Converter:
         """Convert a parsed SVG root element into `self.cells`, without serializing to XML."""
         self._prepare_root(root, source_path=source_path, base_dir=base_dir)
         context = self._make_context()
+        root_tag = strip_ns(root.tag)
+        root_css = apply_css(
+            root,
+            self.css_rules,
+            root_tag,
+            {},
+            ancestors=[],
+            custom_props=self._custom_props,
+            _match_cache=self._css_match_cache,
+            rule_index=self._css_rule_index,
+        )
+        root_ancestors = [ancestor_info(root)]
         for child in root:
-            self._convert(child, context, self._root_matrix, {}, ancestors=[])
+            self._convert(child, context, self._root_matrix, root_css, ancestors=root_ancestors)
         self.report.emitted_cells = len(self.cells)
 
     def _finalize_cells(self, title: str) -> str:
@@ -1065,8 +1088,7 @@ class Converter:
             ancestor_list,
         )
 
-        elem_classes = set((elem.get("class") or "").split())
-        child_ancestors = ancestor_list + [(tag, elem_classes)]
+        child_ancestors = ancestor_list + [ancestor_info(elem)]
 
         if tag == "g":
             self._convert_group(elem, ctx, matrix, css, child_ancestors)

@@ -151,7 +151,9 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._thread: QThread | None = None
-        self._worker: ConversionWorker | ParallelConversionWorker | WatchConversionWorker | None = None
+        self._worker: (
+            ConversionWorker | MergeConversionWorker | ParallelConversionWorker | WatchConversionWorker | None
+        ) = None
         self._converted = 0
         self._skipped = 0
         self._failed = 0

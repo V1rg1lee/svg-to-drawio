@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import xml.etree.ElementTree as ET
 
-from svg_to_drawio.css import CssRule, apply_css, index_css_rules
+from svg_to_drawio.css import CssRule, ancestor_info, apply_css, index_css_rules
 
 from tests.helpers import SvgTestCase
 
@@ -44,6 +44,52 @@ class AdvancedCssTests(SvgTestCase):
             self.assertEqual(right_styles["fillColor"], "none")
             self.assertEqual(right_styles["strokeColor"], "#111111")
             self.assertEqual(right_styles["strokeWidth"], "1.0")
+
+    def test_mermaid_root_id_and_multi_level_descendant_selectors_are_applied(self) -> None:
+        svg = """
+        <svg id="my-svg" xmlns="http://www.w3.org/2000/svg" width="180" height="120">
+          <style>
+            #my-svg { font-family: Georgia; font-size: 16px; fill: #333333; }
+            #my-svg .node rect { fill: #ECECFF; stroke: #9370DB; stroke-width: 1px; }
+            #my-svg .edgePaths .flowchart-link { stroke: #333333; }
+            #my-svg .node .label text { text-anchor: middle; }
+          </style>
+          <g class="root">
+            <g class="edgePaths">
+              <line class="flowchart-link" x1="20" y1="20" x2="80" y2="20" />
+            </g>
+            <g class="node" transform="translate(90, 60)">
+              <rect x="-40" y="-20" width="80" height="40" />
+              <g class="label">
+                <rect />
+                <text x="0" y="0">Start</text>
+              </g>
+            </g>
+          </g>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            node = next(cell for cell in cells if self._style_map(cell).get("fillColor") == "#ECECFF")
+            edge = next(cell for cell in cells if cell.get("edge") == "1")
+            text = next(cell for cell in cells if cell.get("value") == "Start")
+
+            node_styles = self._style_map(node)
+            edge_styles = self._style_map(edge)
+            text_styles = self._style_map(text)
+            self.assertEqual(node_styles["strokeColor"], "#9370DB")
+            self.assertEqual(edge_styles["strokeColor"], "#333333")
+            self.assertEqual(text_styles["fontSize"], "16.0")
+            self.assertEqual(text_styles["fontFamily"], "Georgia")
+            self.assertEqual(text_styles["align"], "center")
+
+            empty_vertices = [
+                cell
+                for cell in cells
+                if cell.get("vertex") == "1" and not cell.get("value") and cell.get("style") != "group;"
+            ]
+            self.assertEqual(empty_vertices, [node])
 
     def test_font_size_relative_units_are_resolved_from_css(self) -> None:
         svg = """
@@ -121,7 +167,7 @@ class AdvancedCssTests(SvgTestCase):
         ]
         rule_index = index_css_rules(rules)
         elem = ET.fromstring('<rect id="exact" class="special" />')
-        ancestors = [("g", {"theme"})]
+        ancestors = [ancestor_info(ET.fromstring('<g class="theme" />'))]
 
         without_index = apply_css(elem, rules, "rect", ancestors=ancestors)
         with_index = apply_css(elem, rules, "rect", ancestors=ancestors, rule_index=rule_index)

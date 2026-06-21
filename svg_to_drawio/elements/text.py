@@ -26,7 +26,7 @@ from ..text_path import (
     sample_path_polyline,
 )
 from ..transforms import Matrix, apply_pt
-from ..utils import parse_float, parse_length, parse_style_attr, strip_ns
+from ..utils import parse_length, parse_style_attr, strip_ns
 from .style_support import add_filter_styles, add_metadata_styles
 
 # Tspan attributes that require separate cell rendering.
@@ -54,6 +54,37 @@ class TextPathRun:
     visual: VisualStyle
     dx: float = 0.0
     dy: float = 0.0
+
+
+@dataclass
+class StructuredTextRun:
+    """One editable text segment positioned within an SVG text chunk."""
+
+    content: str
+    visual: VisualStyle
+    x: float
+    y: float
+    advance: float
+
+
+@dataclass
+class StructuredTextChunk:
+    """A contiguous SVG text chunk sharing one text-anchor adjustment."""
+
+    origin_x: float
+    anchor: str
+    end_x: float
+    runs: list[StructuredTextRun]
+
+
+@dataclass
+class StructuredTextLayout:
+    """Mutable cursor state used while recursively laying out ordinary tspans."""
+
+    x: float
+    y: float
+    chunks: list[StructuredTextChunk]
+    active_chunk: StructuredTextChunk | None = None
 
 
 def _has_text_path(elem: Element) -> bool:
@@ -508,10 +539,14 @@ def _collect_text(elem: Element) -> str:
     return "".join(elem.itertext()).strip()
 
 
-def _has_styled_tspans(elem: Element) -> bool:
-    """Return whether any tspan needs its own draw.io text cell."""
-    for child in elem:
-        if strip_ns(child.tag) == "tspan" and any(child.get(attr) for attr in _TSPAN_STYLE_ATTRS):
+def _has_structured_tspans(elem: Element) -> bool:
+    """Return whether a tspan subtree needs recursive style/position handling."""
+    for child in elem.iter():
+        if child is elem or strip_ns(child.tag) != "tspan":
+            continue
+        if child.get("class") or child.get("id") or any(child.get(attr) for attr in _TSPAN_STYLE_ATTRS):
+            return True
+        if any(strip_ns(grandchild.tag) == "tspan" for grandchild in child):
             return True
     return False
 
@@ -546,10 +581,171 @@ def _tspan_visual(
     return get_visual(tspan, computed)
 
 
+def _advance_for_whitespace(
+    raw: str,
+    visual: VisualStyle,
+    metrics_policy: str,
+) -> float:
+    """Return the horizontal advance represented by one collapsed SVG space."""
+    if not raw:
+        return 0.0
+    font_size = max(visual["font_size"], 6)
+    font_family = visual.get("font_family") or "Helvetica"
+    font_kwargs = _font_kwargs(visual)
+    spaced_width, _ = measure_text(
+        "a a",
+        font_size,
+        font_family,
+        policy=metrics_policy,
+        **font_kwargs,
+    )
+    compact_width, _ = measure_text(
+        "aa",
+        font_size,
+        font_family,
+        policy=metrics_policy,
+        **font_kwargs,
+    )
+    return max(spaced_width - compact_width, font_size * 0.2)
+
+
+def _text_coordinate(value: str | None, font_size: float, default: float = 0.0) -> float:
+    """Resolve a text positioning length, including font-relative em/ex units."""
+    if value is None:
+        return default
+    text = value.strip().lower()
+    if text.endswith("em"):
+        return parse_length(text[:-2], default / font_size if font_size else 0.0) * font_size
+    if text.endswith("ex"):
+        return parse_length(text[:-2], default / (font_size * 0.5) if font_size else 0.0) * font_size * 0.5
+    return parse_length(value, default)
+
+
+def _layout_text_fragment(
+    ctx: EmitterContext,
+    layout: StructuredTextLayout,
+    visual: VisualStyle,
+    raw: str | None,
+) -> None:
+    """Append one XML text-node fragment to the active SVG text chunk."""
+    if not raw:
+        return
+    content = raw.strip()
+    if not content:
+        if "\n" in raw or "\r" in raw:
+            return
+        whitespace_advance = _advance_for_whitespace(raw, visual, ctx.rendering_options.text_metrics_policy)
+        layout.x += whitespace_advance
+        if layout.active_chunk is not None:
+            layout.active_chunk.end_x = layout.x
+        return
+
+    metrics_policy = ctx.rendering_options.text_metrics_policy
+    if layout.active_chunk is None:
+        layout.active_chunk = StructuredTextChunk(
+            origin_x=layout.x,
+            anchor=str(visual.get("text_anchor") or "start"),
+            end_x=layout.x,
+            runs=[],
+        )
+        layout.chunks.append(layout.active_chunk)
+
+    if raw[0].isspace():
+        layout.x += _advance_for_whitespace(raw, visual, metrics_policy)
+
+    advance = _run_advance(content, visual, metrics_policy)
+    layout.active_chunk.runs.append(
+        StructuredTextRun(
+            content=content,
+            visual=visual,
+            x=layout.x,
+            y=layout.y,
+            advance=advance,
+        )
+    )
+    layout.x += advance
+
+    if raw[-1].isspace():
+        layout.x += _advance_for_whitespace(raw, visual, metrics_policy)
+    layout.active_chunk.end_x = layout.x
+
+
+def _layout_tspan_subtree(
+    ctx: EmitterContext,
+    node: Element,
+    node_visual: VisualStyle,
+    node_css: dict[str, str] | None,
+    layout: StructuredTextLayout,
+) -> None:
+    """Recursively collect one ordinary text/tspan subtree into positioned chunks."""
+    _layout_text_fragment(ctx, layout, node_visual, node.text)
+    inherited_css = node_css or _visual_to_css(node_visual)
+
+    for child in node:
+        if strip_ns(child.tag) != "tspan":
+            continue
+
+        child_visual = _tspan_visual(child, inherited_css, ctx)
+        child_font_size = max(child_visual["font_size"], 1.0)
+        starts_new_chunk = child.get("x") is not None or child.get("y") is not None
+        if child.get("x") is not None:
+            layout.x = _text_coordinate(child.get("x"), child_font_size)
+        if child.get("y") is not None:
+            layout.y = _text_coordinate(child.get("y"), child_font_size)
+        if starts_new_chunk:
+            layout.active_chunk = None
+        layout.x += _text_coordinate(child.get("dx"), child_font_size)
+        layout.y += _text_coordinate(child.get("dy"), child_font_size)
+
+        _layout_tspan_subtree(
+            ctx,
+            child,
+            child_visual,
+            _visual_to_css(child_visual),
+            layout,
+        )
+        _layout_text_fragment(ctx, layout, node_visual, child.tail)
+
+
+def _emit_structured_text(
+    ctx: EmitterContext,
+    elem: Element,
+    matrix: Matrix,
+    visual: VisualStyle,
+    css: dict[str, str] | None,
+    x0: float,
+    y0: float,
+) -> None:
+    """Lay out and emit recursively styled tspans with chunk-level anchoring."""
+    layout = StructuredTextLayout(x=x0, y=y0, chunks=[])
+    _layout_tspan_subtree(ctx, elem, visual, css, layout)
+
+    for chunk in layout.chunks:
+        chunk_width = max(chunk.end_x - chunk.origin_x, 0.0)
+        if chunk.anchor == "middle":
+            anchor_shift = -chunk_width / 2.0
+        elif chunk.anchor == "end":
+            anchor_shift = -chunk_width
+        else:
+            anchor_shift = 0.0
+
+        for run in chunk.runs:
+            run_visual = VisualStyle(**run.visual)
+            run_visual["text_anchor"] = "start"
+            _emit_text_run(
+                ctx,
+                elem,
+                matrix,
+                run_visual,
+                run.x + anchor_shift,
+                run.y,
+                run.content,
+            )
+
+
 def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str, str] | None = None) -> None:
     """Emit an SVG `<text>` element."""
     visual = get_visual(elem, css)
-    metrics_policy = ctx.rendering_options.text_metrics_policy
     x0 = parse_length(elem.get("x"))
     y0 = parse_length(elem.get("y"))
 
@@ -598,61 +794,8 @@ def emit_text(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
             _emit_text_run(ctx, elem, matrix, visual, x0, y0, content)
         return
 
-    if _has_styled_tspans(elem):
-        cur_x, cur_y = x0, y0
-
-        if elem.text and elem.text.strip():
-            cur_x += _emit_text_run(ctx, elem, matrix, visual, cur_x, cur_y, elem.text.strip())
-
-        for tspan in elem:
-            if strip_ns(tspan.tag) != "tspan":
-                continue
-
-            if tspan.get("x"):
-                cur_x = parse_length(tspan.get("x"))
-            if tspan.get("y"):
-                cur_y = parse_length(tspan.get("y"))
-            if tspan.get("dy"):
-                cur_y += parse_float(tspan.get("dy"))
-            if tspan.get("dx"):
-                cur_x += parse_float(tspan.get("dx"))
-
-            raw = tspan.text or ""
-            content = raw.strip()
-            if not content:
-                cur_x += _run_advance(raw or " ", visual, metrics_policy)
-                continue
-
-            tspan_visual = _tspan_visual(tspan, css, ctx)
-            font_size = max(tspan_visual["font_size"], 6)
-
-            prefix_spaces = len(raw) - len(raw.lstrip())
-            if prefix_spaces:
-                prefix_advance, _ = measure_text(
-                    " " * prefix_spaces,
-                    font_size,
-                    tspan_visual.get("font_family") or "Helvetica",
-                    policy=metrics_policy,
-                    **_font_kwargs(tspan_visual),
-                )
-                cur_x += prefix_advance
-
-            cur_x += _emit_text_run(ctx, elem, matrix, tspan_visual, cur_x, cur_y, content)
-
-            tail = tspan.tail or ""
-            tail_content = tail.strip()
-            if tail_content:
-                prefix_spaces = len(tail) - len(tail.lstrip())
-                if prefix_spaces:
-                    prefix_advance, _ = measure_text(
-                        " " * prefix_spaces,
-                        max(visual["font_size"], 6),
-                        visual.get("font_family") or "Helvetica",
-                        policy=metrics_policy,
-                        **_font_kwargs(visual),
-                    )
-                    cur_x += prefix_advance
-                cur_x += _emit_text_run(ctx, elem, matrix, visual, cur_x, cur_y, tail_content)
+    if _has_structured_tspans(elem):
+        _emit_structured_text(ctx, elem, matrix, visual, css, x0, y0)
         return
 
     content = _collect_text(elem)

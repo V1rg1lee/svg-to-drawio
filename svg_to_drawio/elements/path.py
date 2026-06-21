@@ -18,8 +18,10 @@ from .style_support import (
     add_filter_styles,
     add_gradient_styles,
     add_metadata_styles,
+    add_native_arrow_styles,
     emit_endpoint_marker,
     emit_midpoint_markers,
+    extend_edge_endpoints,
     segment_angle_degrees,
 )
 
@@ -50,7 +52,8 @@ def _emit_open_path_as_edge(
     stroke_color = visual["stroke"] or "#000000"
     opacity = opacity_pct(visual["opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
-    stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+    geometry_scale = stroke_scale(matrix)
+    stroke_width = visual["stroke_width"] * geometry_scale
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
     start_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_start"])
@@ -64,12 +67,37 @@ def _emit_open_path_as_edge(
     ctx.report.record_feature_observation(note_shape_usage(approximated=False))
 
     src, *mid, tgt = points_t
+    src, tgt = extend_edge_endpoints(
+        src,
+        tgt,
+        mid,
+        start_extension=(
+            ctx.defs.resolve_marker_extension(
+                visual["marker_start"],
+                at_start=True,
+                stroke_width=stroke_width,
+                user_scale=geometry_scale,
+            )
+            if start_shape is None
+            else 0.0
+        ),
+        end_extension=(
+            ctx.defs.resolve_marker_extension(
+                visual["marker_end"],
+                at_start=False,
+                stroke_width=stroke_width,
+                user_scale=geometry_scale,
+            )
+            if end_shape is None
+            else 0.0
+        ),
+    )
     style = StyleBuilder()
     style.add("rounded", 1 if visual["linejoin"] == "round" else 0, when=not (_has_curve_commands(path_data) and mid))
     style.add("lineCap", visual["linecap"], when=visual["linecap"] != "flat")
     style.add("lineJoin", visual["linejoin"], when=visual["linejoin"] != "miter")
     style.add("curved", 1, when=_has_curve_commands(path_data) and bool(mid))
-    style.add("startArrow", start_arrow).add("endArrow", end_arrow).add("html", 1)
+    add_native_arrow_styles(style, start_arrow, end_arrow).add("html", 1)
     style.add("strokeColor", stroke_color).add("strokeWidth", stroke_width)
     style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
     style.extend_raw(visual["dash_style"])

@@ -12,7 +12,7 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QTransform, QWheelEvent
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QToolTip, QWidget
-from svg_to_drawio.css import AncestorInfo, apply_css, collect_css, extract_custom_props, index_css_rules
+from svg_to_drawio.css import AncestorInfo, ancestor_info, apply_css, collect_css, extract_custom_props, index_css_rules
 from svg_to_drawio.diagnostics import PreviewAnnotation
 from svg_to_drawio.styles import get_visual, normalize_color
 from svg_to_drawio.utils import format_style_attr, parse_style_attr, strip_ns
@@ -221,7 +221,7 @@ def _inline_preview_styles(root: ET.Element) -> bool:
             rule_index=rule_index,
         )
         changed_here = _normalize_element_style(elem, computed)
-        next_ancestors = [*ancestors, (tag, set((elem.get("class") or "").split()))]
+        next_ancestors = [*ancestors, ancestor_info(elem)]
         for child in elem:
             changed_here |= visit(child, computed, next_ancestors)
         return changed_here
