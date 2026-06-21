@@ -24,7 +24,9 @@ from .style_support import (
     add_filter_styles,
     add_gradient_styles,
     add_metadata_styles,
+    add_native_arrow_styles,
     emit_endpoint_marker,
+    extend_edge_endpoints,
     segment_angle_degrees,
 )
 
@@ -42,7 +44,8 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     stroke_color = visual["stroke"] or "#000000"
     opacity = opacity_pct(visual["opacity"])
     stroke_opacity = opacity_pct(visual["stroke_opacity"])
-    stroke_width = visual["stroke_width"] * stroke_scale(matrix)
+    geometry_scale = stroke_scale(matrix)
+    stroke_width = visual["stroke_width"] * geometry_scale
     start_arrow = ctx.defs.resolve_marker(visual["marker_start"])
     end_arrow = ctx.defs.resolve_marker(visual["marker_end"])
     start_shape = ctx.defs.resolve_custom_marker_shape(visual["marker_start"])
@@ -79,9 +82,34 @@ def emit_line(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
         return
 
     ctx.report.record_feature_observation(note_shape_usage(approximated=False))
+    (x1, y1), (x2, y2) = extend_edge_endpoints(
+        (x1, y1),
+        (x2, y2),
+        (),
+        start_extension=(
+            ctx.defs.resolve_marker_extension(
+                visual["marker_start"],
+                at_start=True,
+                stroke_width=stroke_width,
+                user_scale=geometry_scale,
+            )
+            if start_shape is None
+            else 0.0
+        ),
+        end_extension=(
+            ctx.defs.resolve_marker_extension(
+                visual["marker_end"],
+                at_start=False,
+                stroke_width=stroke_width,
+                user_scale=geometry_scale,
+            )
+            if end_shape is None
+            else 0.0
+        ),
+    )
     style = StyleBuilder()
     style.add("rounded", 0)
-    style.add("startArrow", start_arrow).add("endArrow", end_arrow).add("html", 1)
+    add_native_arrow_styles(style, start_arrow, end_arrow).add("html", 1)
     style.add("strokeColor", stroke_color).add("strokeWidth", f"{stroke_width:.2f}")
     style.add("opacity", opacity).add("strokeOpacity", stroke_opacity)
     style.extend_raw(visual["dash_style"])
@@ -273,6 +301,8 @@ def emit_rect(ctx: EmitterContext, elem: Element, matrix: Matrix, css: dict[str,
     y0 = parse_length(elem.get("y"))
     width0 = parse_length(elem.get("width"))
     height0 = parse_length(elem.get("height"))
+    if width0 <= 0 or height0 <= 0:
+        return
     rx = parse_length(elem.get("rx", "0")) or 0.0
     ry = parse_length(elem.get("ry", "0")) or 0.0
     if rx <= 0 < ry:

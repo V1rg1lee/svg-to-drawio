@@ -11,6 +11,8 @@ from os import makedirs, path
 from unittest.mock import patch
 
 import main
+from svg_to_drawio.conversion_service import ConversionEvent, ConversionEventKind
+from svg_to_drawio.diagnostics import ConversionReport
 
 from tests.helpers import SvgTestCase
 
@@ -95,6 +97,74 @@ class CliTests(SvgTestCase):
 
             self.assertEqual(code, 0)
             self.assertIn("--workers is ignored in --analyze mode", stderr.getvalue())
+
+    def test_cli_watch_exports_reports_and_applies_quality_gates_when_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            report_path = path.join(tmpdir, "watch-report.json")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+
+            report = ConversionReport(source_path=svg_path, fallback_count=1)
+
+            def fake_watch(
+                input_paths: object,
+                options: object,
+                reporter: object,
+                backend: object,
+            ) -> None:
+                del input_paths, options, backend
+                assert callable(reporter)
+                reporter(
+                    ConversionEvent(
+                        kind=ConversionEventKind.CONVERTED,
+                        message="Converted",
+                        completed=1,
+                        total=1,
+                        source_path=svg_path,
+                        output_path=path.join(tmpdir, "diagram.drawio"),
+                        report=report,
+                    )
+                )
+                raise KeyboardInterrupt
+
+            stdout = io.StringIO()
+            with patch("svg_to_drawio.conversion_service.watch_svg_files", side_effect=fake_watch):
+                with redirect_stdout(stdout):
+                    code = main.run(
+                        svg_path,
+                        watch=True,
+                        report_json=report_path,
+                        fail_on_fallback=True,
+                    )
+
+            self.assertEqual(code, 1)
+            self.assertIn("QUALITY GATE:", stdout.getvalue())
+            with open(report_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            self.assertEqual(payload["mode"], "watch")
+            self.assertEqual(len(payload["reports"]), 1)
+
+    def test_cli_watch_reports_an_unavailable_event_backend_without_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" />')
+
+            stderr = io.StringIO()
+            with patch(
+                "svg_to_drawio.cli.resolve_watch_backend",
+                side_effect=RuntimeError("watchdog is unavailable"),
+            ):
+                with redirect_stderr(stderr):
+                    code = main.run(svg_path, watch=True, watch_backend="event")
+
+            self.assertEqual(code, 1)
+            self.assertIn("Error: watchdog is unavailable", stderr.getvalue())
 
     def test_cli_main_reports_a_clean_error_when_no_input_and_stdin_is_not_interactive(self) -> None:
         stdout = io.StringIO()

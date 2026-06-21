@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
 from .utils import parse_float, parse_length, parse_style_attr, strip_ns
 
 Specificity = tuple[int, int, int]
-AncestorInfo = tuple[str, set[str]]
+
+
+@dataclass(frozen=True)
+class AncestorInfo:
+    """Selector-relevant metadata for one ancestor element."""
+
+    tag: str
+    elem_id: str
+    classes: frozenset[str]
+    element: Element
+
+
+def ancestor_info(elem: Element) -> AncestorInfo:
+    """Build selector metadata for an element before traversing its children."""
+    return AncestorInfo(
+        tag=strip_ns(elem.tag),
+        elem_id=elem.get("id", ""),
+        classes=frozenset((elem.get("class") or "").split()),
+        element=elem,
+    )
+
 
 _PRESENTATION_ATTR_SPECIFICITY: Specificity = (0, 0, 0)
 _PRESENTATION_ATTR_ORDER = -1
@@ -134,7 +154,7 @@ def _match_simple_sel(
     selector: str,
     tag: str,
     elem_id: str,
-    elem_classes: set[str],
+    elem_classes: Collection[str],
     elem: Element,
 ) -> bool:
     """Match a simple selector without combinators against an element.
@@ -188,19 +208,86 @@ def _match_simple_sel(
     return True
 
 
-def _match_ancestor_sel(selector: str, ancestor_tag: str, ancestor_classes: set[str]) -> bool:
-    """Match a simplified ancestor selector used in descendant and child combinators."""
-    ok, remainder = _match_type_selector(selector, ancestor_tag)
-    if not ok:
-        return False
-    while remainder:
-        if remainder[0] != ".":
-            return False
-        match = re.match(r"^\.([\w-]+)", remainder)
-        if not match or match.group(1) not in ancestor_classes:
-            return False
-        remainder = remainder[match.end() :]
-    return True
+def _split_selector_chain(selector: str) -> tuple[list[str], list[str]]:
+    """Split one selector into simple selectors and ` ` / `>` combinators.
+
+    Whitespace and `>` inside attribute values are ignored so selectors such as
+    `[data-label="A > B"] .node` remain parseable.
+    """
+    parts: list[str] = []
+    combinators: list[str] = []
+    buffer: list[str] = []
+    bracket_depth = 0
+    quote: str | None = None
+    pending_descendant = False
+    index = 0
+
+    def flush_part() -> None:
+        nonlocal buffer
+        part = "".join(buffer).strip()
+        if part:
+            parts.append(part)
+        buffer = []
+
+    while index < len(selector):
+        char = selector[index]
+        if quote is not None:
+            buffer.append(char)
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "'"} and bracket_depth:
+            quote = char
+            buffer.append(char)
+            index += 1
+            continue
+        if char == "[":
+            bracket_depth += 1
+            buffer.append(char)
+            index += 1
+            continue
+        if char == "]" and bracket_depth:
+            bracket_depth -= 1
+            buffer.append(char)
+            index += 1
+            continue
+        if bracket_depth:
+            buffer.append(char)
+            index += 1
+            continue
+        if char.isspace():
+            if buffer:
+                flush_part()
+                pending_descendant = True
+            index += 1
+            continue
+        if char == ">":
+            if buffer:
+                flush_part()
+            pending_descendant = False
+            if parts and len(combinators) < len(parts):
+                combinators.append(">")
+            index += 1
+            while index < len(selector) and selector[index].isspace():
+                index += 1
+            continue
+        if pending_descendant:
+            if parts and len(combinators) < len(parts):
+                combinators.append(" ")
+            pending_descendant = False
+        buffer.append(char)
+        index += 1
+
+    flush_part()
+    if len(parts) != len(combinators) + 1:
+        return [], []
+    return parts, combinators
+
+
+def _info_matches(selector: str, info: AncestorInfo) -> bool:
+    """Return whether one simple selector matches stored element metadata."""
+    return _match_simple_sel(selector, info.tag, info.elem_id, info.classes, info.element)
 
 
 def _selector_matches(
@@ -211,35 +298,38 @@ def _selector_matches(
     elem: Element,
     ancestors: Sequence[AncestorInfo],
 ) -> bool:
-    """Return whether a selector matches an element within its ancestor context."""
+    """Match an arbitrary descendant/child selector chain from right to left."""
     selector = selector.strip()
     if not selector:
         return False
 
-    has_child_combinator = ">" in selector
-    has_descendant_combinator = " " in selector and not has_child_combinator
-
-    if not has_child_combinator and not has_descendant_combinator:
-        return _match_simple_sel(selector, tag, elem_id, elem_classes, elem)
-
-    parts = re.split(r"\s*>\s*", selector, maxsplit=1) if has_child_combinator else selector.split(None, 1)
-    if len(parts) != 2:
+    parts, combinators = _split_selector_chain(selector)
+    if not parts:
         return False
 
-    ancestor_selector, descendant_selector = parts[0].strip(), parts[1].strip()
-    if not _match_simple_sel(descendant_selector, tag, elem_id, elem_classes, elem):
+    current = AncestorInfo(tag, elem_id, frozenset(elem_classes), elem)
+    nodes = [*ancestors, current]
+    node_index = len(nodes) - 1
+    if not _info_matches(parts[-1], nodes[node_index]):
         return False
 
-    if has_child_combinator:
-        if not ancestors:
+    for part_index in range(len(parts) - 2, -1, -1):
+        combinator = combinators[part_index]
+        if combinator == ">":
+            node_index -= 1
+            if node_index < 0 or not _info_matches(parts[part_index], nodes[node_index]):
+                return False
+            continue
+
+        matched_index: int | None = None
+        for candidate_index in range(node_index - 1, -1, -1):
+            if _info_matches(parts[part_index], nodes[candidate_index]):
+                matched_index = candidate_index
+                break
+        if matched_index is None:
             return False
-        ancestor_tag, ancestor_classes = ancestors[-1]
-        return _match_ancestor_sel(ancestor_selector, ancestor_tag, ancestor_classes)
-
-    for ancestor_tag, ancestor_classes in ancestors:
-        if _match_ancestor_sel(ancestor_selector, ancestor_tag, ancestor_classes):
-            return True
-    return False
+        node_index = matched_index
+    return True
 
 
 def _selector_specificity(selector: str) -> Specificity:

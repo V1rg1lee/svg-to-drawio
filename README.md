@@ -33,6 +33,7 @@ pip install svg-to-drawio
 - [Desktop app](#desktop-app)
 - [CLI reference](#cli-reference)
 - [Python API](#python-api)
+- [Interface parity](#interface-parity)
 - [Advanced rendering](#advanced-rendering)
 - [Development](#development)
 - [Release authenticity](#release-authenticity)
@@ -95,7 +96,7 @@ Download a release artifact from the [Releases page](https://github.com/V1rg1lee
 | Linux (cross-distro) | `ARM64` | `linux-aarch64.flatpak` | `linux-arm64.AppImage`, `linux-arm64.tar.gz` |
 | macOS | `universal2` | `macos.dmg` | none |
 
-Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
+Features: drag-and-drop, multi-root queues, live progress, cooperative cancellation, safe close / force close, one-click output folder access, watch mode, persistent preferences, rendering presets, merging multiple SVGs into one file (pages or tile grid) with an optional notes legend / page background, copy-as-CLI command, a plain-English compatibility panel with clickable details, and JSON report export.
 
 GitHub Actions now also smoke-tests the produced desktop deliverables on Windows (`x64`, `ARM64`), Linux (`x64`, `ARM64`), and macOS so installer/archive regressions are caught earlier.
 
@@ -140,6 +141,11 @@ svg-to-drawio [INPUT] [OPTIONS]
 | `--fail-on-fallback` | Exit with code 1 if any file uses embedded SVG fallback |
 | `--min-score N` | Exit with code 1 if any file scores below N compatibility points (0-100) |
 | `--require-native CAPABILITY...` | Require capability families such as `text`, `gradients`, or `clipping` to stay fully native |
+| `--merge {pages,grid}` | Combine every input SVG into one `.drawio` file: one page per SVG, or a labeled tile grid |
+| `--merge-output PATH` | Path of the combined file written by `--merge` (required with `--merge`) |
+| `--grid-columns N` | Number of columns in the `--merge grid` layout (default: auto, roughly square) |
+| `--legend` | Add a "Notes" layer summarizing the conversion report to the output |
+| `--background-color VALUE` | Set the draw.io page background color (e.g. `#FFFFFF`) |
 
 </details>
 
@@ -172,6 +178,12 @@ svg-to-drawio diagram.svg --stdout > diagram.drawio
 
 # Flatten all groups into a single layer
 svg-to-drawio diagram.svg --flatten --overwrite
+
+# Combine a brand kit of logos into one file, one page per logo
+svg-to-drawio logos/ --merge pages --merge-output brand.drawio --overwrite
+
+# Combine them into a single page, labeled tile grid, with a notes legend
+svg-to-drawio logos/ --merge grid --grid-columns 3 --merge-output brand-grid --legend
 ```
 
 During a normal conversion run, the CLI prints the active rendering plan in plain English, then a short compatibility summary that mainly highlights rows that were not fully native. `--analyze` prints the full per-file compatibility matrix, and `--report-json` writes the same data in machine-readable form for CI, automation, or custom tooling.
@@ -243,6 +255,24 @@ summary = service.convert(
 print(summary.to_status_line())
 ```
 
+To combine several SVGs into one `.drawio` file, with an optional notes legend / page background:
+
+```python
+from svg_to_drawio import PostProcessOptions, merge_files
+
+summary = merge_files(
+    ["logos/"],
+    "brand-grid",  # ".drawio" is appended automatically if missing
+    mode="grid",
+    columns=3,
+    overwrite=True,
+    post_process=PostProcessOptions(legend=True, background="#FFFFFF"),
+)
+print(summary.to_status_line())
+```
+
+`post_process` is also accepted by every `convert_*` function for ordinary (non-merge) conversions.
+
 For one-off diagnostics without writing output files:
 
 ```python
@@ -285,6 +315,17 @@ if violations:
 
 </details>
 
+## Interface parity
+
+The CLI, Python API, and desktop app use the same conversion, fallback, diagnostics, merge,
+watch, cache, and post-processing code paths. Their workflow-specific differences are
+intentional: the desktop owns the interactive preview, while the CLI/API expose automation
+features such as stdout XML and quality-gate exit codes.
+
+See the detailed [interface parity matrix](https://v1rg1lee.github.io/svg-to-drawio/interface-parity/)
+for the exact equivalent of each feature. The public API also exports `watch_svg_files(...)`,
+and merge operations now accept cooperative cancellation through `CancellationToken`.
+
 ## Advanced rendering
 
 The engine exposes a small set of rendering policies shared by the CLI, Python API, and desktop app:
@@ -318,6 +359,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 | `<polygon>` | Filled stencil shape |
 | `<path>` | Stencil; open unfilled paths with markers become edges; multi-stop linear gradients can be approximated natively |
 | `<text>` / `<tspan>` | Text cell |
+| textual `<foreignObject>` | XHTML text flattened into an editable text cell; complex HTML layout is simplified |
 | `<image>` | Image cell with embedded asset data |
 | `<g>` | Native draw.io group cell |
 | Inkscape layers (`<g inkscape:groupmode="layer">`) | draw.io layer cell |
@@ -340,7 +382,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - Linear and radial gradients with `gradientTransform` and `xlink:href` inheritance
 - Multi-stop linear gradients on `<rect>`, `<circle>`, `<ellipse>`, and `<path>` approximated natively as stacked two-color gradient bands
 - Multi-stop radial gradients on `<rect>`, `<circle>`, and `<ellipse>` approximated as adaptive concentric rings
-- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
+- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, filled triangle detection, marker-tip positioning, plus simple custom endpoint shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
 - Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`, native approximation for `letter-spacing` and `textLength`
@@ -351,6 +393,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
+- Remote `<image>` URLs stay linked and are reported as an approximation
 
 </details>
 
@@ -368,6 +411,7 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
+- SVG animation elements such as `<animate>` and `<animateTransform>` are not preserved; the static base geometry is converted.
 
 </details>
 
@@ -382,13 +426,17 @@ The desktop app also exposes three beginner-friendly presets built on top of tho
 | Combined `translate + rotate` | Native rotation with corrected center |
 | Nested groups | All transforms accumulated before rendering |
 
-Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable.
+Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable. Native triangle
+markers retain a filled arrow style, and their reference-point overhang is applied so the visible tip reaches
+the same endpoint as in the source SVG.
 
 </details>
 
 ## Tip: re-exporting to SVG from draw.io
 
-draw.io wraps text labels in `<foreignObject>` when exporting SVG, which many tools do not support. Before exporting:
+The converter now keeps common Mermaid and draw.io `<foreignObject>` text labels editable by flattening their
+XHTML text into draw.io labels. Complex HTML layout and mixed inline formatting may still be simplified. For the
+most faithful editable re-export from draw.io:
 
 1. **Edit -> Select All**
 2. In the right-hand panel, click **Convert labels to SVG**

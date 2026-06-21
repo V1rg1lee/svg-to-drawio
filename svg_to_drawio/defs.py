@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
 from .filter_effects import ShadowFilter, parse_shadow_filter
+from .path_parser import path_commands
 from .styles import GradientStop, GradientStyle, normalize_color
 from .transforms import IDENTITY, Matrix, mat_mul, parse_transform
 from .utils import parse_float, parse_style_attr, strip_ns
@@ -32,6 +33,16 @@ class FilterStyleResolution:
     entries: list[tuple[str, str | int]]
     approximated: bool
     detail: str
+
+
+@dataclass(frozen=True)
+class MarkerGeometry:
+    """Native arrow mapping plus the marker tip overhang around its reference point."""
+
+    arrow: str
+    start_extension: float = 0.0
+    end_extension: float = 0.0
+    units: str = "strokeWidth"
 
 
 def _stop_color(stop_elem: Element) -> str:
@@ -117,7 +128,7 @@ class DefsIndex:
         self._elements: dict[str, Element] = {}
         self._element_transforms: dict[str, Matrix] = {}
         self._gradients: dict[str, GradientStyle] = {}
-        self._markers: dict[str, str] = {}
+        self._markers: dict[str, MarkerGeometry] = {}
         self._filters: dict[str, ShadowFilter] = {}
 
     def index(self, svg_root: Element) -> None:
@@ -209,42 +220,46 @@ class DefsIndex:
             return
 
         lower_id = element_id.lower()
+        marker_geometry = _marker_geometry(elem)
 
         for key, arrow in _MARKER_ID_MAP.items():
             if key in lower_id:
-                self._markers[element_id] = arrow
+                self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, arrow)
                 return
 
         for child in elem.iter():
             tag = strip_ns(child.tag)
             if tag == "circle":
-                self._markers[element_id] = "oval"
+                self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "oval")
                 return
             if tag == "polygon":
                 coords = _POINT_RE.findall(child.get("points", ""))
                 point_count = len(coords) // 2
                 if point_count == 4 and "diamond" in lower_id:
-                    self._markers[element_id] = "diamond"
+                    self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "diamond")
                     return
                 if point_count == 3 and any(token in lower_id for token in ("arrow", "triangle", "arrowhead")):
-                    self._markers[element_id] = "block"
+                    self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "block")
                     return
-                self._markers[element_id] = "open"
+                self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "open")
                 return
             if tag == "path":
                 if "diamond" in lower_id:
-                    self._markers[element_id] = "diamond"
+                    self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "diamond")
                     return
                 if any(token in lower_id for token in ("arrow", "triangle", "arrowhead")):
-                    self._markers[element_id] = "block"
+                    self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "block")
                     return
-                self._markers[element_id] = "open"
+                if _is_closed_triangle_path(child.get("d")):
+                    self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "block")
+                    return
+                self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "open")
                 return
             if tag == "rect" and any(token in lower_id for token in ("square", "box")):
-                self._markers[element_id] = "block"
+                self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "block")
                 return
 
-        self._markers[element_id] = "open"
+        self._markers[element_id] = marker_geometry_with_arrow(marker_geometry, "open")
 
     def _index_filter(self, elem: Element, element_id: str | None) -> None:
         """Cache supported SVG filter primitives as draw.io style fragments."""
@@ -292,8 +307,30 @@ class DefsIndex:
             return "none"
         match = re.match(r"url\(#([^)]+)\)", marker_str)
         if match:
-            return self._markers.get(match.group(1), "open")
+            marker = self._markers.get(match.group(1))
+            return marker.arrow if marker is not None else "open"
         return "none"
+
+    def resolve_marker_extension(
+        self,
+        marker_str: str | None,
+        *,
+        at_start: bool,
+        stroke_width: float,
+        user_scale: float,
+    ) -> float:
+        """Return the transformed distance from a marker reference point to its visible tip."""
+        if not marker_str:
+            return 0.0
+        match = re.match(r"url\(#([^)]+)\)", marker_str)
+        if not match:
+            return 0.0
+        marker = self._markers.get(match.group(1))
+        if marker is None:
+            return 0.0
+        extension = marker.start_extension if at_start else marker.end_extension
+        scale = stroke_width if marker.units.lower() == "strokewidth" else user_scale
+        return max(extension * scale, 0.0)
 
     def resolve_custom_marker_shape(self, marker_str: str | None) -> str | None:
         """Return a simple endpoint-shape marker when the marker is not a native draw.io arrow."""
@@ -376,3 +413,46 @@ def _simple_marker_shape(marker: Element) -> str | None:
             if any(token in marker_id for token in ("triangle", "arrow", "arrowhead")):
                 return "triangle"
     return None
+
+
+def marker_geometry_with_arrow(marker: MarkerGeometry, arrow: str) -> MarkerGeometry:
+    """Return marker geometry with a resolved native draw.io arrow type."""
+    return MarkerGeometry(
+        arrow=arrow,
+        start_extension=marker.start_extension,
+        end_extension=marker.end_extension,
+        units=marker.units,
+    )
+
+
+def _marker_geometry(marker: Element) -> MarkerGeometry:
+    """Calculate marker tip overhang in marker viewport coordinates."""
+    view_box = [parse_float(value) for value in re.split(r"[\s,]+", marker.get("viewBox", "").strip()) if value]
+    marker_width = parse_float(marker.get("markerWidth"), 3.0)
+    marker_height = parse_float(marker.get("markerHeight"), 3.0)
+    ref_x = parse_float(marker.get("refX"), 0.0)
+    units = marker.get("markerUnits", "strokeWidth")
+
+    if len(view_box) >= 4 and view_box[2] > 0 and view_box[3] > 0:
+        min_x, _, width, height = view_box[:4]
+        scale = min(marker_width / width, marker_height / height)
+        return MarkerGeometry(
+            arrow="open",
+            start_extension=max(ref_x - min_x, 0.0) * scale,
+            end_extension=max(min_x + width - ref_x, 0.0) * scale,
+            units=units,
+        )
+
+    return MarkerGeometry(arrow="open", units=units)
+
+
+def _is_closed_triangle_path(path_data: str | None) -> bool:
+    """Return whether marker path data describes a simple closed triangle."""
+    commands = path_commands(path_data or "")
+    return (
+        len(commands) == 4
+        and commands[0][0] == "move"
+        and commands[1][0] == "line"
+        and commands[2][0] == "line"
+        and commands[3][0] == "close"
+    )

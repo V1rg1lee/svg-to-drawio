@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     viewBox="-10 -10 840 8300" width="840" height="8300">
+<svg id="all-features-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="-10 -10 840 9000" width="840" height="9000">
 
   <!-- ═══════════════════════════════════════════════════════
        DEFS  (gradients · markers · reusable shapes)
@@ -101,10 +101,33 @@
     .cls-warm  { --cls-color: #e65100; fill: var(--cls-color); stroke: #333; stroke-width: 1.5; }
     .cls-cool  { --cls-color: #1565c0; fill: var(--cls-color); stroke: #333; stroke-width: 1.5; }
     .cls-earth { --cls-color: #558b2f; stroke: var(--cls-color); fill: none; stroke-width: 3; }
+    /* F51: Mermaid-style root id plus multi-level descendant selectors */
+    #all-features-svg .mermaid-flow .mermaid-node rect,
+    #all-features-svg .mermaid-flow .mermaid-node polygon {
+      fill: #ECECFF;
+      stroke: #9370DB;
+      stroke-width: 2;
+    }
+    #all-features-svg .mermaid-flow .mermaid-edges .flowchart-link {
+      fill: none;
+      stroke: #333333;
+      stroke-width: 2;
+    }
+    #all-features-svg .mermaid-flow .mermaid-node .label text,
+    #all-features-svg .mermaid-flow .edge-label text {
+      fill: #333333;
+      font-family: Georgia;
+      font-size: 16px;
+      text-anchor: middle;
+    }
+    #all-features-svg .mermaid-flow .edge-label rect {
+      fill: rgba(232,232,232,0.8);
+      stroke: none;
+    }
   </style>
 
   <!-- background -->
-  <rect x="-10" y="-10" width="840" height="8300" fill="#f8f9fa"/>
+  <rect x="-10" y="-10" width="840" height="9000" fill="#f8f9fa"/>
 
   <!-- ═══════════════════════════════════════════════════════
        §1  BASIC SHAPES
@@ -1292,5 +1315,130 @@
   <rect x="45" y="8115" width="180" height="88"
         fill="url(#f50-grid)" stroke="#1e3a8a" stroke-width="2"/>
   <text x="45" y="8220" font-size="9" fill="#888">simple userSpaceOnUse grid patterns are expanded into editable native geometry instead of an SVG fallback</text>
+
+  <!--  Feature 51: Mermaid-style flowchart structure and CSS  -->
+  <text x="10" y="8270" font-size="11" font-weight="bold" fill="#666">F51: Mermaid flowchart compatibility</text>
+  <defs>
+    <marker id="f51-arrow" viewBox="0 0 10 10" refX="5" refY="5"
+            markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333333" stroke="#333333"/>
+    </marker>
+  </defs>
+  <g class="mermaid-flow" transform="translate(20, 8300)">
+    <g class="mermaid-edges">
+      <path class="flowchart-link"
+            d="M 230 58 C 230 82 230 92 230 112"
+            marker-end="url(#f51-arrow)"/>
+      <path class="flowchart-link"
+            d="M 190 220 C 165 245 125 260 110 290"
+            marker-end="url(#f51-arrow)"/>
+      <path class="flowchart-link"
+            d="M 270 220 C 295 245 335 260 350 290"
+            marker-end="url(#f51-arrow)"/>
+      <path class="flowchart-link"
+            d="M 110 342 C 110 375 155 382 200 402"
+            marker-end="url(#f51-arrow)"/>
+      <path class="flowchart-link"
+            d="M 350 342 C 350 375 305 382 260 402"
+            marker-end="url(#f51-arrow)"/>
+    </g>
+
+    <g class="edge-label" transform="translate(140, 252)">
+      <rect x="-18" y="-14" width="36" height="24"/>
+      <text y="-10.1">
+        <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+          <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">Yes</tspan>
+        </tspan>
+      </text>
+    </g>
+    <g class="edge-label" transform="translate(320, 252)">
+      <rect x="-16" y="-14" width="32" height="24"/>
+      <text y="-10.1">
+        <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+          <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">No</tspan>
+        </tspan>
+      </text>
+    </g>
+
+    <g class="mermaid-node" transform="translate(230, 34)">
+      <rect class="basic label-container" x="-58" y="-25" width="116" height="50"/>
+      <g class="label" transform="translate(0, -9.5)">
+        <!-- Mermaid emits empty layout rectangles that must remain non-rendering. -->
+        <rect/>
+        <text y="-10.1">
+          <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">Start</tspan>
+          </tspan>
+        </text>
+      </g>
+    </g>
+
+    <g class="mermaid-node" transform="translate(230, 168)">
+      <polygon class="label-container"
+               points="0,-58 70,0 0,58 -70,0"/>
+      <g class="label" transform="translate(0, -9.5)">
+        <rect/>
+        <text y="-10.1">
+          <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">Decision</tspan>
+          </tspan>
+        </text>
+      </g>
+    </g>
+
+    <g class="mermaid-node" transform="translate(110, 316)">
+      <rect class="basic label-container" x="-76" y="-25" width="152" height="50"/>
+      <g class="label" transform="translate(0, -9.5)">
+        <rect/>
+        <text y="-10.1">
+          <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">Process</tspan>
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal"> A</tspan>
+          </tspan>
+        </text>
+      </g>
+    </g>
+
+    <g class="mermaid-node" transform="translate(350, 316)">
+      <rect class="basic label-container" x="-76" y="-25" width="152" height="50"/>
+      <g class="label" transform="translate(0, -9.5)">
+        <rect/>
+        <text y="-10.1">
+          <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">Process</tspan>
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal"> B</tspan>
+          </tspan>
+        </text>
+      </g>
+    </g>
+
+    <g class="mermaid-node" transform="translate(230, 426)">
+      <rect class="basic label-container" x="-52" y="-25" width="104" height="50"/>
+      <g class="label" transform="translate(0, -9.5)">
+        <rect/>
+        <text y="-10.1">
+          <tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">
+            <tspan class="text-inner-tspan" font-style="normal" font-weight="normal">End</tspan>
+          </tspan>
+        </text>
+      </g>
+    </g>
+  </g>
+  <text x="40" y="8770" font-size="9" fill="#888">root-id descendant CSS, nested transforms, recursive tspans, marker edges, and empty layout rects</text>
+
+  <!--  Feature 52: Mermaid/draw.io foreignObject text  -->
+  <text x="10" y="8820" font-size="11" font-weight="bold" fill="#666">F52: foreignObject text remains editable</text>
+  <g transform="translate(175, 8870)">
+    <rect x="-125" y="-32" width="250" height="64" rx="14"
+          fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <foreignObject x="-120" y="-27" width="240" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <span class="nodeLabel" style="color:#164e63;font-family:Georgia;font-size:16px;font-weight:bold;text-align:center">
+          <p>Editable XHTML label</p>
+        </span>
+      </div>
+    </foreignObject>
+  </g>
+  <text x="40" y="8930" font-size="9" fill="#888">common XHTML labels are flattened into editable draw.io text while preserving their bounds and primary style</text>
 
 </svg>

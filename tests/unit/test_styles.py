@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from os import path
 
 from svg_to_drawio.converter import Converter
+from svg_to_drawio.issue_codes import FOREIGN_OBJECT_TEXT_APPROXIMATED
 
 from tests.helpers import SvgTestCase
 
@@ -171,7 +172,7 @@ class StyleAndTextTests(SvgTestCase):
 
             first_styles = self._style_map(first)
             second_styles = self._style_map(second)
-            self.assertEqual(first_styles["align"], "center")
+            self.assertEqual(first_styles["align"], "left")
             self.assertEqual(first_styles["fontStyle"], "15")
             self.assertEqual(first_styles["fontSize"], "10.0")
             first_y = float(first.find("mxGeometry").get("y"))
@@ -184,6 +185,136 @@ class StyleAndTextTests(SvgTestCase):
                 float(second.find("mxGeometry").get("x")),
                 float(first.find("mxGeometry").get("x")),
             )
+
+    def test_mermaid_tspan_chunk_centers_combined_words_and_resolves_em_offsets(self) -> None:
+        svg = """
+        <svg id="my-svg" xmlns="http://www.w3.org/2000/svg" width="220" height="120">
+          <style>
+            #my-svg .node rect { fill: #ECECFF; stroke: #9370DB; }
+            #my-svg .node .label text {
+              fill: #333333;
+              font-family: Georgia;
+              font-size: 16px;
+              text-anchor: middle;
+            }
+          </style>
+          <g class="node" transform="translate(110, 60)">
+            <rect x="-76" y="-25" width="152" height="50" />
+            <g class="label" transform="translate(0, -9.5)">
+              <text y="-10.1">
+                <tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em">
+                  <tspan class="text-inner-tspan">Process</tspan>
+                  <tspan class="text-inner-tspan"> A</tspan>
+                </tspan>
+              </text>
+            </g>
+          </g>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            rect = next(cell for cell in cells if self._style_map(cell).get("fillColor") == "#ECECFF")
+            process = next(cell for cell in cells if cell.get("value") == "Process")
+            suffix = next(cell for cell in cells if cell.get("value") == "A")
+
+            rect_geometry = rect.find("mxGeometry")
+            process_geometry = process.find("mxGeometry")
+            suffix_geometry = suffix.find("mxGeometry")
+            self.assertIsNotNone(rect_geometry)
+            self.assertIsNotNone(process_geometry)
+            self.assertIsNotNone(suffix_geometry)
+            assert rect_geometry is not None and process_geometry is not None and suffix_geometry is not None
+
+            rect_x, rect_y = self._absolute_cell_position(root, rect)
+            process_x, process_y = self._absolute_cell_position(root, process)
+            suffix_x, suffix_y = self._absolute_cell_position(root, suffix)
+            rect_center_x = rect_x + float(rect_geometry.get("width", "0")) / 2.0
+            text_left = min(process_x, suffix_x)
+            text_right = max(
+                process_x + float(process_geometry.get("width", "0")),
+                suffix_x + float(suffix_geometry.get("width", "0")),
+            )
+            text_center_x = (text_left + text_right) / 2.0
+
+            self.assertAlmostEqual(text_center_x, rect_center_x, delta=5.0)
+            self.assertGreaterEqual(text_left, rect_x)
+            self.assertLessEqual(text_right, rect_x + float(rect_geometry.get("width", "0")))
+            self.assertAlmostEqual(process_y, suffix_y, places=2)
+
+            text_center_y = process_y + float(process_geometry.get("height", "0")) / 2.0
+            rect_center_y = rect_y + float(rect_geometry.get("height", "0")) / 2.0
+            self.assertAlmostEqual(text_center_y, rect_center_y, delta=6.0)
+
+    def test_nested_tspans_preserve_mermaid_class_styles_without_duplicate_text(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="80">
+          <style>
+            .text-outer-tspan { font-family: Georgia; }
+            .text-inner-tspan { fill: #dc2626; font-weight: bold; }
+          </style>
+          <text x="20" y="40">
+            <tspan class="text-outer-tspan" dx="5">
+              <tspan class="text-inner-tspan" dx="7" dy="-3">Start</tspan>
+            </tspan>
+          </text>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            text_cells = [cell for cell in self._user_cells(root) if cell.get("value")]
+
+            self.assertEqual([cell.get("value") for cell in text_cells], ["Start"])
+            styles = self._style_map(text_cells[0])
+            self.assertEqual(styles["fontColor"], "#dc2626")
+            self.assertEqual(styles["fontFamily"], "Georgia")
+            self.assertEqual(styles["fontStyle"], "1")
+            self.assertAlmostEqual(self._absolute_cell_position(root, text_cells[0])[0], 32.0, places=2)
+
+    def test_foreign_object_mermaid_label_becomes_editable_text(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="220" height="120">
+          <style>
+            .nodeLabel {
+              color: #1f2937;
+              font-family: Georgia;
+              font-size: 16px;
+              font-weight: bold;
+              text-align: center;
+            }
+          </style>
+          <g transform="translate(100, 50)">
+            <foreignObject x="-47.5" y="-23" width="95" height="46">
+              <div xmlns="http://www.w3.org/1999/xhtml">
+                <span class="nodeLabel"><p>Start</p></span>
+              </div>
+            </foreignObject>
+          </g>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "mermaid.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(svg)
+            converter = Converter()
+            result = converter.convert_to_string_result(svg_path)
+            root = ET.fromstring(result.xml)
+            text_cell = next(cell for cell in self._user_cells(root) if cell.get("value") == "Start")
+            geometry = text_cell.find("mxGeometry")
+            self.assertIsNotNone(geometry)
+            assert geometry is not None
+
+            styles = self._style_map(text_cell)
+            self.assertEqual(styles["fontColor"], "#1f2937")
+            self.assertEqual(styles["fontFamily"], "Georgia")
+            self.assertEqual(styles["fontSize"], "16.0")
+            self.assertEqual(styles["fontStyle"], "1")
+            self.assertEqual(styles["align"], "center")
+            self.assertAlmostEqual(self._absolute_cell_position(root, text_cell)[0], 52.5, places=2)
+            self.assertAlmostEqual(self._absolute_cell_position(root, text_cell)[1], 27.0, places=2)
+            self.assertAlmostEqual(float(geometry.get("width", "0")), 95.0, places=2)
+            self.assertAlmostEqual(float(geometry.get("height", "0")), 46.0, places=2)
+            self.assertTrue(any(issue.code == FOREIGN_OBJECT_TEXT_APPROXIMATED for issue in result.report.issues))
 
     def test_letter_spacing_uses_positioned_editable_glyphs(self) -> None:
         svg = """

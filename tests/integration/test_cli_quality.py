@@ -196,3 +196,19 @@ class CliQualityTests(SvgTestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("Summary: 2 converted, 0 skipped, 0 failed", stdout.getvalue())
+
+    def test_cli_quality_gate_fails_closed_when_an_existing_output_has_no_cached_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            out_path = path.join(tmpdir, "diagram.drawio")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" />')
+            with open(out_path, "w", encoding="utf-8") as handle:
+                handle.write("existing output without cache metadata")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main.main([svg_path, "--fail-on-warning"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("could not evaluate every input", stdout.getvalue())

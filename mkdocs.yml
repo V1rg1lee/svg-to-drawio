@@ -30,6 +30,7 @@ nav:
   - Desktop downloads: release-downloads.md
   - CLI reference: cli.md
   - Python API: python-api.md
+  - Interface parity: interface-parity.md
   - Advanced rendering: advanced-rendering.md
   - Compatibility reference: reference.md
   - API reference: api-reference.md

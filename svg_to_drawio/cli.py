@@ -19,12 +19,19 @@ from .conversion_service import (
     ConversionOptions,
     ConversionService,
     ConversionSummary,
+    resolve_merge_output_path,
     resolve_watch_backend,
 )
 from .converter import Converter
 from .diagnostics import ConversionReport
 from .issue_codes import ANALYSIS_FAILED
-from .quality_gates import QualityGateOptions, evaluate_quality_gates, validate_required_capabilities
+from .post_process import PostProcessOptions
+from .quality_gates import (
+    QualityGateOptions,
+    QualityGateViolation,
+    evaluate_quality_gates,
+    validate_required_capabilities,
+)
 from .rendering_options import (
     RenderingOptions,
     as_filter_policy,
@@ -129,6 +136,11 @@ def run(
     require_native: Sequence[str] = (),
     workers: int = 1,
     watch_backend: str = "auto",
+    merge: str | None = None,
+    merge_output: str | PathLike[str] | None = None,
+    grid_columns: int | None = None,
+    legend: bool = False,
+    background_color: str | None = None,
 ) -> int:
     """Run the conversion CLI logic and return an exit code (0 = success, 1 = error)."""
     if input_path is None:
@@ -170,6 +182,15 @@ def run(
         min_score=min_score,
         require_native=required_native,
     )
+    quality_gates_enabled = bool(
+        quality_options.fail_on_warning
+        or quality_options.fail_on_fallback
+        or quality_options.min_score is not None
+        or quality_options.require_native
+    )
+    post_process = (
+        PostProcessOptions(legend=legend, background=background_color) if (legend or background_color) else None
+    )
 
     if stdout:
         conflicting_flags = []
@@ -177,6 +198,8 @@ def run(
             conflicting_flags.append("--analyze")
         if watch:
             conflicting_flags.append("--watch")
+        if merge is not None:
+            conflicting_flags.append("--merge")
         if report_json is not None:
             conflicting_flags.append("--report-json")
         if quality_options.fail_on_warning:
@@ -206,6 +229,7 @@ def run(
                 flatten=flatten,
                 max_elements=max_elements,
                 rendering_options=rendering_options,
+                post_process=post_process,
             )
         except Exception as exc:
             print(f'Error: failed to convert "{resolved_inputs[0]}": {exc}', file=sys.stderr)
@@ -220,6 +244,7 @@ def run(
         flatten=flatten,
         max_elements=max_elements,
         use_cache=use_cache,
+        post_process=post_process,
         rendering=rendering_options,
     )
 
@@ -249,6 +274,82 @@ def run(
         with open(target, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
         print(f"Report written to: {target}")
+
+    def evaluate_summary_quality(summary: ConversionSummary) -> list[QualityGateViolation]:
+        """Evaluate reports and fail safely when skipped files have no cached diagnostics."""
+        violations = evaluate_quality_gates(summary.reports, quality_options)
+        processed = summary.converted + summary.skipped + summary.failed
+        if quality_gates_enabled and len(summary.reports) < processed:
+            violations.append(
+                QualityGateViolation(
+                    source_path="<batch>",
+                    message=(
+                        "Some existing outputs were skipped without cached diagnostics, so the quality gates "
+                        "could not evaluate every input. Re-run with --overwrite or use --analyze."
+                    ),
+                )
+            )
+        return violations
+
+    def emit_progress(event: ConversionEvent) -> None:
+        if event.kind in {
+            ConversionEventKind.CONVERTED,
+            ConversionEventKind.SKIPPED,
+            ConversionEventKind.FAILED,
+            ConversionEventKind.CANCELLED,
+        }:
+            print(event.message)
+            if event.report and event.report.issues:
+                print(f"  Diagnostics: {event.report.short_status()}")
+            if event.report and event.kind in {ConversionEventKind.CONVERTED, ConversionEventKind.SKIPPED}:
+                _print_compatibility(event.report, show_all_rows=False)
+
+    if merge is not None:
+        conflicting_flags = []
+        if analyze:
+            conflicting_flags.append("--analyze")
+        if watch:
+            conflicting_flags.append("--watch")
+        if conflicting_flags:
+            print(
+                "Error: --merge cannot be combined with "
+                + ", ".join(conflicting_flags)
+                + " (merge mode writes one combined file from the whole batch).",
+                file=sys.stderr,
+            )
+            return 1
+        if merge_output is None:
+            print("Error: --merge requires --merge-output PATH.", file=sys.stderr)
+            return 1
+        if workers > 1:
+            print("Note: --workers is ignored in --merge mode; files are converted sequentially.", file=sys.stderr)
+
+        resolved_merge_output = resolve_merge_output_path(merge_output, output_dir=resolved_output_dir)
+        service = ConversionService()
+        _print_rendering_selection(rendering_options)
+        print(f"Merging into one {merge}-mode .drawio file: {resolved_merge_output}")
+        summary = service.merge(
+            resolved_inputs,
+            options,
+            mode=cast(Literal["pages", "grid"], merge),
+            output_path=resolved_merge_output,
+            columns=grid_columns,
+            reporter=emit_progress,
+        )
+        write_report(batch_payload("merge", summary.reports, summary))
+        if summary.total == 0:
+            print("No SVG files found.")
+            return 0
+
+        print(summary.to_status_line())
+        if summary.converted == 0 and summary.skipped == summary.total:
+            print(f"Merged output already exists: {resolved_merge_output}")
+        else:
+            print(f"Merged output written to: {resolved_merge_output}")
+        violations = evaluate_summary_quality(summary)
+        for violation in violations:
+            print(f"QUALITY GATE: {violation.message}")
+        return 1 if summary.failed or violations else 0
 
     if analyze:
         if workers > 1:
@@ -295,19 +396,6 @@ def run(
         write_report(batch_payload("analyze", reports))
         return 1 if failures or violations else 0
 
-    def emit_progress(event: ConversionEvent) -> None:
-        if event.kind in {
-            ConversionEventKind.CONVERTED,
-            ConversionEventKind.SKIPPED,
-            ConversionEventKind.FAILED,
-            ConversionEventKind.CANCELLED,
-        }:
-            print(event.message)
-            if event.report and event.report.issues:
-                print(f"  Diagnostics: {event.report.short_status()}")
-            if event.report and event.kind in {ConversionEventKind.CONVERTED, ConversionEventKind.SKIPPED}:
-                _print_compatibility(event.report, show_all_rows=False)
-
     if watch:
         from .conversion_service import watch_svg_files
 
@@ -317,15 +405,49 @@ def run(
                 file=sys.stderr,
             )
         resolved_watch_backend = cast(Literal["auto", "poll", "event"], watch_backend)
-        backend_name = resolve_watch_backend(resolved_watch_backend)
+        try:
+            backend_name = resolve_watch_backend(resolved_watch_backend)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         watched_label = resolved_inputs[0] if len(resolved_inputs) == 1 else f"{len(resolved_inputs)} input path(s)"
+        watch_reports: list[ConversionReport] = []
+        watch_counts = {"converted": 0, "skipped": 0, "failed": 0}
+
+        def emit_watch_progress(event: ConversionEvent) -> None:
+            emit_progress(event)
+            if event.kind == ConversionEventKind.CONVERTED:
+                watch_counts["converted"] += 1
+            elif event.kind == ConversionEventKind.SKIPPED:
+                watch_counts["skipped"] += 1
+            elif event.kind == ConversionEventKind.FAILED:
+                watch_counts["failed"] += 1
+            if event.report is not None and event.kind in {
+                ConversionEventKind.CONVERTED,
+                ConversionEventKind.SKIPPED,
+                ConversionEventKind.FAILED,
+            }:
+                watch_reports.append(event.report)
+
         _print_rendering_selection(rendering_options)
         print(f'Watching "{watched_label}" for changes using the {backend_name} backend... (Ctrl+C to stop)')
         try:
-            watch_svg_files(resolved_inputs, options, reporter=emit_progress, backend=resolved_watch_backend)
+            watch_svg_files(resolved_inputs, options, reporter=emit_watch_progress, backend=resolved_watch_backend)
         except KeyboardInterrupt:
             print("\nWatch mode stopped.")
-        return 0
+        watch_summary = ConversionSummary(
+            total=sum(watch_counts.values()),
+            converted=watch_counts["converted"],
+            skipped=watch_counts["skipped"],
+            failed=watch_counts["failed"],
+            cancelled=True,
+            reports=watch_reports,
+        )
+        write_report(batch_payload("watch", watch_reports, watch_summary))
+        violations = evaluate_summary_quality(watch_summary)
+        for violation in violations:
+            print(f"QUALITY GATE: {violation.message}")
+        return 1 if watch_summary.failed or violations else 0
 
     service = ConversionService()
     _print_rendering_selection(rendering_options)
@@ -339,7 +461,7 @@ def run(
         return 0
 
     print(summary.to_status_line())
-    violations = evaluate_quality_gates(summary.reports, quality_options)
+    violations = evaluate_summary_quality(summary)
     for violation in violations:
         print(f"QUALITY GATE: {violation.message}")
     return 1 if summary.failed or violations else 0
@@ -436,6 +558,39 @@ def build_parser() -> argparse.ArgumentParser:
             f"multiple keys or repeat the flag. Valid keys: {', '.join(capability_keys())}"
         ),
     )
+    parser.add_argument(
+        "--merge",
+        choices=("pages", "grid"),
+        default=None,
+        help="Combine every input SVG into one .drawio file: one page per SVG, or a labeled tile grid",
+    )
+    parser.add_argument(
+        "--merge-output",
+        metavar="PATH",
+        help=(
+            "Path of the combined .drawio file written by --merge (required with --merge). "
+            "A relative path is resolved against --output-dir (or the current directory); "
+            "the .drawio extension is added automatically if missing."
+        ),
+    )
+    parser.add_argument(
+        "--grid-columns",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="Number of columns in the --merge grid layout (default: auto, roughly square)",
+    )
+    parser.add_argument(
+        "--legend",
+        action="store_true",
+        help="Add a 'Notes' layer summarizing the conversion report to the output",
+    )
+    parser.add_argument(
+        "--background-color",
+        metavar="VALUE",
+        default=None,
+        help="Set the draw.io page background color (e.g. #FFFFFF)",
+    )
     parser.set_defaults(use_cache=True)
     return parser
 
@@ -475,6 +630,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_native=require_native,
         workers=args.workers,
         watch_backend=args.watch_backend,
+        merge=args.merge,
+        merge_output=args.merge_output,
+        grid_columns=args.grid_columns,
+        legend=args.legend,
+        background_color=args.background_color,
     )
 
 

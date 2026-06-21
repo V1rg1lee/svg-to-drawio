@@ -98,6 +98,7 @@ class ConvertPage(QWidget):
         layout.addWidget(self._build_sources_group(), stretch=1)
         layout.addWidget(self._build_essentials_group())
         layout.addWidget(self._build_more_options_section())
+        layout.addWidget(self._build_merge_and_extras_section())
         layout.addWidget(self._build_preflight_group())
         layout.addLayout(self._build_actions_row())
 
@@ -216,6 +217,68 @@ class ConvertPage(QWidget):
 
         return section
 
+    def _build_merge_and_extras_section(self) -> CollapsibleSection:
+        section = CollapsibleSection("Merge & extras", expanded=False)
+
+        self.merge_checkbox = QCheckBox("Merge all queued SVGs into one .drawio file")
+        section.content_layout.addWidget(self.merge_checkbox)
+
+        merge_mode_row = QHBoxLayout()
+        merge_mode_row.setSpacing(8)
+        merge_mode_row.addWidget(QLabel("Layout"))
+        self.merge_mode_combo = make_policy_combo(
+            [("One page per SVG", "pages"), ("Single page, tile grid", "grid")],
+            "pages",
+        )
+        merge_mode_row.addWidget(self.merge_mode_combo)
+        merge_mode_row.addWidget(QLabel("Grid columns"))
+        self.grid_columns_spinbox = QSpinBox()
+        self.grid_columns_spinbox.setRange(1, 64)
+        self.grid_columns_spinbox.setValue(1)
+        self.grid_columns_spinbox.setSpecialValueText("Auto")
+        self.grid_columns_spinbox.setFixedWidth(78)
+        merge_mode_row.addWidget(self.grid_columns_spinbox)
+        merge_mode_row.addStretch(1)
+        section.content_layout.addLayout(merge_mode_row)
+
+        merge_output_row = QHBoxLayout()
+        merge_output_row.setSpacing(8)
+        merge_output_row.addWidget(QLabel("Output file"))
+        self.merge_output_edit = QLineEdit()
+        self.merge_output_edit.setPlaceholderText("e.g. merged.drawio")
+        self.merge_output_edit.setToolTip(
+            "Name or path for the combined .drawio file.\n\n"
+            "A bare filename (or relative path) is placed inside the output directory above, or the "
+            "current directory if none is set. The .drawio extension is added automatically if missing."
+        )
+        self.browse_merge_output_button = QToolButton()
+        self.browse_merge_output_button.setText("Browse")
+        merge_output_row.addWidget(self.merge_output_edit, stretch=1)
+        merge_output_row.addWidget(self.browse_merge_output_button)
+        section.content_layout.addLayout(merge_output_row)
+
+        self.merge_checkbox.toggled.connect(self.merge_mode_combo.setEnabled)
+        self.merge_checkbox.toggled.connect(self.grid_columns_spinbox.setEnabled)
+        self.merge_checkbox.toggled.connect(self.merge_output_edit.setEnabled)
+        self.merge_checkbox.toggled.connect(self.browse_merge_output_button.setEnabled)
+        self.merge_mode_combo.setEnabled(False)
+        self.grid_columns_spinbox.setEnabled(False)
+        self.merge_output_edit.setEnabled(False)
+        self.browse_merge_output_button.setEnabled(False)
+
+        self.legend_checkbox = QCheckBox("Add a 'Notes' layer summarizing the conversion report")
+        section.content_layout.addWidget(self.legend_checkbox)
+
+        background_row = QHBoxLayout()
+        background_row.setSpacing(8)
+        background_row.addWidget(QLabel("Page background"))
+        self.background_color_edit = QLineEdit()
+        self.background_color_edit.setPlaceholderText("Optional, e.g. #FFFFFF")
+        background_row.addWidget(self.background_color_edit, stretch=1)
+        section.content_layout.addLayout(background_row)
+
+        return section
+
     def _build_actions_row(self) -> QHBoxLayout:
         actions = QHBoxLayout()
         actions.setSpacing(10)
@@ -259,6 +322,13 @@ class ConvertPage(QWidget):
             self.workers_spinbox,
             self.max_elements_checkbox,
             self.max_elements_spinbox,
+            self.merge_checkbox,
+            self.merge_mode_combo,
+            self.grid_columns_spinbox,
+            self.merge_output_edit,
+            self.browse_merge_output_button,
+            self.legend_checkbox,
+            self.background_color_edit,
             self.start_button,
             self.copy_cli_button,
         ]
@@ -322,11 +392,19 @@ class ResultsPage(QWidget):
         self.open_output_button = QPushButton("Open Output Folder")
         self.open_output_button.setObjectName("openOutputButton")
         self.open_output_button.setEnabled(False)
+        self.open_result_button = QPushButton("Open Result")
+        self.open_result_button.setObjectName("openResultButton")
+        self.open_result_button.setEnabled(False)
+        self.open_result_button.setToolTip(
+            "Open the converted file with the system's default .drawio application.\n"
+            "Shows a picker when more than one file was converted in this run."
+        )
         self.export_report_button = QPushButton("Export Last Report")
         self.export_report_button.setObjectName("exportReportButton")
         self.export_report_button.setEnabled(False)
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.open_output_button)
+        actions.addWidget(self.open_result_button)
         actions.addWidget(self.export_report_button)
         actions.addStretch(1)
         layout.addLayout(actions)

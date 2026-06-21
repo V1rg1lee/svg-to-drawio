@@ -83,6 +83,44 @@ def segment_angle_degrees(start: Point2D, end: Point2D) -> float:
     return math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
 
 
+def extend_edge_endpoints(
+    source: Point2D,
+    target: Point2D,
+    waypoints: Sequence[Point2D],
+    *,
+    start_extension: float = 0.0,
+    end_extension: float = 0.0,
+) -> tuple[Point2D, Point2D]:
+    """Extend edge endpoints to preserve SVG marker tips beyond their reference points."""
+
+    def extend(point: Point2D, neighbor: Point2D, distance: float) -> Point2D:
+        dx = point[0] - neighbor[0]
+        dy = point[1] - neighbor[1]
+        length = math.hypot(dx, dy)
+        if distance <= 0.0 or length <= 1e-9:
+            return point
+        return point[0] + dx / length * distance, point[1] + dy / length * distance
+
+    source_neighbor = waypoints[0] if waypoints else target
+    target_neighbor = waypoints[-1] if waypoints else source
+    return (
+        extend(source, source_neighbor, start_extension),
+        extend(target, target_neighbor, end_extension),
+    )
+
+
+def add_native_arrow_styles(
+    style: StyleBuilder,
+    start_arrow: str,
+    end_arrow: str,
+) -> StyleBuilder:
+    """Append draw.io arrow types with explicit fill behavior."""
+    style.add("startArrow", start_arrow).add("endArrow", end_arrow)
+    style.add("startFill", 0 if start_arrow == "open" else 1, when=start_arrow != "none")
+    style.add("endFill", 0 if end_arrow == "open" else 1, when=end_arrow != "none")
+    return style
+
+
 def emit_endpoint_marker(
     ctx: EmitterContext,
     point: Point2D,

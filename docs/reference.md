@@ -27,6 +27,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 | `<polygon>` | Filled stencil shape |
 | `<path>` | Stencil; open unfilled paths with markers become edges; multi-stop linear gradients can be approximated natively |
 | `<text>` / `<tspan>` | Text cell |
+| textual `<foreignObject>` | XHTML text flattened into an editable text cell; complex HTML layout is simplified |
 | `<image>` | Image cell with embedded asset data |
 | `<g>` | Native draw.io group cell |
 | Inkscape layers (`<g inkscape:groupmode="layer">`) | draw.io layer cell |
@@ -46,7 +47,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - Linear and radial gradients with `gradientTransform` and `xlink:href` inheritance
 - Multi-stop linear gradients on `<rect>`, `<circle>`, `<ellipse>`, and `<path>` approximated natively as stacked two-color gradient bands
 - Multi-stop radial gradients on `<rect>`, `<circle>`, and `<ellipse>` approximated as adaptive concentric rings
-- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, plus simple custom endpoint marker shapes
+- `marker-start`, `marker-end`, and `marker-mid` with closest draw.io arrow matching, filled triangle detection, marker-tip positioning, plus simple custom endpoint shapes
 - `opacity`, `fill-opacity`, `stroke-opacity`
 - `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`, `fill-rule: evenodd`
 - Text: `font-weight`, `font-style`, `font-size`, `font-family`, `text-anchor`, `text-decoration`, approximate `dominant-baseline`, plus Qt/Pillow/Tk-backed measurement when available
@@ -57,6 +58,7 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - `<title>` -> draw.io tooltip; `feDropShadow`, classic shadow chains, some glow-like filters, and simple offset filters -> native draw.io shadow styling or editable approximation
 - Color formats: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()`, `rgba()`, `hsl()`, `hsla()`, `none`, `transparent`
 - Local `<image>` paths and `data:` URIs (SVG, PNG); assets are embedded into the output
+- Remote `<image>` URLs remain linked and are reported as an approximation because the output is not self-contained
 
 ## Limitations
 
@@ -71,6 +73,8 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 - `<image>` with shear-heavy transforms is approximated by its bounding box because draw.io image cells do not support true skew.
 - Local `<image>` paths are resolved relative to the SVG file being converted and must stay inside the source SVG's folder tree; the resulting asset is embedded into the `.drawio` output so it stays self-contained.
 - Raster `<image>` assets are wrapped in a tiny SVG before embedding because draw.io handles embedded SVGs more reliably than raw PNGs.
+- SVG animation elements such as `<animate>` and `<animateTransform>` are not preserved; conversion captures the static base geometry.
+- Unknown container elements are reported and skipped rather than recursively interpreted, so SVG features outside the documented element set may require an embedded fallback upstream.
 
 ## Transform rendering
 
@@ -82,11 +86,15 @@ The compatibility matrix, the desktop app's compatibility panel, and the CLI's `
 | Combined `translate + rotate` | Native rotation with corrected center |
 | Nested groups | All transforms accumulated before rendering |
 
-Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable.
+Open, unfilled paths with SVG markers become draw.io edges so arrowheads stay editable. Native triangle
+markers retain a filled arrow style, and their reference-point overhang is applied so the visible tip reaches
+the same endpoint as in the source SVG.
 
 ## Re-exporting to SVG from draw.io
 
-draw.io wraps text labels in `<foreignObject>` when exporting SVG, which many tools do not support. Before exporting:
+The converter keeps common Mermaid and draw.io `<foreignObject>` text labels editable by flattening their XHTML
+text into draw.io labels. Complex HTML layout and mixed inline formatting may still be simplified. For the most
+faithful editable re-export from draw.io:
 
 1. **Edit -> Select All**
 2. In the right-hand panel, click **Convert labels to SVG**

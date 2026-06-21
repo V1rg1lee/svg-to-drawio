@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
@@ -20,6 +21,7 @@ from svg_to_drawio.conversion_service import (
     resolve_watch_backend,
     watch_svg_files,
 )
+from svg_to_drawio.post_process import PostProcessOptions
 
 from tests.helpers import SvgTestCase
 
@@ -120,6 +122,179 @@ class ConversionServiceTests(SvgTestCase):
             self.assertTrue(path.isfile(out_path))
             self.assertTrue(second.reports)
             self.assertTrue(second.reports[0].cached)
+
+    def test_parallel_conversion_keeps_every_entry_in_the_shared_cache_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_dir = path.join(tmpdir, "input")
+            output_dir = path.join(tmpdir, "out")
+            os.makedirs(input_dir, exist_ok=True)
+            for name in ("one.svg", "two.svg", "three.svg", "four.svg"):
+                with open(path.join(input_dir, name), "w", encoding="utf-8") as handle:
+                    handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+
+            summary = ConversionService().convert_parallel(
+                [input_dir],
+                ConversionOptions(output_dir=output_dir, overwrite=True, use_cache=True),
+                max_workers=4,
+            )
+
+            self.assertEqual(summary.converted, 4)
+            with open(path.join(output_dir, ".svg-to-drawio-cache.json"), encoding="utf-8") as handle:
+                payload = json.load(handle)
+            self.assertEqual(len(payload["entries"]), 4)
+
+    def test_merge_pages_writes_a_combined_file_and_emits_progress_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("one.svg", "two.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                        "</svg>"
+                    )
+            merged_path = path.join(tmpdir, "merged.drawio")
+            events: list[ConversionEvent] = []
+
+            summary = ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(),
+                mode="pages",
+                output_path=merged_path,
+                reporter=events.append,
+            )
+
+            self.assertEqual(summary.converted, 2)
+            self.assertEqual(summary.failed, 0)
+            self.assertTrue(path.isfile(merged_path))
+            self.assertIn(ConversionEventKind.COMPLETED, {event.kind for event in events})
+
+    def test_merge_respects_overwrite_for_an_existing_combined_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "one.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+            merged_path = path.join(tmpdir, "merged.drawio")
+            with open(merged_path, "w", encoding="utf-8") as handle:
+                handle.write("sentinel")
+
+            skipped = ConversionService().merge(
+                [svg_path],
+                ConversionOptions(overwrite=False),
+                mode="pages",
+                output_path=merged_path,
+            )
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "sentinel")
+            self.assertEqual(skipped.skipped, 1)
+
+            converted = ConversionService().merge(
+                [svg_path],
+                ConversionOptions(overwrite=True),
+                mode="pages",
+                output_path=merged_path,
+            )
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertIn("<mxfile>", handle.read())
+            self.assertEqual(converted.converted, 1)
+
+    def test_merge_grid_records_a_failure_without_aborting_the_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(path.join(tmpdir, "good.svg"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                    '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                    "</svg>"
+                )
+            with open(path.join(tmpdir, "bad.svg"), "w", encoding="utf-8") as handle:
+                handle.write("<svg")
+            merged_path = path.join(tmpdir, "merged.drawio")
+
+            summary = ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(),
+                mode="grid",
+                output_path=merged_path,
+            )
+
+            self.assertEqual(summary.converted, 1)
+            self.assertEqual(summary.failed, 1)
+            self.assertTrue(path.isfile(merged_path))
+
+    def test_merge_grid_applies_post_process_once_to_the_combined_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("one.svg", "two.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" />'
+                        "</svg>"
+                    )
+            merged_path = path.join(tmpdir, "merged.drawio")
+
+            ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(post_process=PostProcessOptions(legend=True)),
+                mode="grid",
+                output_path=merged_path,
+            )
+
+            with open(merged_path, encoding="utf-8") as handle:
+                xml_text = handle.read()
+            self.assertEqual(xml_text.count('value="Notes"'), 1)
+
+    def test_merge_cancellation_stops_before_the_next_source_and_writes_partial_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("one.svg", "two.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+
+            token = CancellationToken()
+            events: list[ConversionEvent] = []
+
+            def report(event: ConversionEvent) -> None:
+                events.append(event)
+                if event.kind == ConversionEventKind.CONVERTED:
+                    token.cancel()
+
+            merged_path = path.join(tmpdir, "merged.drawio")
+            summary = ConversionService().merge(
+                [tmpdir],
+                ConversionOptions(),
+                mode="pages",
+                output_path=merged_path,
+                reporter=report,
+                cancellation_token=token,
+            )
+
+            self.assertTrue(summary.cancelled)
+            self.assertEqual(summary.converted, 1)
+            self.assertEqual(summary.total, 2)
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read().count("<diagram"), 1)
+            self.assertIn(ConversionEventKind.CANCELLED, {event.kind for event in events})
+
+    def test_poll_watch_preserves_post_process_options_on_the_initial_conversion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "diagram.svg")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+
+            stop_event = threading.Event()
+            stop_event.set()
+            watch_svg_files(
+                [svg_path],
+                ConversionOptions(
+                    overwrite=True,
+                    post_process=PostProcessOptions(legend=True, background="#112233"),
+                ),
+                stop_event=stop_event,
+                backend="poll",
+            )
+
+            with open(path.join(tmpdir, "diagram.drawio"), encoding="utf-8") as handle:
+                xml_text = handle.read()
+            self.assertIn('value="Notes"', xml_text)
+            self.assertIn('background="#112233"', xml_text)
 
 
 class WatchBackendResolutionTests(SvgTestCase):

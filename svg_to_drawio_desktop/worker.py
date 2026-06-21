@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from threading import Event
+from typing import Literal
 
 from PySide6.QtCore import QObject, Signal, Slot
 from svg_to_drawio.conversion_service import (
@@ -106,6 +107,63 @@ class ParallelConversionWorker(QObject):
 
     def request_cancel(self) -> None:
         """Signal all in-flight jobs to stop after their current file."""
+        self._token.cancel()
+
+    def _emit_event(self, event: ConversionEvent) -> None:
+        """Forward service events through a Qt signal."""
+        self.event_emitted.emit(event)
+
+
+class MergeConversionWorker(QObject):
+    """Convert every queued SVG into one merged `.drawio` file in a worker thread."""
+
+    event_emitted = Signal(object)
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        input_paths: list[str],
+        options: ConversionOptions,
+        *,
+        mode: Literal["pages", "grid"],
+        output_path: str,
+        columns: int | None,
+    ) -> None:
+        super().__init__()
+        self._input_paths = input_paths
+        self._options = options
+        self._mode = mode
+        self._output_path = output_path
+        self._columns = columns
+        self._token = CancellationToken()
+
+    @Slot()
+    def run(self) -> None:
+        """Execute the merge and forward progress signals."""
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"SVG has more than .* drawable elements; output truncated\.",
+                    category=RuntimeWarning,
+                )
+                summary = ConversionService().merge(
+                    self._input_paths,
+                    self._options,
+                    mode=self._mode,
+                    output_path=self._output_path,
+                    columns=self._columns,
+                    reporter=self._emit_event,
+                    cancellation_token=self._token,
+                )
+        except Exception as exc:  # pragma: no cover - driven by GUI interactions
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(summary)
+
+    def request_cancel(self) -> None:
+        """Stop the merge before it starts converting the next source file."""
         self._token.cancel()
 
     def _emit_event(self, event: ConversionEvent) -> None:

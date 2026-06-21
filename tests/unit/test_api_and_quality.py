@@ -18,6 +18,10 @@ from svg_to_drawio import (
     convert_to_string,
     convert_to_string_result,
     evaluate_quality_gates,
+    event_watch_available,
+    merge_files,
+    resolve_watch_backend,
+    watch_svg_files,
 )
 
 from tests.helpers import FIXTURES_DIR, SvgTestCase
@@ -36,6 +40,11 @@ class ApiAndQualityTests(SvgTestCase):
         self.assertEqual(result.source_path, "memory:memory-diagram.svg")
         self.assertGreaterEqual(result.compatibility_score, 0)
         self.assertEqual(result.report.to_dict()["schema_version"], REPORT_SCHEMA_VERSION)
+
+    def test_watch_helpers_are_available_from_the_public_package(self) -> None:
+        self.assertTrue(callable(watch_svg_files))
+        self.assertTrue(callable(resolve_watch_backend))
+        self.assertIsInstance(event_watch_available(), bool)
 
     def test_convert_svg_bytes_result_can_resolve_local_assets_from_base_dir(self) -> None:
         svg = (
@@ -220,3 +229,46 @@ class ApiAndQualityTests(SvgTestCase):
     def test_quality_gate_options_rejects_a_non_int_min_score(self) -> None:
         with self.assertRaises(ValueError):
             QualityGateOptions(min_score="100")  # type: ignore[arg-type]
+
+    def test_public_api_rejects_non_positive_element_limits(self) -> None:
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" />'
+        with self.assertRaisesRegex(ValueError, "max_elements must be a positive integer"):
+            convert_svg_string(svg, max_elements=0)
+        with self.assertRaisesRegex(ValueError, "max_elements must be a positive integer"):
+            convert_svg_string(svg, max_elements=-1)
+
+    def test_merge_files_resolves_a_bare_output_name_and_writes_one_page_per_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("a.svg", "b.svg"):
+                with open(path.join(tmpdir, name), "w", encoding="utf-8") as handle:
+                    handle.write(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                        '<rect x="0" y="0" width="10" height="10" fill="red" /></svg>'
+                    )
+
+            summary = merge_files([tmpdir], "merged", output_dir=tmpdir)
+
+            merged_path = path.join(tmpdir, "merged.drawio")
+            self.assertTrue(path.isfile(merged_path))
+            self.assertEqual(summary.converted, 2)
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read().count("<diagram"), 2)
+
+    def test_merge_files_exposes_overwrite_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svg_path = path.join(tmpdir, "a.svg")
+            merged_path = path.join(tmpdir, "merged.drawio")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" />')
+            with open(merged_path, "w", encoding="utf-8") as handle:
+                handle.write("sentinel")
+
+            skipped = merge_files([svg_path], merged_path)
+            self.assertEqual(skipped.skipped, 1)
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "sentinel")
+
+            converted = merge_files([svg_path], merged_path, overwrite=True)
+            self.assertEqual(converted.converted, 1)
+            with open(merged_path, encoding="utf-8") as handle:
+                self.assertIn("<mxfile>", handle.read())

@@ -120,7 +120,7 @@ _PROFILES: dict[str, CapabilityProfile] = {
     "text": _profile(
         "text",
         label="Text labels",
-        description="SVG text, tspans, anchors, text measurements, and textPath layout.",
+        description="SVG text, nested tspans, foreignObject labels, anchors, text measurements, and textPath layout.",
         default_behavior="Converted to editable draw.io text with automatic text measurement.",
         editability_note="Text stays editable even when some layout details must be approximated.",
         fidelity_note=(
@@ -359,6 +359,11 @@ _ISSUE_MAP: dict[str, tuple[str, CompatibilityStatus, str | None]] = {
         "text",
         "approximate",
         "Text length constraints were approximated with editable positioned glyphs.",
+    ),
+    codes.FOREIGN_OBJECT_TEXT_APPROXIMATED: (
+        "text",
+        "approximate",
+        "HTML text inside foreignObject was flattened to editable draw.io text.",
     ),
     codes.IMAGE_SHEAR_APPROXIMATED: (
         "images",
