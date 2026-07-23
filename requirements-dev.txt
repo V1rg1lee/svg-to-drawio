@@ -2,7 +2,7 @@ build>=1.2
 hatchling>=1.27
 # mypy and ruff are pinned exactly to match .pre-commit-config.yaml's additional_dependencies,
 # so a manual `mypy`/`ruff` invocation matches what pre-commit runs.
-mypy==2.1.0
+mypy==2.3.0
 pre-commit>=4.0
-ruff==0.15.18
+ruff==0.15.20
 twine>=6.1
