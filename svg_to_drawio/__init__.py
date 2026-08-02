@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from os import PathLike, fspath, path
 
-__version__ = "3.10.0"
+__version__ = "3.10.1"
 
 from .capabilities import all_capabilities, capability_descriptor, capability_keys, rendering_preflight_lines
 from .compatibility import CompatibilityOverview, CompatibilityRow, FeatureObservation
