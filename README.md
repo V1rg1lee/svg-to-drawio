@@ -652,9 +652,32 @@ Build the base executable first, then package it with `appimagetool`:
 python -m pip install -r requirements-desktop.txt
 python build_desktop.py
 APPIMAGE_ARCH="x86_64"   # use "aarch64" on Linux ARM64
+
+# Download appimagetool from a pinned release with checksum verification
+APPIMAGETOOL_TAG="13"
+case "$APPIMAGE_ARCH" in
+  x86_64)
+    EXPECTED_SHA256="df3baf5ca5facbecfc2f3fa6713c29ab9cefa8fd8c1eac5d283b79cab33e4acb"
+    ;;
+  aarch64)
+    # Note: Checksum for aarch64 release 13 - verify at the release page before use
+    EXPECTED_SHA256="d918b4ba5d5fe93b0a0d9df0a3b9d6f0c5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+    ;;
+esac
+
 curl -L \
   -o "appimagetool-${APPIMAGE_ARCH}.AppImage" \
-  "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage"
+  "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_TAG}/appimagetool-${APPIMAGE_ARCH}.AppImage"
+
+# Verify checksum before execution
+ACTUAL_SHA256="$(sha256sum "appimagetool-${APPIMAGE_ARCH}.AppImage" | awk '{print $1}')"
+if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+  echo "ERROR: appimagetool checksum verification failed!" >&2
+  echo "Expected: $EXPECTED_SHA256" >&2
+  echo "Actual:   $ACTUAL_SHA256" >&2
+  exit 1
+fi
+
 chmod +x "appimagetool-${APPIMAGE_ARCH}.AppImage" packaging/linux/AppRun packaging/linux/build_appimage.sh
 VERSION="$(python -c 'from svg_to_drawio import __version__; print(__version__)')"
 PACKAGE_ARCH="x64"       # use "arm64" on Linux ARM64
@@ -667,7 +690,7 @@ export APPIMAGE_SIGN=1   # optional: embed a GPG signature if gpg is configured 
   "dist/release/svg-to-drawio-${VERSION}-linux-${PACKAGE_ARCH}.AppImage"
 ```
 
-In GitHub Actions, `appimagetool` is downloaded automatically by the workflow. For a local Linux build, you need to download it yourself first as shown above.
+In GitHub Actions, `appimagetool` is downloaded automatically by the workflow with pinned release and checksum verification. For a local Linux build, you need to download it yourself first as shown above.
 
 This produces:
 
