@@ -654,14 +654,14 @@ python build_desktop.py
 APPIMAGE_ARCH="x86_64"   # use "aarch64" on Linux ARM64
 
 # Download appimagetool from a pinned release with checksum verification
-APPIMAGETOOL_TAG="13"
+APPIMAGETOOL_TAG="1.9.1"
 case "$APPIMAGE_ARCH" in
   x86_64)
-    EXPECTED_SHA256="df3baf5ca5facbecfc2f3fa6713c29ab9cefa8fd8c1eac5d283b79cab33e4acb"
+    EXPECTED_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
     ;;
   aarch64)
     # Note: Checksum for aarch64 release 13 - verify at the release page before use
-    EXPECTED_SHA256="d918b4ba5d5fe93b0a0d9df0a3b9d6f0c5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
+    EXPECTED_SHA256="f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158"
     ;;
 esac
 
