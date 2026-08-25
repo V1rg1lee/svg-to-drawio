@@ -85,5 +85,5 @@ no_implicit_optional = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["PyInstaller.*", "PySide6.*", "watchdog.*"]
+module = ["PyInstaller.*", "PySide6.*", "defusedxml.*", "watchdog.*"]
 ignore_missing_imports = true

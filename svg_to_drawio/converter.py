@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 import warnings
 import xml.etree.ElementTree as ET
-import defusedxml.ElementTree as DefusedET
 from collections.abc import Callable
 from os import PathLike, fspath, path
 from xml.etree.ElementTree import Element
+
+import defusedxml.ElementTree as DefusedET
 
 from .atomic_write import write_text_atomically
 from .cell_factory import make_bounds_vertex, make_layer_cell

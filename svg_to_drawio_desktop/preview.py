@@ -6,9 +6,9 @@ import base64
 import mimetypes
 import tempfile
 import xml.etree.ElementTree as ET
-import defusedxml.ElementTree as DefusedET
 from pathlib import Path
 
+import defusedxml.ElementTree as DefusedET
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QTransform, QWheelEvent
 from PySide6.QtSvg import QSvgRenderer
