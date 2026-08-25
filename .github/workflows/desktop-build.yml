@@ -44,9 +44,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cd dist/release
-          gh release upload "${{ github.ref_name }}" --repo "$GH_REPO" --clobber *
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber *
 
   sign:
     name: Sign release artifacts
@@ -56,9 +57,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    env:
-      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
 
     steps:
       # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
@@ -74,17 +72,22 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
       - name: Install GnuPG
-        if: env.RELEASE_GPG_PRIVATE_KEY != ''
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gnupg
 
       - name: Import release GPG key
-        if: env.RELEASE_GPG_PRIVATE_KEY != ''
         id: gpg-import
         shell: bash
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
         run: |
+          if [[ -z "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           GNUPGHOME="$(mktemp -d)"
           export GNUPGHOME
           chmod 700 "$GNUPGHOME"
@@ -97,12 +100,15 @@ jobs:
             echo "Unable to determine imported GPG key fingerprint." >&2
             exit 1
           fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
 
       - name: Generate checksums and signatures
         shell: bash
         env:
           RELEASE_GPG_FINGERPRINT: ${{ steps.gpg-import.outputs.fingerprint }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
         run: |
           shopt -s nullglob
           cd dist/release
@@ -137,6 +143,7 @@ jobs:
 
           if [[ -n "${RELEASE_GPG_FINGERPRINT:-}" ]]; then
             gpg --batch --yes --armor --export "$RELEASE_GPG_FINGERPRINT" > svg-to-drawio-release-signing-key.asc
+
             for artifact in "${artifacts[@]}"; do
               if [[ "$artifact" == *.AppImage ]]; then
                 gpg_args=(
@@ -147,15 +154,18 @@ jobs:
                   --local-user "$RELEASE_GPG_FINGERPRINT"
                   --pinentry-mode loopback
                 )
+
                 if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
                   gpg_args+=(--passphrase "$RELEASE_GPG_PASSPHRASE")
                 fi
+
                 gpg "${gpg_args[@]}" --output "${artifact}.asc" "$artifact"
               fi
             done
           fi
 
           BUNDLE_DIR="$(mktemp -d)"
+
           cat > "$BUNDLE_DIR/README.txt" <<EOF
           Advanced verification bundles for svg-to-drawio $VERSION
 
@@ -172,20 +182,24 @@ jobs:
 
           for artifact in "${artifacts[@]}"; do
             cp "${artifact}.sigstore.json" "$BUNDLE_DIR/"
+
             if [[ -f "${artifact}.asc" ]]; then
               cp "${artifact}.asc" "$BUNDLE_DIR/"
             fi
           done
 
           VERIFICATION_ZIP="svg-to-drawio-${VERSION}-verification-bundles.zip"
+
           (
             cd "$BUNDLE_DIR"
             zip -q -r "../$VERIFICATION_ZIP" .
           )
+
           mv "$BUNDLE_DIR/../$VERIFICATION_ZIP" .
           rm -rf "$BUNDLE_DIR"
 
           : > SHA256SUMS.txt
+
           for artifact in "${artifacts[@]}" "$VERIFICATION_ZIP"; do
             sha256sum "$artifact" >> SHA256SUMS.txt
           done
@@ -201,9 +215,11 @@ jobs:
               --local-user "$RELEASE_GPG_FINGERPRINT"
               --pinentry-mode loopback
             )
+
             if [[ -n "${RELEASE_GPG_PASSPHRASE:-}" ]]; then
               gpg_args+=(--passphrase "$RELEASE_GPG_PASSPHRASE")
             fi
+
             gpg "${gpg_args[@]}" --output SHA256SUMS.txt.asc SHA256SUMS.txt
           fi
 
@@ -217,7 +233,7 @@ jobs:
             dist/release/*-verification-bundles.zip
 
       - name: Upload top-level GPG verification assets
-        if: env.RELEASE_GPG_PRIVATE_KEY != ''
+        if: steps.gpg-import.outputs.enabled == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: svg-to-drawio-release-gpg-verification
@@ -235,15 +251,19 @@ jobs:
         run: |
           shopt -s nullglob
           cd dist/release
+
           assets=(
             SHA256SUMS.txt
             SHA256SUMS.txt.sigstore.json
             *-verification-bundles.zip
           )
+
           if [[ -f SHA256SUMS.txt.asc ]]; then
             assets+=(SHA256SUMS.txt.asc)
           fi
+
           if [[ -f svg-to-drawio-release-signing-key.asc ]]; then
             assets+=(svg-to-drawio-release-signing-key.asc)
           fi
+
           gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber "${assets[@]}"
