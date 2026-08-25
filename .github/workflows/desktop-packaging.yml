@@ -320,6 +320,8 @@ jobs:
       # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
       - name: Attach release assets
         if: inputs.publish && github.event_name == 'release'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" --clobber dist/release/*
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" --clobber dist/release/*
