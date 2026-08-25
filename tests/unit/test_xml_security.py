@@ -10,9 +10,9 @@ future change (e.g. swapping the XML backend) cannot silently regress that.
 from __future__ import annotations
 
 import tempfile
-import xml.etree.ElementTree as ET
 from os import path
 
+from defusedxml.common import DefusedXmlException
 from svg_to_drawio import convert_svg_string
 
 from tests.helpers import SvgTestCase
@@ -34,7 +34,7 @@ class XmlSecurityTests(SvgTestCase):
     """Confirm malicious DTD/entity payloads are rejected, not executed or leaked."""
 
     def test_billion_laughs_entity_expansion_is_rejected(self) -> None:
-        with self.assertRaises(ET.ParseError):
+        with self.assertRaises(DefusedXmlException):
             convert_svg_string(_BILLION_LAUGHS_SVG, title="billion-laughs")
 
     def test_external_entity_file_read_is_not_resolved(self) -> None:
@@ -50,5 +50,5 @@ class XmlSecurityTests(SvgTestCase):
                 '<svg xmlns="http://www.w3.org/2000/svg"><title>&xxe;</title></svg>'
             )
 
-            with self.assertRaises(ET.ParseError):
+            with self.assertRaises(DefusedXmlException):
                 convert_svg_string(payload, title="xxe-file-read")
