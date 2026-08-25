@@ -12,9 +12,9 @@ permissions:
 jobs:
   build:
     name: Desktop packages
-    # Only this job needs write - to upload release assets.
+    # Build jobs use read-only permissions; publication is separated.
     permissions:
-      contents: write
+      contents: read
     uses: ./.github/workflows/desktop-packaging.yml
     with:
       publish: true
@@ -22,6 +22,31 @@ jobs:
     secrets:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+
+  publish:
+    name: Publish release artifacts
+    runs-on: ubuntu-24.04
+    needs: build
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: svg-to-drawio-*
+          merge-multiple: true
+          path: dist/release
+
+      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
+      - name: Attach release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist/release
+          gh release upload "${{ github.ref_name }}" --repo "$GH_REPO" --clobber *
 
   sign:
     name: Sign release artifacts

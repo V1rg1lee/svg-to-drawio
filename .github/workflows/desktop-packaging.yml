@@ -8,7 +8,7 @@ on:
   workflow_call:
     inputs:
       publish:
-        description: "Upload build artifacts and attach them to a GitHub release."
+        description: "Upload build artifacts to GitHub Actions for later publication."
         type: boolean
         default: false
       release_tag:
@@ -26,8 +26,10 @@ jobs:
     name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
     # Permissions are intentionally controlled by the caller workflow.
-    # CI calls this workflow with read-only contents, while release publishing
-    # calls it with contents: write for release asset uploads.
+    # This workflow always runs with read-only contents permissions and disabled
+    # credential persistence to prevent compromised build code from accessing
+    # repository write authority. Release asset uploads are handled by a separate
+    # publication job in the caller workflow.
     env:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
@@ -76,6 +78,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -316,10 +320,3 @@ jobs:
         with:
           name: ${{ matrix.artifact-name }}
           path: dist/release/*
-
-      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
-      - name: Attach release assets
-        if: inputs.publish && github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" --clobber dist/release/*
