@@ -113,11 +113,14 @@ jobs:
       - name: Verify release tag matches package version
         if: inputs.publish && inputs.release_tag != ''
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
         run: |
-          TAG_VERSION="${{ inputs.release_tag }}"
+          TAG_VERSION="$RELEASE_TAG"
           TAG_VERSION="${TAG_VERSION#v}"
-          if [[ "$TAG_VERSION" != "${{ steps.version.outputs.value }}" ]]; then
-            echo "Release tag version ($TAG_VERSION) does not match package version (${{ steps.version.outputs.value }})." >&2
+          if [[ "$TAG_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "Release tag version ($TAG_VERSION) does not match package version ($PACKAGE_VERSION)." >&2
             exit 1
           fi
 
