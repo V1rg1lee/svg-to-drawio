@@ -17,11 +17,11 @@ jobs:
       contents: read
     uses: ./.github/workflows/desktop-packaging.yml
     with:
-      publish: true
+      publish: ${{ github.event_name == 'release' }}
       release_tag: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
     secrets:
-      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      RELEASE_GPG_PRIVATE_KEY: ${{ github.event_name == 'release' && secrets.RELEASE_GPG_PRIVATE_KEY || '' }}
+      RELEASE_GPG_PASSPHRASE: ${{ github.event_name == 'release' && secrets.RELEASE_GPG_PASSPHRASE || '' }}
 
   publish:
     name: Publish release artifacts
@@ -52,6 +52,7 @@ jobs:
     name: Sign release artifacts
     runs-on: ubuntu-24.04
     needs: build
+    if: github.event_name == 'release'
     permissions:
       contents: write
       id-token: write
