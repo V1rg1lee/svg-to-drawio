@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -89,14 +90,16 @@ def parse_fingerprint(gpg_output: str) -> str:
     raise ValueError("Unable to parse generated key fingerprint.")
 
 
-def build_batch_config(name: str, email: str, passphrase: str | None) -> str:
+def build_batch_config(
+    name: str, email: str, passphrase: str | None, expiry_years: int
+) -> str:
     lines = [
         "Key-Type: RSA",
         "Key-Length: 4096",
         "Key-Usage: sign",
         f"Name-Real: {name}",
         f"Name-Email: {email}",
-        "Expire-Date: 0",
+        f"Expire-Date: {expiry_years}y",
     ]
     if passphrase:
         lines.append(f"Passphrase: {passphrase}")
@@ -106,9 +109,19 @@ def build_batch_config(name: str, email: str, passphrase: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_text(path: Path, content: str) -> None:
+def write_text(path: Path, content: str, *, secure: bool = False) -> None:
+    """Write text to a file, optionally with restrictive permissions.
+
+    Args:
+        path: Target file path
+        content: Text content to write
+        secure: If True, set file permissions to 0600 (owner read/write only)
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    if secure:
+        # Set restrictive permissions: owner read/write only (0600)
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
 def main() -> int:
@@ -134,8 +147,21 @@ def main() -> int:
         "--passphrase",
         default=None,
         help=(
-            "Optional passphrase to protect the private key. Leave empty for a CI-friendly "
-            "unprotected key that also enables embedded AppImage signing."
+            "Passphrase to protect the private key. SECURITY WARNING: Omitting this "
+            "creates an unprotected key that can be used by anyone who obtains the "
+            "exported file. Unprotected keys are only appropriate for fully automated "
+            "CI environments where the key is stored in encrypted secrets and never "
+            "written to disk in plaintext outside the CI runner."
+        ),
+    )
+    parser.add_argument(
+        "--expiry-years",
+        type=int,
+        default=2,
+        help=(
+            "Key expiry in years. Default is 2 years. While expiry does not prevent "
+            "misuse of a stolen key before expiration, it limits the window of "
+            "vulnerability and enforces periodic key rotation."
         ),
     )
     parser.add_argument(
@@ -144,6 +170,26 @@ def main() -> int:
         help="Overwrite the output directory if it already exists.",
     )
     args = parser.parse_args()
+
+    # Security warning for unprotected keys
+    if not args.passphrase:
+        print(
+            "WARNING: Generating an UNPROTECTED private key without passphrase protection.",
+            file=sys.stderr,
+        )
+        print(
+            "WARNING: Anyone who obtains the exported private-key.asc file can use it to",
+            file=sys.stderr,
+        )
+        print(
+            "WARNING: forge signatures. This is only appropriate for CI automation where",
+            file=sys.stderr,
+        )
+        print(
+            "WARNING: the key is stored in encrypted repository secrets.",
+            file=sys.stderr,
+        )
+        print(file=sys.stderr)
 
     repo_root = Path(__file__).resolve().parents[1]
     output_dir = (repo_root / args.output_dir).resolve()
@@ -163,7 +209,9 @@ def main() -> int:
     if os.name != "nt":
         gnupg_home.chmod(0o700)
 
-    batch_config = build_batch_config(args.name, args.email, args.passphrase)
+    batch_config = build_batch_config(
+        args.name, args.email, args.passphrase, args.expiry_years
+    )
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", delete=False, suffix=".batch"
     ) as handle:
@@ -196,7 +244,8 @@ def main() -> int:
         private_key = run_gpg(gpg_executable, gnupg_home, secret_export_args).stdout
 
         write_text(output_dir / "public-key.asc", public_key)
-        write_text(output_dir / "private-key.asc", private_key)
+        # Write private key with restrictive permissions (0600)
+        write_text(output_dir / "private-key.asc", private_key, secure=True)
         write_text(output_dir / "fingerprint.txt", fingerprint + "\n")
         write_text(
             output_dir / "github-secrets.txt",
@@ -238,10 +287,25 @@ def main() -> int:
     print(f"GPG executable: {gpg_executable}")
     print(f"Output directory: {output_dir}")
     print(f"Fingerprint: {fingerprint}")
+    print(f"Key expiry: {args.expiry_years} years")
+    print(
+        f"Passphrase protection: {'enabled' if args.passphrase else 'DISABLED (unprotected key)'}"
+    )
     print(f"Embedded AppImage signing in CI: {appimage_note}")
-    print(f"Private key export: {output_dir / 'private-key.asc'}")
+    print(f"Private key export: {output_dir / 'private-key.asc'} (permissions: 0600)")
     print(f"Public key export: {output_dir / 'public-key.asc'}")
     print(f"GitHub secret helper: {output_dir / 'github-secrets.txt'}")
+
+    if not args.passphrase:
+        print()
+        print(
+            "SECURITY REMINDER: The private key has NO passphrase protection.",
+            file=sys.stderr,
+        )
+        print(
+            "Store it securely and never commit it to version control.", file=sys.stderr
+        )
+
     return 0
 
 
