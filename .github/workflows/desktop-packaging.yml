@@ -8,7 +8,7 @@ on:
   workflow_call:
     inputs:
       publish:
-        description: "Upload build artifacts and attach them to a GitHub release."
+        description: "Upload build artifacts to GitHub Actions for later publication."
         type: boolean
         default: false
       release_tag:
@@ -26,8 +26,10 @@ jobs:
     name: Desktop packages (${{ matrix.os-label }})
     runs-on: ${{ matrix.os }}
     # Permissions are intentionally controlled by the caller workflow.
-    # CI calls this workflow with read-only contents, while release publishing
-    # calls it with contents: write for release asset uploads.
+    # This workflow always runs with read-only contents permissions and disabled
+    # credential persistence to prevent compromised build code from accessing
+    # repository write authority. Release asset uploads are handled by a separate
+    # publication job in the caller workflow.
     env:
       RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
       RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
@@ -76,6 +78,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -173,10 +177,38 @@ jobs:
         if: matrix.platform-family == 'linux'
         shell: bash
         run: |
-          curl -L \
-            -o "appimagetool-${{ matrix.appimage-arch }}.AppImage" \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage-arch }}.AppImage"
-          chmod +x "appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          # Pin to a specific immutable release tag and verify integrity with SHA256 checksums.
+          # These checksums correspond to appimagetool release 13 from 2023-01-04.
+          # To update: download new release, compute checksums with sha256sum, update both tag and checksums.
+          # Checksums can be verified at: https://github.com/AppImage/appimagetool/releases/
+          APPIMAGETOOL_TAG="1.9.1"
+          case "${{ matrix.appimage-arch }}" in
+            x86_64)
+              EXPECTED_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
+              ;;
+            aarch64)
+              EXPECTED_SHA256="f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158"
+              ;;
+            *)
+              echo "Unsupported architecture: ${{ matrix.appimage-arch }}" >&2
+              exit 1
+              ;;
+          esac
+          APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_TAG}/appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          APPIMAGETOOL_FILE="appimagetool-${{ matrix.appimage-arch }}.AppImage"
+          echo "Downloading appimagetool from pinned release ${APPIMAGETOOL_TAG}..."
+          curl -fL -o "$APPIMAGETOOL_FILE" "$APPIMAGETOOL_URL"
+          echo "Verifying SHA256 checksum..."
+          ACTUAL_SHA256="$(sha256sum "$APPIMAGETOOL_FILE" | awk '{print $1}')"
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+            echo "ERROR: appimagetool checksum verification failed!" >&2
+            echo "Expected: $EXPECTED_SHA256" >&2
+            echo "Actual:   $ACTUAL_SHA256" >&2
+            echo "This may indicate a compromised download or an outdated checksum." >&2
+            exit 1
+          fi
+          echo "Checksum verification passed."
+          chmod +x "$APPIMAGETOOL_FILE"
           chmod +x \
             packaging/linux/common.sh \
             packaging/linux/AppRun \
@@ -340,6 +372,8 @@ jobs:
       # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
       - name: Attach release assets
         if: inputs.publish && github.event_name == 'release'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" --clobber dist/release/*
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" --clobber dist/release/*
