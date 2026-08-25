@@ -24,7 +24,9 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Topic :: Multimedia :: Graphics :: Graphics Conversion",
 ]
-dependencies = []
+dependencies = [
+  "defusedxml>=0.7.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/V1rg1lee/svg-to-drawio"

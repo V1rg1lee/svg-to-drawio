@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import tempfile
 import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as DefusedET
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
@@ -246,7 +247,7 @@ def _prepare_preview_svg(
     """Normalize local image references so Qt can render the preview more faithfully."""
     svg_file = Path(svg_path).resolve()
     try:
-        root = ET.parse(svg_file).getroot()
+        root = DefusedET.parse(svg_file).getroot()
     except ET.ParseError:
         return str(svg_file), None
 

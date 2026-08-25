@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import warnings
 import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as DefusedET
 from collections.abc import Callable
 from os import PathLike, fspath, path
 from xml.etree.ElementTree import Element
@@ -361,7 +362,7 @@ class Converter:
 
         svg_path_str = fspath(svg_path)
         title = path.splitext(path.basename(svg_path_str))[0]
-        tree = ET.parse(svg_path_str)
+        tree = DefusedET.parse(svg_path_str)
         self._convert_root_cells(tree.getroot(), source_path=path.abspath(svg_path_str))
         return title, list(self.cells), self.get_report()
 
@@ -379,7 +380,7 @@ class Converter:
     ) -> ConversionResult:
         """Convert SVG markup already loaded in memory and return a rich conversion result."""
         return self._convert_parsed_root_result(
-            ET.fromstring(svg_text),
+            DefusedET.fromstring(svg_text),
             base_dir=base_dir,
             title=title,
             source_label=source_label,
@@ -409,7 +410,7 @@ class Converter:
         `UnicodeDecodeError` on a validly-encoded non-UTF-8 SVG instead of parsing it.
         """
         return self._convert_parsed_root_result(
-            ET.fromstring(svg_bytes),
+            DefusedET.fromstring(svg_bytes),
             base_dir=base_dir,
             title=title,
             source_label=source_label,
