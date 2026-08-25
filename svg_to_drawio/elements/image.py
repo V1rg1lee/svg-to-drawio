@@ -122,29 +122,38 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         )
         return href, mime
 
+    # Local file reference: reject if no trusted base directory is configured
+    if not ctx.source_dir:
+        ctx.report.add_asset(
+            href=href,
+            status="rejected",
+            message="Local image references require a trusted base directory (base_dir parameter).",
+        )
+        return None, None
+
     asset_path = href
     if not path.isabs(asset_path):
         asset_path = path.join(ctx.source_dir, asset_path)
     asset_path = path.abspath(path.normpath(asset_path))
-    base_dir = path.abspath(ctx.source_dir) if ctx.source_dir else ""
-    if base_dir:
-        try:
-            if path.commonpath([base_dir, asset_path]) != base_dir:
-                ctx.report.add_asset(
-                    href=href,
-                    status="rejected",
-                    resolved_path=asset_path,
-                    message="Local image is outside the source directory tree.",
-                )
-                return None, None
-        except ValueError:
+    base_dir = path.abspath(ctx.source_dir)
+    # Enforce containment check: local images must be within the trusted base directory
+    try:
+        if path.commonpath([base_dir, asset_path]) != base_dir:
             ctx.report.add_asset(
                 href=href,
                 status="rejected",
                 resolved_path=asset_path,
-                message="Local image could not be resolved safely.",
+                message="Local image is outside the source directory tree.",
             )
             return None, None
+    except ValueError:
+        ctx.report.add_asset(
+            href=href,
+            status="rejected",
+            resolved_path=asset_path,
+            message="Local image could not be resolved safely.",
+        )
+        return None, None
     if not path.isfile(asset_path):
         ctx.report.add_asset(
             href=href,
