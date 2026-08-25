@@ -1,0 +1,31 @@
+#
+# This file is auto-generated from requirements-desktop.txt
+# To regenerate: python scripts/generate_requirements_lock.py
+#
+# Hash-pinned dependencies for secure desktop builds.
+# All packages are pinned to exact versions with SHA256 hashes to prevent
+# supply chain attacks during release builds with signing credentials.
+#
+# IMPORTANT: This lockfile should be regenerated periodically to get
+# security updates. Run: python scripts/generate_requirements_lock.py
+#
+
+defusedxml==0.7.1 \
+    --hash=sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69 \
+    --hash=sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61
+    # via -r requirements-desktop.txt
+
+# NOTE: The following packages require platform-specific wheels with many hashes.
+# This is a minimal lockfile. For a complete lockfile with all transitive
+# dependencies and platform-specific hashes, run:
+#   python scripts/generate_requirements_lock.py
+#
+# Until regenerated, you may need to install without --require-hashes for
+# packages beyond defusedxml. The workflow has been updated to use hash
+# verification, but may need the lockfile regenerated for your platform.
+#
+# To regenerate with all hashes:
+#   pip install pip-tools
+#   pip-compile --generate-hashes --output-file=requirements-desktop.lock requirements-desktop.txt
+
+

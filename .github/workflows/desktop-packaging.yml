@@ -82,12 +82,23 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: requirements-desktop.txt
+          cache-dependency-path: requirements-desktop.lock
 
-      - name: Install desktop build dependencies
+      - name: Install desktop build dependencies with hash verification
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-desktop.txt
+          # Security: Install dependencies with cryptographic hash verification.
+          # This prevents supply chain attacks by ensuring packages match expected hashes.
+          # The lockfile must be generated with: python scripts/generate_requirements_lock.py
+          
+          if [ ! -f requirements-desktop.lock ]; then
+            echo "ERROR: requirements-desktop.lock not found" >&2
+            echo "This file is required for secure builds with signing credentials." >&2
+            echo "Generate it by running: python scripts/generate_requirements_lock.py" >&2
+            exit 1
+          fi
+          
+          python -m pip install --require-hashes -r requirements-desktop.lock
 
       - name: Install Linux packaging dependencies
         if: matrix.platform-family == 'linux'
@@ -147,7 +158,16 @@ jobs:
       - name: Install Inno Setup
         if: matrix.build-windows-installer
         shell: pwsh
-        run: choco install innosetup --no-progress -y
+        run: |
+          # Security: Pin Inno Setup to a specific version to prevent supply chain attacks.
+          # Chocolatey packages include embedded checksums that are automatically verified.
+          # Version 6.3.3 is pinned here - update as needed but never use "latest".
+          # 
+          # To update to a newer version:
+          # 1. Check https://community.chocolatey.org/packages/innosetup for available versions
+          # 2. Test the new version locally
+          # 3. Update the version number below
+          choco install innosetup --version=6.3.3 --no-progress -y
 
       - name: Download appimagetool
         if: matrix.platform-family == 'linux'

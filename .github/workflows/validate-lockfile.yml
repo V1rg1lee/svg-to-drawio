@@ -1,0 +1,65 @@
+name: Validate requirements lockfile
+
+on:
+  pull_request:
+    paths:
+      - 'requirements-desktop.txt'
+      - 'requirements-desktop.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-lockfile:
+    name: Validate requirements lockfile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Check lockfile exists
+        run: |
+          if [ ! -f requirements-desktop.lock ]; then
+            echo "ERROR: requirements-desktop.lock is missing" >&2
+            echo "Generate it with: python scripts/generate_requirements_lock.py" >&2
+            exit 1
+          fi
+
+      - name: Check lockfile has valid hashes
+        run: |
+          if ! grep -q "^[a-zA-Z0-9_-]*==.*--hash=sha256:" requirements-desktop.lock; then
+            echo "ERROR: requirements-desktop.lock does not contain valid hash entries" >&2
+            echo "Regenerate it with: python scripts/generate_requirements_lock.py" >&2
+            exit 1
+          fi
+          echo "✓ Lockfile contains hash entries"
+
+      - name: Install pip-tools
+        run: python -m pip install pip-tools
+
+      - name: Check if lockfile is up to date
+        run: |
+          # Generate a temporary lockfile
+          python -m piptools compile --generate-hashes --output-file=requirements-desktop.lock.tmp requirements-desktop.txt
+          
+          # Compare with committed lockfile (ignoring comments with timestamps)
+          if ! diff -u <(grep -v "^#" requirements-desktop.lock | grep -v "^$") <(grep -v "^#" requirements-desktop.lock.tmp | grep -v "^$"); then
+            echo "ERROR: requirements-desktop.lock is out of date" >&2
+            echo "Regenerate it with: python scripts/generate_requirements_lock.py" >&2
+            echo "Then commit the updated lockfile" >&2
+            exit 1
+          fi
+          
+          echo "✓ Lockfile is up to date"
+
+      - name: Test installation with hash verification
+        run: |
+          python -m pip install --require-hashes -r requirements-desktop.lock
+          echo "✓ Successfully installed dependencies with hash verification"

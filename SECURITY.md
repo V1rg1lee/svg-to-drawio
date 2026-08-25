@@ -20,7 +20,7 @@ In scope:
 
 - The conversion engine, CLI, and Python API (`svg_to_drawio/`) - e.g. XML parsing issues (XXE, entity expansion), path traversal through `<image>` asset resolution, or a malicious SVG causing unbounded resource use.
 - The desktop app (`svg_to_drawio_desktop/`).
-- The release/build pipeline (GitHub Actions workflows, packaging scripts) - e.g. supply-chain issues like unpinned actions or unsigned artifacts.
+- The release/build pipeline (GitHub Actions workflows, packaging scripts) - e.g. supply-chain issues like unpinned actions or unsigned artifacts. See [SECURITY-DEPENDENCY-PINNING.md](SECURITY-DEPENDENCY-PINNING.md) for details on how dependencies are secured in release builds.
 
 Out of scope:
 
