@@ -28,9 +28,6 @@ jobs:
     # Permissions are intentionally controlled by the caller workflow.
     # CI calls this workflow with read-only contents, while release publishing
     # calls it with contents: write for release asset uploads.
-    env:
-      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
     strategy:
       fail-fast: false
       matrix:
@@ -181,9 +178,12 @@ jobs:
           -PackageArchitecture "${{ matrix.package-arch }}"
 
       - name: Import release GPG key for AppImage signing
-        if: inputs.publish && matrix.platform-family == 'linux' && env.RELEASE_GPG_PRIVATE_KEY != ''
+        if: inputs.publish && matrix.platform-family == 'linux' && secrets.RELEASE_GPG_PRIVATE_KEY != ''
         id: appimage-gpg-import
         shell: bash
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
         run: |
           mkdir -p "$HOME/.gnupg"
           chmod 700 "$HOME/.gnupg"
@@ -226,6 +226,7 @@ jobs:
         shell: bash
         env:
           ARCH: ${{ matrix.appimage-arch }}
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
         run: |
           if [[ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]]; then
             export APPIMAGE_SIGN=1
