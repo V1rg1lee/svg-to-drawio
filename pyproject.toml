@@ -24,7 +24,9 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Topic :: Multimedia :: Graphics :: Graphics Conversion",
 ]
-dependencies = []
+dependencies = [
+  "defusedxml>=0.7.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/V1rg1lee/svg-to-drawio"
@@ -83,5 +85,5 @@ no_implicit_optional = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["PyInstaller.*", "PySide6.*", "watchdog.*"]
+module = ["PyInstaller.*", "PySide6.*", "defusedxml.*", "watchdog.*"]
 ignore_missing_imports = true
