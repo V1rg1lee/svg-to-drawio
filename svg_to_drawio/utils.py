@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from xml.etree.ElementTree import Element
 
 _UNIT_TO_PX: dict[str, float] = {
@@ -15,6 +15,9 @@ _UNIT_TO_PX: dict[str, float] = {
     "cm": 96.0 / 2.54,
     "mm": 96.0 / 25.4,
 }
+
+_SAFE_LINK_SCHEMES = frozenset({"http", "https", "mailto", "ftp", "ftps", "tel", "sms"})
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def strip_ns(tag: str) -> str:
@@ -98,9 +101,22 @@ def tooltip_style(element: Element) -> str:
 
 
 def link_value(url: str | None) -> str | None:
-    """Return a sanitized link value suitable for a draw.io style entry."""
+    """Return a safe draw.io link value or None for unsupported URLs."""
     if not url:
         return None
+
+    url = url.strip()
+    if not url or _CONTROL_CHAR_RE.search(url):
+        return None
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+
+    if parsed.scheme and parsed.scheme.lower() not in _SAFE_LINK_SCHEMES:
+        return None
+
     return quote(url, safe="/:#?&=%+,-._~[]@!$'()*")
 
 
