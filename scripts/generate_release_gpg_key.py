@@ -202,6 +202,10 @@ def main() -> int:
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Set restrictive permissions on output directory to prevent unauthorized access
+    if os.name != "nt":
+        output_dir.chmod(0o700)
+
     gpg_executable = detect_gpg_executable()
     gnupg_home = output_dir / "gnupg-home"
     gnupg_home.mkdir(parents=True, exist_ok=True)
@@ -247,6 +251,7 @@ def main() -> int:
         # Write private key with restrictive permissions (0600)
         write_text(output_dir / "private-key.asc", private_key, secure=True)
         write_text(output_dir / "fingerprint.txt", fingerprint + "\n")
+        # Write github-secrets.txt with restrictive permissions since it may contain passphrase
         write_text(
             output_dir / "github-secrets.txt",
             "\n".join(
@@ -273,6 +278,7 @@ def main() -> int:
                 ]
             )
             + "\n",
+            secure=True,
         )
 
     finally:
