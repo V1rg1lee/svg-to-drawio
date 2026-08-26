@@ -58,14 +58,14 @@ def run_gpg(
     input_text: str | None = None,
     passphrase: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a GPG command with optional passphrase via file descriptor.
+    """Run a GPG command with an optional passphrase via a temporary file.
 
     Args:
         gpg_executable: Path to GPG executable
         homedir: GPG home directory
         args: Additional GPG arguments
         input_text: Optional text to pass to stdin
-        passphrase: Optional passphrase to pass via file descriptor (secure method)
+        passphrase: Optional passphrase securely passed through a temporary file
 
     Returns:
         CompletedProcess result
@@ -78,7 +78,7 @@ def run_gpg(
         *args,
     ]
 
-    # If passphrase is provided, use a temporary file descriptor to pass it securely
+    # If passphrase is provided, use a temporary file to pass it securely
     # This avoids exposing the passphrase in process arguments
     passphrase_file = None
     try:
@@ -329,6 +329,8 @@ def main() -> int:
     ) as handle:
         handle.write(batch_config)
         batch_file = Path(handle.name)
+    if os.name != "nt":
+        batch_file.chmod(0o600)
 
     try:
         generate_args = [
