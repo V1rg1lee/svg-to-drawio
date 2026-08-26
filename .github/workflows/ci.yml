@@ -137,7 +137,7 @@ jobs:
           echo "Changed files since $BASE_SHA:"
           echo "$changed_files"
 
-          pattern='^(svg_to_drawio/|svg_to_drawio_desktop/|packaging/|build_desktop\.py|desktop_app\.py|requirements-desktop\.txt|pyproject\.toml|\.github/workflows/desktop-packaging\.yml|\.github/workflows/ci\.yml)'
+          pattern='^(svg_to_drawio/|svg_to_drawio_desktop/|packaging/|build_desktop\.py|desktop_app\.py|requirements-desktop\.txt|pyproject\.toml|\.github/workflows/desktop-build\.yml|\.github/workflows/desktop-packaging\.yml|\.github/workflows/ci\.yml)'
           if echo "$changed_files" | grep -qE "$pattern"; then
             echo "Desktop-relevant change detected; running desktop packaging."
             echo "desktop=true" >> "$GITHUB_OUTPUT"

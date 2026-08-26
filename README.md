@@ -660,12 +660,11 @@ case "$APPIMAGE_ARCH" in
     EXPECTED_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
     ;;
   aarch64)
-    # Note: Checksum for aarch64 release 13 - verify at the release page before use
     EXPECTED_SHA256="f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158"
     ;;
 esac
 
-curl -L \
+curl -fL \
   -o "appimagetool-${APPIMAGE_ARCH}.AppImage" \
   "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_TAG}/appimagetool-${APPIMAGE_ARCH}.AppImage"
 

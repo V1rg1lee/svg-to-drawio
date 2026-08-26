@@ -23,39 +23,13 @@ jobs:
       RELEASE_GPG_PRIVATE_KEY: ${{ github.event_name == 'release' && secrets.RELEASE_GPG_PRIVATE_KEY || '' }}
       RELEASE_GPG_PASSPHRASE: ${{ github.event_name == 'release' && secrets.RELEASE_GPG_PASSPHRASE || '' }}
 
-  publish:
-    name: Publish release artifacts
-    runs-on: ubuntu-24.04
-    needs: build
-    if: github.event_name == 'release'
-    permissions:
-      contents: write
-    steps:
-      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
-      - name: Download build artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          pattern: svg-to-drawio-*
-          merge-multiple: true
-          path: dist/release
-
-      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
-      - name: Attach release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          cd dist/release
-          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber *
-
   sign:
     name: Sign release artifacts
     runs-on: ubuntu-24.04
     needs: build
     if: github.event_name == 'release'
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     steps:
@@ -241,29 +215,29 @@ jobs:
             dist/release/SHA256SUMS.txt.asc
             dist/release/svg-to-drawio-release-signing-key.asc
 
-      - name: Attach signature assets
-        if: github.event_name == 'release'
-        shell: bash
+  publish:
+    name: Publish release artifacts
+    runs-on: ubuntu-24.04
+    needs: sign
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      # Download both the build artifacts and the verification artifacts produced by sign.
+      # Pinned to commit SHA to prevent tag-rewrite supply-chain attacks.
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: svg-to-drawio-*
+          merge-multiple: true
+          path: dist/release
+
+      # gh CLI is pre-installed on all GitHub-hosted runners - no third-party action needed.
+      - name: Attach release assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          shopt -s nullglob
           cd dist/release
-
-          assets=(
-            SHA256SUMS.txt
-            SHA256SUMS.txt.sigstore.json
-            *-verification-bundles.zip
-          )
-
-          if [[ -f SHA256SUMS.txt.asc ]]; then
-            assets+=(SHA256SUMS.txt.asc)
-          fi
-
-          if [[ -f svg-to-drawio-release-signing-key.asc ]]; then
-            assets+=(svg-to-drawio-release-signing-key.asc)
-          fi
-
-          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber "${assets[@]}"
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" --clobber *
