@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from svg_to_drawio_desktop.preview_selection import (
     preview_combo_index_to_report_index,
@@ -100,6 +101,30 @@ class DesktopPreviewTests(SvgTestCase):
         self.assertTrue(any(text.get("fill") == "#2563eb" for text in curved_glyphs))
         self.assertGreaterEqual(len(raised_glyphs), len("raised"))
         self.assertGreaterEqual(len(dropped_glyphs), len("dropped"))
+
+    def test_prepare_preview_svg_handles_malformed_xml(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            svg_path = Path(tmpdir) / "malformed.svg"
+            svg_path.write_text('<svg xmlns="http://www.w3.org/2000/svg">', encoding="utf-8")
+
+            preview_path, temp_dir = _prepare_preview_svg(str(svg_path))
+
+        self.assertEqual(preview_path, str(svg_path.resolve()))
+        self.assertIsNone(temp_dir)
+
+    def test_prepare_preview_svg_handles_forbidden_xml_construct(self) -> None:
+        payload = """\
+        <!DOCTYPE svg [<!ENTITY forbidden "entity expansion">]>
+        <svg xmlns="http://www.w3.org/2000/svg"><text>&forbidden;</text></svg>
+        """
+        with TemporaryDirectory() as tmpdir:
+            svg_path = Path(tmpdir) / "forbidden-entity.svg"
+            svg_path.write_text(payload, encoding="utf-8")
+
+            preview_path, temp_dir = _prepare_preview_svg(str(svg_path))
+
+        self.assertEqual(preview_path, str(svg_path.resolve()))
+        self.assertIsNone(temp_dir)
 
 
 class PreviewSelectorHelperTests(SvgTestCase):

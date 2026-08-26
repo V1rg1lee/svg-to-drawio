@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import defusedxml.ElementTree as DefusedET
+from defusedxml.common import DefusedXmlException
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QPen, QTransform, QWheelEvent
 from PySide6.QtSvg import QSvgRenderer
@@ -248,7 +249,7 @@ def _prepare_preview_svg(
     svg_file = Path(svg_path).resolve()
     try:
         root = DefusedET.parse(svg_file).getroot()
-    except ET.ParseError:
+    except (ET.ParseError, DefusedXmlException):
         return str(svg_file), None
 
     changed = False

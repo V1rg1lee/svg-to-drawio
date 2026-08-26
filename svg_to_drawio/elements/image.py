@@ -134,8 +134,8 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
     asset_path = href
     if not path.isabs(asset_path):
         asset_path = path.join(ctx.source_dir, asset_path)
-    asset_path = path.abspath(path.normpath(asset_path))
-    base_dir = path.abspath(ctx.source_dir)
+    asset_path = path.realpath(path.abspath(path.normpath(asset_path)))
+    base_dir = path.realpath(path.abspath(ctx.source_dir))
     # Enforce containment check: local images must be within the trusted base directory
     try:
         if path.commonpath([base_dir, asset_path]) != base_dir:

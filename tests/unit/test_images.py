@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tempfile
-from os import path
+from os import path, symlink
 
 from tests.helpers import SvgTestCase
 
@@ -23,6 +23,56 @@ class ImageTests(SvgTestCase):
                 handle.write(b"not-a-real-png")
 
             root, _ = self._convert_in_dir(tmpdir, svg, rel_path=path.join("nested", "diagram.svg"))
+            self.assertEqual(self._user_cells(root), [])
+
+    def test_local_image_inside_source_dir_is_embedded(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="asset.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            asset_path = path.join(tmpdir, "asset.png")
+            with open(asset_path, "wb") as handle:
+                handle.write(b"not-a-real-png")
+
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(len(self._user_cells(root)), 1)
+
+    def test_local_image_symlink_to_internal_target_is_embedded(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="asset-link.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            asset_path = path.join(tmpdir, "asset.png")
+            with open(asset_path, "wb") as handle:
+                handle.write(b"not-a-real-png")
+            try:
+                symlink(asset_path, path.join(tmpdir, "asset-link.png"))
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"Symbolic links are unavailable: {exc}")
+
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(len(self._user_cells(root)), 1)
+
+    def test_local_image_symlink_to_external_target_is_rejected(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="asset-link.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as outside_dir:
+            outside_asset = path.join(outside_dir, "secret.png")
+            with open(outside_asset, "wb") as handle:
+                handle.write(b"not-a-real-png")
+            try:
+                symlink(outside_asset, path.join(tmpdir, "asset-link.png"))
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"Symbolic links are unavailable: {exc}")
+
+            root, _ = self._convert_in_dir(tmpdir, svg)
             self.assertEqual(self._user_cells(root), [])
 
     def test_image_data_uri_preserve_aspect_ratio_none_and_rotation_are_mapped(self) -> None:
