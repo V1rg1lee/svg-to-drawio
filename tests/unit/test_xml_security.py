@@ -10,6 +10,7 @@ future change (e.g. swapping the XML backend) cannot silently regress that.
 from __future__ import annotations
 
 import tempfile
+import xml.etree.ElementTree as ET
 from os import path
 
 from defusedxml.common import DefusedXmlException
@@ -52,3 +53,60 @@ class XmlSecurityTests(SvgTestCase):
 
             with self.assertRaises(DefusedXmlException):
                 convert_svg_string(payload, title="xxe-file-read")
+
+    def test_svg_text_with_html_markup_is_escaped_in_drawio_labels(self) -> None:
+        """Verify that SVG text containing HTML markup is properly escaped.
+
+        This prevents stored XSS when the draw.io document is opened, since
+        text cells use html=1 in their style. Without escaping, markup like
+        <img src=x onerror=alert(1)> would be rendered as HTML.
+        """
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+          <text x="10" y="30" font-size="14">Normal &amp; Safe</text>
+          <text x="10" y="60" font-size="14">&lt;img src=x onerror=alert(1)&gt;</text>
+          <text x="10" y="90" font-size="14"><tspan>Nested &lt;script&gt;alert(2)&lt;/script&gt;</tspan></text>
+        </svg>
+        """
+
+        xml = convert_svg_string(svg, title="html-injection-test")
+        root = ET.fromstring(xml)
+
+        # Find all text cells with values
+        text_cells = [
+            cell
+            for cell in root.findall(".//mxCell[@value]")
+            if cell.get("value") and cell.get("value").strip()
+        ]
+
+        # Verify we have the expected text cells
+        self.assertGreaterEqual(len(text_cells), 3)
+
+        # Check that all text values are properly HTML-escaped
+        for cell in text_cells:
+            value = cell.get("value", "")
+            style = cell.get("style", "")
+
+            # If the cell has html=1, the value must be HTML-escaped
+            if "html=1" in style:
+                # These patterns should NOT appear unescaped in HTML-enabled cells
+                self.assertNotIn(
+                    "<img", value, "Unescaped <img> tag found in HTML-enabled cell"
+                )
+                self.assertNotIn(
+                    "<script",
+                    value,
+                    "Unescaped <script> tag found in HTML-enabled cell",
+                )
+                self.assertNotIn(
+                    "onerror=",
+                    value,
+                    "Unescaped event handler found in HTML-enabled cell",
+                )
+
+                # The escaped versions should be present
+                if "img" in value.lower():
+                    # After XML parsing, HTML-escaped < becomes &lt; which is safe
+                    self.assertIn("&lt;", value, "Expected HTML-escaped content")
+                if "script" in value.lower():
+                    self.assertIn("&lt;", value, "Expected HTML-escaped content")
