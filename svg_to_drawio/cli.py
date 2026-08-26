@@ -271,6 +271,8 @@ def run(
         target_dir = path.dirname(target)
         if target_dir and not path.isdir(target_dir):
             os.makedirs(target_dir, exist_ok=True)
+        if ".." in target:
+            raise Exception("Invalid file path")
         with open(target, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
         print(f"Report written to: {target}")
