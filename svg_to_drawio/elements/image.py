@@ -6,7 +6,7 @@ import base64
 import binascii
 import mimetypes
 from os import path
-from urllib.parse import quote_from_bytes, unquote_to_bytes
+from urllib.parse import quote_from_bytes, unquote_to_bytes, urlparse
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_box_vertex
@@ -19,6 +19,12 @@ from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix
 from ..utils import parse_length
 from .style_support import add_metadata_styles
+
+# Allowed URL schemes for remote image references.
+# Only http and https are permitted to prevent exploitation via file://, javascript:,
+# or other potentially dangerous schemes that could be used for tracking, SSRF-like
+# probing, or code execution when the generated draw.io file is opened by a recipient.
+_ALLOWED_REMOTE_SCHEMES = frozenset(["http", "https"])
 
 
 def _data_uri_from_bytes(mime: str, raw_bytes: bytes) -> str:
@@ -112,6 +118,28 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         return image_ref, mime
 
     if "://" in href:
+        # Parse and validate the URL scheme to prevent exploitation via dangerous schemes
+        try:
+            parsed = urlparse(href)
+            scheme = parsed.scheme.lower() if parsed.scheme else ""
+        except (ValueError, AttributeError):
+            # Malformed URL
+            ctx.report.add_asset(
+                href=href,
+                status="rejected",
+                message="Malformed remote image URL.",
+            )
+            return None, None
+
+        if scheme not in _ALLOWED_REMOTE_SCHEMES:
+            # Reject URLs with disallowed schemes (file://, javascript:, data:, custom schemes, etc.)
+            ctx.report.add_asset(
+                href=href,
+                status="rejected",
+                message=f"Remote image URL scheme '{scheme}' is not allowed. Only {', '.join(sorted(_ALLOWED_REMOTE_SCHEMES))} are permitted.",
+            )
+            return None, None
+
         mime = mimetypes.guess_type(href)[0] or ""
         ctx.report.add_asset(href=href, status="remote", mime_type=mime or None)
         ctx.report.add_issue(

@@ -117,3 +117,96 @@ class ImageTests(SvgTestCase):
             self.assertNotIn("rotation", styles)
             self.assertAlmostEqual(float(geometry.get("width")), 30.0, places=2)
             self.assertAlmostEqual(float(geometry.get("height")), 20.0, places=2)
+
+    def test_remote_image_with_http_scheme_is_linked(self) -> None:
+        """HTTP URLs are allowed and linked (not embedded)."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="http://example.com/image.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertEqual(len(cells), 1)
+            styles = self._style_map(cells[0])
+            self.assertEqual(styles["image"], "http://example.com/image.png")
+            # Verify the asset was marked as remote
+            assets = [a for a in report.assets if a.href == "http://example.com/image.png"]
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0].status, "remote")
+
+    def test_remote_image_with_https_scheme_is_linked(self) -> None:
+        """HTTPS URLs are allowed and linked (not embedded)."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="https://example.com/image.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertEqual(len(cells), 1)
+            styles = self._style_map(cells[0])
+            self.assertEqual(styles["image"], "https://example.com/image.png")
+
+    def test_remote_image_with_file_scheme_is_rejected(self) -> None:
+        """file:// URLs are rejected to prevent local file disclosure."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="file:///etc/passwd" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(self._user_cells(root), [])
+            # Verify the asset was rejected
+            assets = [a for a in report.assets if a.href == "file:///etc/passwd"]
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0].status, "rejected")
+            self.assertIn("not allowed", assets[0].message)
+
+    def test_remote_image_with_javascript_scheme_is_rejected(self) -> None:
+        """javascript: URLs are rejected to prevent code execution."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="javascript:alert(1)" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(self._user_cells(root), [])
+            # Verify the asset was rejected
+            assets = [a for a in report.assets if a.href == "javascript:alert(1)"]
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0].status, "rejected")
+
+    def test_remote_image_with_custom_scheme_is_rejected(self) -> None:
+        """Custom URL schemes are rejected."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="custom://internal.host/resource" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(self._user_cells(root), [])
+            # Verify the asset was rejected
+            assets = [a for a in report.assets if a.href == "custom://internal.host/resource"]
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0].status, "rejected")
+
+    def test_remote_image_with_ftp_scheme_is_rejected(self) -> None:
+        """FTP URLs are rejected."""
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <image href="ftp://ftp.example.com/image.png" x="0" y="0" width="20" height="20" />
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, report = self._convert_in_dir(tmpdir, svg)
+            self.assertEqual(self._user_cells(root), [])
+            # Verify the asset was rejected
+            assets = [a for a in report.assets if a.href == "ftp://ftp.example.com/image.png"]
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0].status, "rejected")
