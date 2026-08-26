@@ -118,26 +118,88 @@ begin
   Result := '';
 end;
 
+function IsAllDigits(const value: string): Boolean;
+var
+  index: Integer;
+begin
+  Result := Length(value) > 0;
+  if not Result then
+    exit;
+
+  for index := 1 to Length(value) do
+  begin
+    if (value[index] < '0') or (value[index] > '9') then
+    begin
+      Result := False;
+      exit;
+    end;
+  end;
+end;
+
+function IsInnoUninstallerFilename(const fileName: string): Boolean;
+var
+  lowerFileName: string;
+  digits: string;
+begin
+  Result := False;
+  lowerFileName := LowerCase(fileName);
+
+  // Require exactly unins + one or more decimal digits + .exe.
+  if Length(lowerFileName) < 10 then
+    exit;
+  if Copy(lowerFileName, 1, 5) <> 'unins' then
+    exit;
+  if Copy(lowerFileName, Length(lowerFileName) - 3, 4) <> '.exe' then
+    exit;
+
+  digits := Copy(lowerFileName, 6, Length(lowerFileName) - 9);
+  Result := IsAllDigits(digits);
+end;
+
+function ExtractUninstallerPath(const uninstallString: string): string;
+var
+  command: string;
+  closingQuote: Integer;
+  firstSpace: Integer;
+begin
+  Result := '';
+  command := Trim(uninstallString);
+  if command = '' then
+    exit;
+
+  // Inno Setup normally stores a quoted executable path. Extract only that
+  // path so optional registry arguments can never be passed through to Exec.
+  if command[1] = '"' then
+  begin
+    Delete(command, 1, 1);
+    closingQuote := Pos('"', command);
+    if closingQuote = 0 then
+      exit;
+    Result := Copy(command, 1, closingQuote - 1);
+    exit;
+  end;
+
+  // Also accept an unquoted executable path when it contains no spaces.
+  firstSpace := Pos(' ', command);
+  if firstSpace = 0 then
+    Result := command
+  else
+    Result := Copy(command, 1, firstSpace - 1);
+end;
+
 function IsValidUninstallerPath(const path: string): Boolean;
 var
   cleanPath: string;
 begin
   Result := False;
   cleanPath := Trim(path);
-  
+
   // Reject empty paths
   if cleanPath = '' then
     exit;
-  
-  // Verify the path ends with unins000.exe or unins001.exe etc. (Inno Setup uninstallers)
-  // This prevents execution of arbitrary executables
-  if (Pos('unins', LowerCase(ExtractFileName(cleanPath))) = 1) and 
-     (LowerCase(ExtractFileExt(cleanPath)) = '.exe') then
-  begin
-    // Verify the file actually exists
-    if FileExists(cleanPath) then
-      Result := True;
-  end;
+
+  // Require a genuine Inno Setup uninstaller name and an existing file.
+  Result := IsInnoUninstallerFilename(ExtractFileName(cleanPath)) and FileExists(cleanPath);
 end;
 
 
@@ -152,17 +214,23 @@ begin
   if uninstallCommand = '' then
     exit;
 
-  uninstallCommand := RemoveQuotes(uninstallCommand);
-  
+  uninstallCommand := ExtractUninstallerPath(uninstallCommand);
+
   // Validate the uninstaller path before executing with elevated privileges
   if not IsValidUninstallerPath(uninstallCommand) then
   begin
     Log('Invalid or untrusted uninstaller path detected: ' + uninstallCommand);
-    // Silently skip uninstallation if path validation fails
-    // This prevents privilege escalation while allowing fresh installations
+    SuppressibleMsgBox(
+      'Setup found an existing installation but could not safely validate its uninstaller.' + #13#10 +
+      'Please uninstall it manually and run this installer again.',
+      mbCriticalError,
+      MB_OK,
+      IDOK
+    );
+    Result := False;
     exit;
   end;
-  
+
   Log('Removing previous version with command: ' + uninstallCommand);
 
   if not Exec(
