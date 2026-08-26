@@ -123,6 +123,36 @@ class ConversionServiceTests(SvgTestCase):
             self.assertTrue(second.reports)
             self.assertTrue(second.reports[0].cached)
 
+    def test_external_fingerprint_in_manifest_forces_reconversion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trusted_dir = path.join(tmpdir, "trusted")
+            outside_dir = path.join(tmpdir, "outside")
+            os.makedirs(trusted_dir)
+            os.makedirs(outside_dir)
+            svg_path = path.join(trusted_dir, "diagram.svg")
+            outside_path = path.join(outside_dir, "secret.txt")
+            with open(svg_path, "w", encoding="utf-8") as handle:
+                handle.write(_SVG_TEMPLATE.format(color="#ff0000"))
+            with open(outside_path, "w", encoding="utf-8") as handle:
+                handle.write("secret")
+
+            first = ConversionService().convert([svg_path], ConversionOptions(overwrite=True, use_cache=True))
+            manifest_path = path.join(trusted_dir, ".svg-to-drawio-cache.json")
+            with open(manifest_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            entry = next(iter(payload["entries"].values()))
+            entry["fingerprints"].append({"path": outside_path, "sha256": "0" * 64})
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+
+            second = ConversionService().convert([svg_path], ConversionOptions(overwrite=True, use_cache=True))
+
+            self.assertEqual(first.converted, 1)
+            self.assertEqual(second.converted, 1)
+            self.assertEqual(second.skipped, 0)
+            self.assertTrue(second.reports)
+            self.assertFalse(second.reports[0].cached)
+
     def test_parallel_conversion_keeps_every_entry_in_the_shared_cache_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             input_dir = path.join(tmpdir, "input")

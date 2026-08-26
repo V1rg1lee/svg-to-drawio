@@ -18,14 +18,26 @@ def _sha256_file(file_path: str) -> str | None:
         return None
     digest = hashlib.sha256()
     try:
-        if ".." in file_path:
-            raise Exception("Invalid file path")
         with open(file_path, "rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 64), b""):
                 digest.update(chunk)
     except OSError:
         return None
     return digest.hexdigest()
+
+
+def _is_trusted_fingerprint_path(candidate_path: str, source_path: str) -> bool:
+    """Return whether a cached fingerprint is confined to the current source tree."""
+    trusted_source = path.realpath(path.abspath(source_path))
+    trusted_root = path.realpath(path.abspath(path.dirname(source_path)))
+    candidate = path.realpath(path.abspath(candidate_path))
+    try:
+        common_root = path.commonpath([trusted_root, candidate])
+    except ValueError:
+        return False
+    return path.normcase(candidate) == path.normcase(trusted_source) or path.normcase(common_root) == path.normcase(
+        trusted_root
+    )
 
 
 @dataclass(frozen=True)
@@ -125,10 +137,19 @@ class ConversionCache:
                     return None
                 expected.append(fingerprint)
 
+            trusted_source = path.normcase(path.realpath(path.abspath(source_path)))
+            source_fingerprint_found = False
             for fingerprint in expected:
+                if not _is_trusted_fingerprint_path(fingerprint.file_path, source_path):
+                    return None
+                fingerprint_path = path.normcase(path.realpath(path.abspath(fingerprint.file_path)))
+                source_fingerprint_found = source_fingerprint_found or fingerprint_path == trusted_source
                 current_hash = _sha256_file(fingerprint.file_path)
                 if current_hash != fingerprint.sha256:
                     return None
+
+            if not source_fingerprint_found:
+                return None
 
             report = ConversionReport.from_dict(report_payload)
             report.cached = True
