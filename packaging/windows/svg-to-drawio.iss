@@ -106,14 +106,40 @@ var
 begin
   uninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppRegistryId}_is1';
 
-  if RegQueryStringValue(HKLM, uninstallKey, 'UninstallString', Result) then
-    exit;
+  // Only check HKLM (machine-wide) registry for security reasons.
+  // Since this installer requires admin privileges (PrivilegesRequired=admin),
+  // we should only trust machine-wide uninstall entries from HKLM.
+  // HKCU is writable by the current user without elevation and could be
+  // manipulated to execute arbitrary code with elevated privileges.
 
-  if RegQueryStringValue(HKCU, uninstallKey, 'UninstallString', Result) then
+  if RegQueryStringValue(HKLM, uninstallKey, 'UninstallString', Result) then
     exit;
 
   Result := '';
 end;
+
+function IsValidUninstallerPath(const path: string): Boolean;
+var
+  cleanPath: string;
+begin
+  Result := False;
+  cleanPath := Trim(path);
+  
+  // Reject empty paths
+  if cleanPath = '' then
+    exit;
+  
+  // Verify the path ends with unins000.exe or unins001.exe etc. (Inno Setup uninstallers)
+  // This prevents execution of arbitrary executables
+  if (Pos('unins', LowerCase(ExtractFileName(cleanPath))) = 1) and 
+     (LowerCase(ExtractFileExt(cleanPath)) = '.exe') then
+  begin
+    // Verify the file actually exists
+    if FileExists(cleanPath) then
+      Result := True;
+  end;
+end;
+
 
 function UninstallPreviousVersion(): Boolean;
 var
@@ -127,6 +153,16 @@ begin
     exit;
 
   uninstallCommand := RemoveQuotes(uninstallCommand);
+  
+  // Validate the uninstaller path before executing with elevated privileges
+  if not IsValidUninstallerPath(uninstallCommand) then
+  begin
+    Log('Invalid or untrusted uninstaller path detected: ' + uninstallCommand);
+    // Silently skip uninstallation if path validation fails
+    // This prevents privilege escalation while allowing fresh installations
+    exit;
+  end;
+  
   Log('Removing previous version with command: ' + uninstallCommand);
 
   if not Exec(
