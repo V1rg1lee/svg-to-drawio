@@ -18,6 +18,8 @@ def _sha256_file(file_path: str) -> str | None:
         return None
     digest = hashlib.sha256()
     try:
+        if ".." in file_path:
+            raise Exception("Invalid file path")
         with open(file_path, "rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 64), b""):
                 digest.update(chunk)
