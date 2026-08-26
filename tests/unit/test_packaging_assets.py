@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ APP_ICON_PNG = REPO_ROOT / "svg_to_drawio_desktop" / "assets" / "app_logo_256x25
 MACOS_DMG_BACKGROUND_PNG = REPO_ROOT / "svg_to_drawio_desktop" / "assets" / "dmg_background.png"
 MACOS_DMG_SCRIPT = REPO_ROOT / "packaging" / "macos" / "build_dmg.sh"
 MACOS_DMG_SMOKE_TEST = REPO_ROOT / "packaging" / "macos" / "smoke_test_artifacts.sh"
+WINDOWS_INSTALLER_SCRIPT = REPO_ROOT / "packaging" / "windows" / "svg-to-drawio.iss"
 
 
 def _read_png_size(path: Path) -> tuple[int, int]:
@@ -29,6 +31,18 @@ def _read_png_size(path: Path) -> tuple[int, int]:
 
         width, height = struct.unpack(">II", handle.read(8))
         return width, height
+
+
+def _extract_inno_function(script: str, function_name: str) -> str:
+    """Return one Pascal Script function body for structural assertions."""
+    match = re.search(
+        rf"^function {re.escape(function_name)}\b.*?(?=^function |\Z)",
+        script,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError(f"Missing Inno Setup function: {function_name}")
+    return match.group(0)
 
 
 class PackagingAssetTests(unittest.TestCase):
@@ -107,6 +121,60 @@ class PackagingAssetTests(unittest.TestCase):
         self.assertIn('[[ "$icon_attributes" != *V* ]]', script)
         self.assertIn('[[ "$icon_creator" != *icnC* ]]', script)
         self.assertIn('[[ "$volume_attributes" != *C* ]]', script)
+
+
+class WindowsInstallerSecurityTests(unittest.TestCase):
+    """Lock down elevated removal of a previous Windows installation."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.script = WINDOWS_INSTALLER_SCRIPT.read_text(encoding="utf-8")
+
+    def test_uninstall_string_is_read_only_from_hklm(self) -> None:
+        lookup = _extract_inno_function(self.script, "GetPreviousUninstallString")
+
+        self.assertIn("RegQueryStringValue(HKLM, uninstallKey, 'UninstallString'", lookup)
+        self.assertNotIn("RegQueryStringValue(HKCU", lookup)
+
+    def test_uninstaller_filename_requires_a_nonempty_numeric_suffix(self) -> None:
+        filename_validation = _extract_inno_function(self.script, "IsInnoUninstallerFilename")
+        digit_validation = _extract_inno_function(self.script, "IsAllDigits")
+
+        self.assertIn("Copy(lowerFileName, 1, 5) <> 'unins'", filename_validation)
+        self.assertIn("<> '.exe'", filename_validation)
+        self.assertIn("digits := Copy", filename_validation)
+        self.assertIn("IsAllDigits(digits)", filename_validation)
+        self.assertIn("Length(value) > 0", digit_validation)
+        self.assertIn("value[index] < '0'", digit_validation)
+        self.assertIn("value[index] > '9'", digit_validation)
+
+    def test_uninstaller_path_must_exist_before_execution(self) -> None:
+        path_validation = _extract_inno_function(self.script, "IsValidUninstallerPath")
+
+        self.assertIn("IsInnoUninstallerFilename(ExtractFileName(cleanPath))", path_validation)
+        self.assertIn("FileExists(cleanPath)", path_validation)
+
+    def test_invalid_uninstaller_fails_closed_with_user_message(self) -> None:
+        uninstall = _extract_inno_function(self.script, "UninstallPreviousVersion")
+        invalid_start = uninstall.index("if not IsValidUninstallerPath")
+        valid_execution = uninstall.index("Log('Removing previous version", invalid_start)
+        invalid_block = uninstall[invalid_start:valid_execution]
+
+        self.assertIn("SuppressibleMsgBox", invalid_block)
+        self.assertIn("Please uninstall it manually", invalid_block)
+        self.assertIn("Result := False", invalid_block)
+        self.assertLess(invalid_block.index("Result := False"), invalid_block.index("exit;"))
+
+    def test_uninstaller_is_parsed_and_validated_before_exec(self) -> None:
+        uninstall = _extract_inno_function(self.script, "UninstallPreviousVersion")
+
+        parse_index = uninstall.index("ExtractUninstallerPath")
+        validation_index = uninstall.index("IsValidUninstallerPath")
+        exec_index = uninstall.index("Exec(")
+        self.assertLess(parse_index, validation_index)
+        self.assertLess(validation_index, exec_index)
+        self.assertNotIn("RemoveQuotes", uninstall)
+        self.assertIn("'/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-'", uninstall)
 
 
 if __name__ == "__main__":
