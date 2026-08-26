@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass, replace
 from xml.etree.ElementTree import Element
 
@@ -334,7 +335,9 @@ def _emit_text_cell(
     style.add("rotation", rotation_style, when=rotation_style is not None)
     add_metadata_styles(style, elem, ctx)
     add_filter_styles(style, ctx, elem, visual["filter"], fallback_color=font_color)
-    ctx.add(make_bounds_vertex(ctx, style.build(), tx, ty, est_width, est_height, value=content))
+    # Escape HTML to prevent injection when html=1 is set in the style
+    escaped_content = html.escape(content)
+    ctx.add(make_bounds_vertex(ctx, style.build(), tx, ty, est_width, est_height, value=escaped_content))
 
 
 def _emit_positioned_glyphs(
