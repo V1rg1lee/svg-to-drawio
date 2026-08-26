@@ -736,14 +736,15 @@ class MainWindow(QMainWindow):
         cp = self.convert_page
         command = self._build_equivalent_cli_command()
         QGuiApplication.clipboard().setText(command)
-        self._append_log("Copied the equivalent CLI command to the clipboard.", "info")
+        shell_label = "PowerShell" if os.name == "nt" else "CLI"
+        self._append_log(f"Copied the equivalent {shell_label} command to the clipboard.", "info")
         message = command
         if cp.watch_checkbox.isChecked() and cp.workers_spinbox.value() > 1:
             message += (
                 "\n\nNote: watch mode does not use parallel workers, "
                 "so the copied command intentionally omits --workers."
             )
-        self._show_plain_text_dialog(QMessageBox.Icon.Information, "CLI command copied", message)
+        self._show_plain_text_dialog(QMessageBox.Icon.Information, f"{shell_label} command copied", message)
 
     # ----------------------------------------------------------- workflow
 

