@@ -100,6 +100,24 @@ class LinkPropagationTests(SvgTestCase):
             for cell in cells:
                 self.assertIn("link=https://example.com;", cell.get("style", ""))
 
+    def test_unsafe_link_is_not_propagated_to_descendant_shapes(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+          <a href="javascript:alert(1)">
+            <rect x="0" y="0" width="10" height="10"/>
+            <circle cx="50" cy="50" r="5"/>
+          </a>
+        </svg>
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root, _ = self._convert_in_dir(tmpdir, svg)
+            cells = self._user_cells(root)
+            self.assertEqual(len(cells), 2)
+            for cell in cells:
+                style = cell.get("style", "")
+                self.assertNotIn("link=", style)
+                self.assertNotIn("javascript", style.lower())
+
 
 class AnalyzeOnlyTests(SvgTestCase):
     """Validate that analysis-only runs do not write output but still populate a report."""
