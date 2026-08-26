@@ -20,7 +20,8 @@ def format_gpg_path(gpg_executable: str, path: Path) -> str:
     if os.name == "nt" and is_git_for_windows_gpg(gpg_executable):
         drive, tail = os.path.splitdrive(str(resolved))
         drive_letter = drive.rstrip(":").lower()
-        return f"/{drive_letter}{tail.replace('\\', '/')}"
+        normalized_tail = tail.replace("\\", "/")
+        return f"/{drive_letter}{normalized_tail}"
     return str(resolved)
 
 
@@ -200,7 +201,11 @@ def main() -> int:
                 "Use --force to replace it."
             )
         shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    # Set restrictive permissions on output directory to prevent unauthorized access
+    if os.name != "nt":
+        output_dir.chmod(0o700)
 
     gpg_executable = detect_gpg_executable()
     gnupg_home = output_dir / "gnupg-home"
@@ -247,6 +252,7 @@ def main() -> int:
         # Write private key with restrictive permissions (0600)
         write_text(output_dir / "private-key.asc", private_key, secure=True)
         write_text(output_dir / "fingerprint.txt", fingerprint + "\n")
+        # Write github-secrets.txt with restrictive permissions since it may contain passphrase
         write_text(
             output_dir / "github-secrets.txt",
             "\n".join(
@@ -273,6 +279,7 @@ def main() -> int:
                 ]
             )
             + "\n",
+            secure=True,
         )
 
     finally:
