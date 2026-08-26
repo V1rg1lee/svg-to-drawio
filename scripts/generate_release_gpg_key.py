@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import shutil
 import stat
@@ -55,7 +56,20 @@ def run_gpg(
     args: list[str],
     *,
     input_text: str | None = None,
+    passphrase: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a GPG command with an optional passphrase via a temporary file.
+
+    Args:
+        gpg_executable: Path to GPG executable
+        homedir: GPG home directory
+        args: Additional GPG arguments
+        input_text: Optional text to pass to stdin
+        passphrase: Optional passphrase securely passed through a temporary file
+
+    Returns:
+        CompletedProcess result
+    """
     command = [
         gpg_executable,
         "--batch",
@@ -63,24 +77,59 @@ def run_gpg(
         format_gpg_path(gpg_executable, homedir),
         *args,
     ]
+
+    # If passphrase is provided, use a temporary file to pass it securely
+    # This avoids exposing the passphrase in process arguments
+    passphrase_file = None
     try:
-        return subprocess.run(
+        if passphrase is not None:
+            # Create a temporary file to hold the passphrase
+            # Use delete=False so we can control when it's deleted
+            passphrase_file = tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", delete=False
+            )
+            passphrase_file.write(passphrase)
+            passphrase_file.close()
+
+            # Use --passphrase-file to read from the temporary file
+            # This is more secure than --passphrase as it doesn't expose the value in argv
+            command.insert(4, "--passphrase-file")
+            command.insert(5, passphrase_file.name)
+
+        result = subprocess.run(
             command,
             input=input_text,
             text=True,
             capture_output=True,
             check=True,
         )
+        return result
     except subprocess.CalledProcessError as exc:
+        # Redact passphrase-file path from error messages for security
+        safe_command = [
+            (
+                arg
+                if not (i > 0 and command[i - 1] == "--passphrase-file")
+                else "[REDACTED]"
+            )
+            for i, arg in enumerate(command)
+        ]
         message_lines = [
             "gpg command failed:",
-            " ".join(command),
+            " ".join(safe_command),
         ]
         if exc.stdout:
             message_lines.extend(["", "stdout:", exc.stdout.strip()])
         if exc.stderr:
             message_lines.extend(["", "stderr:", exc.stderr.strip()])
         raise SystemExit("\n".join(message_lines)) from exc
+    finally:
+        # Clean up the temporary passphrase file
+        if passphrase_file is not None:
+            try:
+                os.unlink(passphrase_file.name)
+            except OSError:
+                pass
 
 
 def parse_fingerprint(gpg_output: str) -> str:
@@ -125,6 +174,62 @@ def write_text(path: Path, content: str, *, secure: bool = False) -> None:
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
+def prompt_for_passphrase() -> str | None:
+    """Securely prompt for a passphrase without exposing it in process arguments.
+
+    Returns:
+        The passphrase string, or None if user chooses no passphrase
+    """
+    print()
+    print("=" * 70)
+    print("PASSPHRASE CONFIGURATION")
+    print("=" * 70)
+    print()
+    print("You can protect the private key with a passphrase.")
+    print()
+    print("SECURITY CONSIDERATIONS:")
+    print("  • WITH passphrase: Key is encrypted and requires the passphrase to use")
+    print("  • WITHOUT passphrase: Key is unencrypted and can be used by anyone")
+    print()
+    print("For CI/CD automation, you'll need to store the passphrase as a secret.")
+    print("For local use, a passphrase provides additional security.")
+    print()
+
+    while True:
+        use_passphrase = (
+            input("Do you want to set a passphrase? (y/n): ").strip().lower()
+        )
+        if use_passphrase in ("y", "yes"):
+            break
+        elif use_passphrase in ("n", "no"):
+            print()
+            print("WARNING: Generating an UNPROTECTED private key without passphrase.")
+            print("WARNING: Anyone who obtains the private key file can use it.")
+            print()
+            confirm = (
+                input("Are you sure you want no passphrase? (y/n): ").strip().lower()
+            )
+            if confirm in ("y", "yes"):
+                return None
+        else:
+            print("Please answer 'y' or 'n'.")
+
+    print()
+    while True:
+        passphrase = getpass.getpass("Enter passphrase: ")
+        if not passphrase:
+            print("Passphrase cannot be empty. Please try again.")
+            continue
+
+        passphrase_confirm = getpass.getpass("Confirm passphrase: ")
+        if passphrase == passphrase_confirm:
+            print("Passphrase set successfully.")
+            return passphrase
+        else:
+            print("Passphrases do not match. Please try again.")
+            print()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate a dedicated GPG release signing key for GitHub CI."
@@ -145,14 +250,13 @@ def main() -> int:
         help="Directory where generated key material will be written.",
     )
     parser.add_argument(
-        "--passphrase",
-        default=None,
+        "--no-passphrase",
+        action="store_true",
         help=(
-            "Passphrase to protect the private key. SECURITY WARNING: Omitting this "
-            "creates an unprotected key that can be used by anyone who obtains the "
-            "exported file. Unprotected keys are only appropriate for fully automated "
-            "CI environments where the key is stored in encrypted secrets and never "
-            "written to disk in plaintext outside the CI runner."
+            "Generate an unprotected key without prompting for a passphrase. "
+            "SECURITY WARNING: This creates an unprotected key that can be used by "
+            "anyone who obtains the exported file. Only appropriate for fully automated "
+            "CI environments where the key is stored in encrypted secrets."
         ),
     )
     parser.add_argument(
@@ -172,8 +276,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Security warning for unprotected keys
-    if not args.passphrase:
+    # Securely prompt for passphrase (not via command-line arguments)
+    if args.no_passphrase:
+        passphrase = None
         print(
             "WARNING: Generating an UNPROTECTED private key without passphrase protection.",
             file=sys.stderr,
@@ -191,6 +296,8 @@ def main() -> int:
             file=sys.stderr,
         )
         print(file=sys.stderr)
+    else:
+        passphrase = prompt_for_passphrase()
 
     repo_root = Path(__file__).resolve().parents[1]
     output_dir = (repo_root / args.output_dir).resolve()
@@ -215,13 +322,15 @@ def main() -> int:
         gnupg_home.chmod(0o700)
 
     batch_config = build_batch_config(
-        args.name, args.email, args.passphrase, args.expiry_years
+        args.name, args.email, passphrase, args.expiry_years
     )
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", delete=False, suffix=".batch"
     ) as handle:
         handle.write(batch_config)
         batch_file = Path(handle.name)
+    if os.name != "nt":
+        batch_file.chmod(0o600)
 
     try:
         generate_args = [
@@ -243,16 +352,17 @@ def main() -> int:
         public_key = run_gpg(gpg_executable, gnupg_home, export_args).stdout
 
         secret_export_args = ["--pinentry-mode", "loopback", "--armor"]
-        if args.passphrase:
-            secret_export_args.extend(["--passphrase", args.passphrase])
         secret_export_args.extend(["--export-secret-keys", fingerprint])
-        private_key = run_gpg(gpg_executable, gnupg_home, secret_export_args).stdout
+        private_key = run_gpg(
+            gpg_executable, gnupg_home, secret_export_args, passphrase=passphrase
+        ).stdout
 
         write_text(output_dir / "public-key.asc", public_key)
         # Write private key with restrictive permissions (0600)
         write_text(output_dir / "private-key.asc", private_key, secure=True)
         write_text(output_dir / "fingerprint.txt", fingerprint + "\n")
-        # Write github-secrets.txt with restrictive permissions since it may contain passphrase
+        # Write github-secrets.txt with restrictive permissions
+        # Note: We don't include the actual passphrase value for security
         write_text(
             output_dir / "github-secrets.txt",
             "\n".join(
@@ -263,13 +373,17 @@ def main() -> int:
                     "  Value: contents of private-key.asc",
                     "",
                     "RELEASE_GPG_PASSPHRASE",
-                    "  Value: only set this if you generated the key with --passphrase",
+                    (
+                        "  Value: the passphrase you entered during key generation"
+                        if passphrase
+                        else "  (no passphrase secret needed for this key)"
+                    ),
                     "",
                     "Suggested gh CLI commands:",
                     f'  gh secret set RELEASE_GPG_PRIVATE_KEY < "{output_dir / "private-key.asc"}"',
                     (
-                        f'  gh secret set RELEASE_GPG_PASSPHRASE --body "{args.passphrase}"'
-                        if args.passphrase
+                        "  gh secret set RELEASE_GPG_PASSPHRASE  # You will be prompted to enter it"
+                        if passphrase
                         else "  (no passphrase secret needed for this key)"
                     ),
                     "",
@@ -287,7 +401,7 @@ def main() -> int:
 
     appimage_note = (
         "enabled"
-        if not args.passphrase
+        if not passphrase
         else "disabled in CI for embedded AppImage signatures (detached .asc files still work)"
     )
 
@@ -296,14 +410,14 @@ def main() -> int:
     print(f"Fingerprint: {fingerprint}")
     print(f"Key expiry: {args.expiry_years} years")
     print(
-        f"Passphrase protection: {'enabled' if args.passphrase else 'DISABLED (unprotected key)'}"
+        f"Passphrase protection: {'enabled' if passphrase else 'DISABLED (unprotected key)'}"
     )
     print(f"Embedded AppImage signing in CI: {appimage_note}")
     print(f"Private key export: {output_dir / 'private-key.asc'} (permissions: 0600)")
     print(f"Public key export: {output_dir / 'public-key.asc'}")
     print(f"GitHub secret helper: {output_dir / 'github-secrets.txt'}")
 
-    if not args.passphrase:
+    if not passphrase:
         print()
         print(
             "SECURITY REMINDER: The private key has NO passphrase protection.",
