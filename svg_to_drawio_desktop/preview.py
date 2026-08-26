@@ -244,13 +244,13 @@ def _strip_style_elements(root: ET.Element) -> bool:
 
 def _prepare_preview_svg(
     svg_path: str, text_metrics_policy: str = "auto"
-) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
+) -> tuple[str | None, tempfile.TemporaryDirectory[str] | None]:
     """Normalize local image references so Qt can render the preview more faithfully."""
     svg_file = Path(svg_path).resolve()
     try:
         root = DefusedET.parse(svg_file).getroot()
     except (ET.ParseError, DefusedXmlException):
-        return str(svg_file), None
+        return None, None
 
     changed = False
     for elem in root.iter():
@@ -356,7 +356,7 @@ class SvgPreviewWidget(QWidget):
 
         renderer = QSvgRenderer(self)
         preview_path, temp_dir = _prepare_preview_svg(str(svg_file), text_metrics_policy)
-        if not renderer.load(preview_path):
+        if not preview_path or not renderer.load(preview_path):
             if temp_dir is not None:
                 temp_dir.cleanup()
             self._renderer = None

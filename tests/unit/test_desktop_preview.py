@@ -109,7 +109,7 @@ class DesktopPreviewTests(SvgTestCase):
 
             preview_path, temp_dir = _prepare_preview_svg(str(svg_path))
 
-        self.assertEqual(preview_path, str(svg_path.resolve()))
+        self.assertIsNone(preview_path)
         self.assertIsNone(temp_dir)
 
     def test_prepare_preview_svg_handles_forbidden_xml_construct(self) -> None:
@@ -123,7 +123,7 @@ class DesktopPreviewTests(SvgTestCase):
 
             preview_path, temp_dir = _prepare_preview_svg(str(svg_path))
 
-        self.assertEqual(preview_path, str(svg_path.resolve()))
+        self.assertIsNone(preview_path)
         self.assertIsNone(temp_dir)
 
 
