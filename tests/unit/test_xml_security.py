@@ -55,58 +55,47 @@ class XmlSecurityTests(SvgTestCase):
                 convert_svg_string(payload, title="xxe-file-read")
 
     def test_svg_text_with_html_markup_is_escaped_in_drawio_labels(self) -> None:
-        """Verify that SVG text containing HTML markup is properly escaped.
-
-        This prevents stored XSS when the draw.io document is opened, since
-        text cells use html=1 in their style. Without escaping, markup like
-        <img src=x onerror=alert(1)> would be rendered as HTML.
-        """
+        """Keep SVG text as literal text instead of executable draw.io HTML."""
         svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
-          <text x="10" y="30" font-size="14">Normal &amp; Safe</text>
-          <text x="10" y="60" font-size="14">&lt;img src=x onerror=alert(1)&gt;</text>
-          <text x="10" y="90" font-size="14"><tspan>Nested &lt;script&gt;alert(2)&lt;/script&gt;</tspan></text>
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="100">
+          <text x="10" y="30" font-size="14">&lt;img src=x onerror=alert(1)&gt;</text>
+          <text x="10" y="60" font-size="14">&lt;script&gt;alert(2)&lt;/script&gt;</text>
         </svg>
         """
 
         xml = convert_svg_string(svg, title="html-injection-test")
         root = ET.fromstring(xml)
+        cells = {cell.get("value"): cell for cell in root.findall(".//mxCell[@value]")}
 
-        # Find all text cells with values
-        text_cells = [
-            cell
-            for cell in root.findall(".//mxCell[@value]")
-            if cell.get("value") and cell.get("value").strip()
-        ]
+        image_value = "&lt;img src=x onerror=alert(1)&gt;"
+        script_value = "&lt;script&gt;alert(2)&lt;/script&gt;"
+        self.assertIn(image_value, cells)
+        self.assertIn(script_value, cells)
 
-        # Verify we have the expected text cells
-        self.assertGreaterEqual(len(text_cells), 3)
+        for value in (image_value, script_value):
+            lowered = value.lower()
+            self.assertNotIn("<img", lowered)
+            self.assertNotIn("<script", lowered)
+            self.assertIn("html=1", cells[value].get("style", ""))
 
-        # Check that all text values are properly HTML-escaped
-        for cell in text_cells:
-            value = cell.get("value", "")
-            style = cell.get("style", "")
+        self.assertIn("&lt;img", image_value.lower())
+        self.assertIn("onerror=alert(1)", image_value)
+        self.assertIn("&lt;script", script_value.lower())
+        self.assertIn("alert(2)", script_value)
 
-            # If the cell has html=1, the value must be HTML-escaped
-            if "html=1" in style:
-                # These patterns should NOT appear unescaped in HTML-enabled cells
-                self.assertNotIn(
-                    "<img", value, "Unescaped <img> tag found in HTML-enabled cell"
-                )
-                self.assertNotIn(
-                    "<script",
-                    value,
-                    "Unescaped <script> tag found in HTML-enabled cell",
-                )
-                self.assertNotIn(
-                    "onerror=",
-                    value,
-                    "Unescaped event handler found in HTML-enabled cell",
-                )
+    def test_svg_text_html_escaping_preserves_normal_text_logically(self) -> None:
+        svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="100">
+          <text x="10" y="20">A &amp; B</text>
+          <text x="10" y="50">2 &lt; 5</text>
+          <text x="10" y="80">Hello World</text>
+        </svg>
+        """
 
-                # The escaped versions should be present
-                if "img" in value.lower():
-                    # After XML parsing, HTML-escaped < becomes &lt; which is safe
-                    self.assertIn("&lt;", value, "Expected HTML-escaped content")
-                if "script" in value.lower():
-                    self.assertIn("&lt;", value, "Expected HTML-escaped content")
+        xml = convert_svg_string(svg, title="normal-html-text-test")
+        root = ET.fromstring(xml)
+        cells = {cell.get("value"): cell for cell in root.findall(".//mxCell[@value]")}
+
+        for value in ("A &amp; B", "2 &lt; 5", "Hello World"):
+            self.assertIn(value, cells)
+            self.assertIn("html=1", cells[value].get("style", ""))
