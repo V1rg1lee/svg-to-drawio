@@ -6,15 +6,20 @@ rules can be unit tested without constructing a QApplication or any widget.
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 
 from svg_to_drawio.rendering_options import RenderingOptions
 
 
 def quote_cli_arg(value: str) -> str:
-    """Quote one CLI argument conservatively for copy-paste use."""
-    escaped = value.replace('"', '\\"')
-    return f'"{escaped}"'
+    """Quote one CLI argument conservatively for copy-paste use.
+    
+    Uses shlex.quote() to properly escape shell metacharacters including
+    command substitutions ($(), backticks), variable expansions ($var),
+    and other special characters that could be exploited in copy-paste scenarios.
+    """
+    return shlex.quote(value)
 
 
 @dataclass(frozen=True)
