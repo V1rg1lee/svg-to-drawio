@@ -30,7 +30,7 @@ class GenerateReleaseGpgKeyTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "release-gpg"
-            argv = ["generate_release_gpg_key.py", "--output-dir", str(output_dir)]
+            argv = ["generate_release_gpg_key.py", "--output-dir", str(output_dir), "--no-passphrase"]
             with (
                 patch("sys.argv", argv),
                 patch.object(generate_release_gpg_key, "detect_gpg_executable", return_value="mock-gpg"),

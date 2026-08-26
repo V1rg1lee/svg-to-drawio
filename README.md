@@ -850,6 +850,12 @@ To generate a dedicated GPG release key locally for this repository:
 python scripts/generate_release_gpg_key.py
 ```
 
+The script will securely prompt you for a passphrase (without exposing it in shell history or process arguments). For automated CI environments where you need an unprotected key:
+
+```bash
+python scripts/generate_release_gpg_key.py --no-passphrase
+```
+
 This writes ignored key material into `.signing/release-gpg/`:
 
 - `private-key.asc`: paste into the GitHub secret `RELEASE_GPG_PRIVATE_KEY`
@@ -857,13 +863,7 @@ This writes ignored key material into `.signing/release-gpg/`:
 - `fingerprint.txt`: handy for release notes or verification docs
 - `github-secrets.txt`: ready-to-follow setup notes
 
-If you want a passphrase-protected key instead:
-
-```bash
-python scripts/generate_release_gpg_key.py --passphrase "your-passphrase-here"
-```
-
-That still enables detached GPG signatures in CI. The desktop release workflow also attempts embedded AppImage signing in CI for passphrase-protected keys by configuring the runner's normal GPG home and priming `gpg-agent` before `appimagetool` runs.
+If you generated a passphrase-protected key, you'll also need to set the `RELEASE_GPG_PASSPHRASE` repository secret. The desktop release workflow attempts embedded AppImage signing in CI for passphrase-protected keys by configuring the runner's normal GPG home and priming `gpg-agent` before `appimagetool` runs.
 
 </details>
 
