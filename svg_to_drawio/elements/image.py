@@ -5,8 +5,9 @@ from __future__ import annotations
 import base64
 import binascii
 import mimetypes
+import re
 from os import path
-from urllib.parse import quote_from_bytes, unquote_to_bytes
+from urllib.parse import quote, quote_from_bytes, unquote_to_bytes, urlparse
 from xml.etree.ElementTree import Element
 
 from ..cell_factory import make_box_vertex
@@ -19,6 +20,10 @@ from ..styles import get_visual, opacity_pct
 from ..transforms import Matrix
 from ..utils import parse_length
 from .style_support import add_metadata_styles
+
+_ALLOWED_REMOTE_SCHEMES = frozenset({"http", "https"})
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_WINDOWS_DRIVE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _data_uri_from_bytes(mime: str, raw_bytes: bytes) -> str:
@@ -40,7 +45,9 @@ def _normalize_data_uri(href: str) -> tuple[str | None, str | None]:
         return None, None
 
     media = header[5:] or "text/plain"
-    media_type = media.split(";", 1)[0] or "text/plain"
+    media_type = (media.split(";", 1)[0] or "text/plain").lower()
+    if not media_type.startswith("image/"):
+        return None, media_type
 
     if ";base64" in media.lower():
         try:
@@ -100,19 +107,46 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         return None, None
 
     href = href.strip()
-    if not href:
+    if not href or _CONTROL_CHAR_RE.search(href):
+        if href:
+            ctx.report.add_asset(href=href, status="rejected", message="Image href contains control characters.")
         return None, None
 
-    if href.startswith("data:"):
+    if href.lower().startswith("data:"):
         image_ref, mime = _normalize_data_uri(href)
         if image_ref:
             ctx.report.add_asset(href=href, status="embedded", mime_type=mime)
+        elif mime and not mime.startswith("image/"):
+            ctx.report.add_asset(
+                href=href,
+                status="rejected",
+                mime_type=mime,
+                message="Image data URI must use an image/* media type.",
+            )
         else:
             ctx.report.add_asset(href=href, status="invalid", message="Invalid image data URI.")
         return image_ref, mime
 
-    if "://" in href:
-        mime = mimetypes.guess_type(href)[0] or ""
+    parsed = None
+    if not _WINDOWS_DRIVE_PATH_RE.match(href):
+        try:
+            parsed = urlparse(href)
+        except ValueError:
+            ctx.report.add_asset(href=href, status="rejected", message="Malformed remote image URL.")
+            return None, None
+
+    if parsed is not None and parsed.scheme:
+        scheme = parsed.scheme.lower()
+        if scheme not in _ALLOWED_REMOTE_SCHEMES:
+            ctx.report.add_asset(
+                href=href,
+                status="rejected",
+                message=f"Remote image URL scheme '{scheme}' is not allowed.",
+            )
+            return None, None
+
+        safe_href = quote(href, safe="/:#?&=%+,-._~[]@!$'()*")
+        mime = mimetypes.guess_type(parsed.path)[0] or ""
         ctx.report.add_asset(href=href, status="remote", mime_type=mime or None)
         ctx.report.add_issue(
             IMAGE_REMOTE_LINKED,
@@ -120,7 +154,7 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
             "Remote image URLs stay linked instead of being embedded into the draw.io document.",
             element_tag="image",
         )
-        return href, mime
+        return safe_href, mime
 
     # Local file reference: reject if no trusted base directory is configured
     if not ctx.source_dir:
