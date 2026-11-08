@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [3.10.2] - 2026-11-08
+
+### Security
+
+- Restrict remote SVG image references to HTTP(S) and harden local image path validation to reduce unintended file access.
+- Validate SVG hyperlink schemes and escape text inserted into HTML-enabled draw.io labels.
+- Strengthen XML parsing and cached dependency path validation.
+- Improve shell argument quoting when the desktop app generates equivalent CLI commands.
+- Harden release workflows with least-privilege permissions, release-only publishing, and safer GPG key and credential handling.
+- Improve Windows installer path validation and verify downloaded AppImage packaging tools using pinned checksums.
+
+### Fixed
+
+- Address regressions introduced by earlier security fixes.
+- Expand regression coverage for images, XML, links, caching, desktop command generation, and packaging.
+
+### Changed
+
+- Update Python dependencies, development tools, and GitHub Actions.
+
+## [3.10.1] - 2026-08-02
+
+### Changed
+
+- Updated Python dependencies, development tooling, and GitHub Actions.
+
 ## [3.10.0] - 2026-06-21
 
 ### Added
@@ -211,7 +237,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release: SVG to draw.io conversion engine.
 
-[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.1...HEAD
+[Unreleased]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.10.2...HEAD
 [3.8.1]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.0...v3.8.1
 [3.8.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.6.0...v3.7.0
@@ -228,3 +254,8 @@ All notable changes to this project are documented here. The format follows [Kee
 [2.1.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/V1rg1lee/svg-to-drawio/releases/tag/v1.0.0
+[3.10.2]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.10.1...v3.10.2
+[3.10.1]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.10.0...v3.10.1
+[3.10.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.9.1...v3.10.0
+[3.9.1]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.9.0...v3.9.1
+[3.9.0]: https://github.com/V1rg1lee/svg-to-drawio/compare/v3.8.1...v3.9.0
