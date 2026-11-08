@@ -157,6 +157,17 @@ def _resolve_image_href(ctx: EmitterContext, href: str | None) -> tuple[str | No
         return safe_href, mime
 
     # Local file reference: reject if no trusted base directory is configured
+
+    # Reject Windows absolute paths on non-Windows platforms.
+    # They must not be interpreted as relative local paths.
+    if _WINDOWS_DRIVE_PATH_RE.match(href) and path.sep != "\\":
+        ctx.report.add_asset(
+            href=href,
+            status="rejected",
+            message="Windows absolute image paths are not supported on this platform.",
+        )
+        return None, None
+
     if not ctx.source_dir:
         ctx.report.add_asset(
             href=href,
