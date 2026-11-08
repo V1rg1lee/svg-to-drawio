@@ -260,5 +260,5 @@ class ImageTests(SvgTestCase):
                 report = ConversionReport()
                 ctx = SimpleNamespace(source_dir=tmpdir, report=report)
                 self.assertEqual(_resolve_image_href(ctx, href), (None, None))  # type: ignore[arg-type]
-                self.assertEqual(report.assets[0].status, "missing")
+                self.assertEqual(report.assets[0].status, "rejected")
                 self.assertNotIn("scheme", report.assets[0].message or "")
