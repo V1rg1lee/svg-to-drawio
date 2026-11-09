@@ -49,7 +49,7 @@ dev = [
   "hatchling>=1.27",
   "mypy==2.4.1",
   "pre-commit>=4.0",
-  "ruff==0.17.3",
+  "ruff==0.17.4",
   "twine>=6.1",
 ]
 docs = [
